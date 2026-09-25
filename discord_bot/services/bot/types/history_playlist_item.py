@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from discord_bot.core.types.media_download import MediaDownload
+from discord_core.types.media_download import MediaDownload
 
 @dataclass
 class HistoryPlaylistItem:

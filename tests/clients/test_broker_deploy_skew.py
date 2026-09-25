@@ -21,11 +21,12 @@ from aiohttp import web
 from aiohttp.client_exceptions import ClientResponseError
 from aiohttp.test_utils import TestClient, TestServer
 
+from discord_core.types.search_resolution import SearchResolution
+from discord_core.utils.common import return_loop_runner
+from discord_core.utils.loop_health import LoopHealth
+
 from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
 from discord_bot.services.broker.servers.broker_server import BrokerHttpServer
-from discord_bot.core.types.search_resolution import SearchResolution
-from discord_bot.core.utils.common import return_loop_runner
-from discord_bot.core.utils.loop_health import LoopHealth
 from discord_bot.services.broker.workers.asyncio_queues import AsyncioSearchResultQueue
 
 from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
@@ -216,7 +217,7 @@ class TestSearchResultLoopSurvivesSkew:
             runner = return_loop_runner(consume, fake_bot, logging, health=health)
             with pytest.MonkeyPatch.context() as patcher:
                 # Collapse the retry backoff so the outage plays out immediately.
-                patcher.setattr('discord_bot.core.utils.common.sleep', lambda _seconds: asyncio.sleep(0))
+                patcher.setattr('discord_core.utils.common.sleep', lambda _seconds: asyncio.sleep(0))
                 task = asyncio.get_event_loop().create_task(runner())
                 # Checked while the outage is still in progress: the loop is
                 # alive (so it can recover) but reporting unhealthy.

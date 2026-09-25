@@ -21,8 +21,18 @@ from pathlib import Path
 import pytest
 
 from tests.cli._image_deps import CLOSURE_DOC, REPO_ROOT
+from tests.cli._affected_images import module_for
+from tests.cli._roots import CORE_DIR, dirs_for, package_dirs, source_files
 
-SHARED_ENUM = REPO_ROOT / 'discord_bot' / 'core' / 'utils' / 'otel.py'
+#: Located rather than spelled out. This file has now been broken TWICE by a
+#: move, both times because it names paths with slashes: #972 caught the two
+#: tier metric modules, and criterion 8 step 2 caught this one. A dotted rewrite
+#: never touches a slash-joined path, so every such literal survives a mover
+#: intact and wrong.
+_CORE_DIRS = dirs_for(REPO_ROOT, CORE_DIR)
+assert len(_CORE_DIRS) == 1, f'expected exactly one core directory, found {_CORE_DIRS}'
+SHARED_ENUM = _CORE_DIRS[0] / 'utils' / 'otel.py'
+assert SHARED_ENUM.is_file(), f'the shared enum is not at {SHARED_ENUM}'
 
 
 def _members(path: Path, class_name: str) -> list:
@@ -34,21 +44,15 @@ def _members(path: Path, class_name: str) -> list:
     return []
 
 
-def _module_for(path: str) -> str | None:
-    if not path.startswith('discord_bot/') or not path.endswith('.py'):
-        return None
-    module = path[: -len('.py')].replace('/', '.')
-    return module[: -len('.__init__')] if module.endswith('.__init__') else module
-
-
 def _images_emitting(class_name: str, member: str, claims: dict) -> set:
     '''Images whose closure contains a module referencing `class_name.member`.'''
     found = subprocess.run(  # nosec B603 B607 - fixed argv
-        ['grep', '-rl', f'{class_name}\\.{member}\\b', '--include=*.py', 'discord_bot/'],
+        ['grep', '-rl', f'{class_name}\\.{member}\\b', '--include=*.py',
+         *(f'{d.name}/' for d in package_dirs(REPO_ROOT))],
         cwd=REPO_ROOT, capture_output=True, text=True, check=False).stdout.split()
     images = set()
     for path in found:
-        module = _module_for(path)
+        module = module_for(path)
         if module is None:
             continue
         images |= {image for image, modules in claims.items() if module in modules}
@@ -228,7 +232,7 @@ def test_every_instrument_is_named_from_an_enum():
     '''
     offenders, deferred = {}, set()
     trees = {path: ast.parse(path.read_text(encoding='utf-8'))
-             for path in sorted((REPO_ROOT / 'discord_bot').rglob('*.py'))}
+             for path in source_files(REPO_ROOT)}
 
     for path, tree in trees.items():
         for call, params in _calls(tree):

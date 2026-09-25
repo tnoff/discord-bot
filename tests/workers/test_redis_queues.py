@@ -2,9 +2,10 @@
 import pytest
 import fakeredis.aioredis
 
-from discord_bot.core.clients.redis_client import RedisManager
-from discord_bot.core.types.download import DownloadResult, DownloadStatus
-from discord_bot.core.types.search_resolution import SearchResolution
+from discord_core.clients.redis_client import RedisManager
+from discord_core.types.download import DownloadResult, DownloadStatus
+from discord_core.types.search_resolution import SearchResolution
+
 from discord_bot.seams.dispatch.workers.redis_queues import (
     load_bundle,
     save_bundle,

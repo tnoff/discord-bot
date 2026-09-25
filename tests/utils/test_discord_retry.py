@@ -49,7 +49,7 @@ async def test_discord_retry_rate_limited_retries():
     """RateLimited sleeps retry_after then retries; success returns the result."""
     rate_limited = RateLimited(0.01)
     func = AsyncMock(side_effect=[rate_limited, 'sent'])
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock) as mock_sleep:
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock) as mock_sleep:
         result = await async_retry_discord_message_command(func, max_retries=2)
     assert result == 'sent'
     mock_sleep.assert_awaited_once_with(0.01)
@@ -59,7 +59,7 @@ async def test_discord_retry_rate_limited_retries():
 async def test_discord_retry_rate_limited_exhausted_raises():
     """RateLimited that persists past max_retries is re-raised."""
     func = AsyncMock(side_effect=RateLimited(0.01))
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock):
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock):
         with pytest.raises(RateLimited):
             await async_retry_discord_message_command(func, max_retries=1)
     assert func.await_count == 2
@@ -70,7 +70,7 @@ async def test_discord_retry_server_error_retries():
     """DiscordServerError triggers exponential-backoff retry."""
     server_err = DiscordServerError(FakeResponse(), 'server error')
     func = AsyncMock(side_effect=[server_err, 'recovered'])
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock) as mock_sleep:
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock) as mock_sleep:
         result = await async_retry_discord_message_command(func, max_retries=2)
     assert result == 'recovered'
     mock_sleep.assert_awaited_once_with(1)  # 2**0
@@ -80,7 +80,7 @@ async def test_discord_retry_server_error_retries():
 async def test_discord_retry_server_disconnected_retries():
     """ServerDisconnectedError triggers exponential-backoff retry."""
     func = AsyncMock(side_effect=[ServerDisconnectedError(), 'ok'])
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock):
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock):
         result = await async_retry_discord_message_command(func, max_retries=2)
     assert result == 'ok'
 
@@ -90,7 +90,7 @@ async def test_discord_retry_server_error_exhausted_raises():
     """DiscordServerError that persists past max_retries is re-raised (lines 74-76)."""
     server_err = DiscordServerError(FakeResponse(), 'server error')
     func = AsyncMock(side_effect=server_err)
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock):
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock):
         with pytest.raises(DiscordServerError):
             await async_retry_discord_message_command(func, max_retries=1)
     assert func.await_count == 2
@@ -100,7 +100,7 @@ async def test_discord_retry_server_error_exhausted_raises():
 async def test_discord_retry_timeout_error_retries():
     """TimeoutError triggers exponential-backoff retry."""
     func = AsyncMock(side_effect=[TimeoutError(), 'ok'])
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock):
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock):
         result = await async_retry_discord_message_command(func, max_retries=2)
     assert result == 'ok'
 
@@ -112,7 +112,7 @@ async def test_discord_retry_http_429_retries():
     resp_429.status = 429
     http_err = HTTPException(resp_429, 'rate limited')
     func = AsyncMock(side_effect=[http_err, 'ok'])
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock):
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock):
         result = await async_retry_discord_message_command(func, max_retries=2)
     assert result == 'ok'
 

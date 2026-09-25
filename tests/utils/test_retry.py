@@ -13,7 +13,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 
 from aiohttp.client_exceptions import ClientConnectionError, ClientResponseError
 
-from discord_bot.core.utils.retry import (
+from discord_core.utils.retry import (
     async_retry_broker_command,
     async_retry_command,
 )
@@ -47,7 +47,7 @@ async def test_async_retry_command_accepted_exception_returns_false():
 async def test_async_retry_command_retry_then_succeed():
     """retry_exceptions trigger retries; success on a later attempt returns the result."""
     func = AsyncMock(side_effect=[RuntimeError('fail'), RuntimeError('fail'), 'done'])
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock):
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock):
         result = await async_retry_command(func, max_retries=3, retry_exceptions=(RuntimeError,))
     assert result == 'done'
     assert func.await_count == 3
@@ -57,7 +57,7 @@ async def test_async_retry_command_retry_then_succeed():
 async def test_async_retry_command_exhausted_raises():
     """retry_exceptions that persist past max_retries are re-raised."""
     func = AsyncMock(side_effect=RuntimeError('always fails'))
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock):
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock):
         with pytest.raises(RuntimeError, match='always fails'):
             await async_retry_command(func, max_retries=2, retry_exceptions=(RuntimeError,))
     assert func.await_count == 3  # initial + 2 retries
@@ -76,7 +76,7 @@ async def test_broker_retry_success():
 async def test_broker_retry_connection_error_retries():
     '''ClientConnectionError triggers exponential-backoff retry; success returns the result.'''
     func = AsyncMock(side_effect=[ClientConnectionError(), 'recovered'])
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock) as mock_sleep:
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock) as mock_sleep:
         result = await async_retry_broker_command(func, max_retries=2)
     assert result == 'recovered'
     mock_sleep.assert_awaited_once_with(1)  # 2**0
@@ -86,7 +86,7 @@ async def test_broker_retry_connection_error_retries():
 async def test_broker_retry_connection_error_exhausted_raises():
     '''ClientConnectionError that persists past max_retries is re-raised.'''
     func = AsyncMock(side_effect=ClientConnectionError())
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock):
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock):
         with pytest.raises(ClientConnectionError):
             await async_retry_broker_command(func, max_retries=2)
     assert func.await_count == 3  # initial + 2 retries
@@ -96,7 +96,7 @@ async def test_broker_retry_connection_error_exhausted_raises():
 async def test_broker_retry_5xx_retries():
     '''ClientResponseError with 5xx status triggers retry; success returns the result.'''
     func = AsyncMock(side_effect=[_client_response_error(503), 'ok'])
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock):
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock):
         result = await async_retry_broker_command(func, max_retries=2)
     assert result == 'ok'
 
@@ -105,7 +105,7 @@ async def test_broker_retry_5xx_retries():
 async def test_broker_retry_5xx_exhausted_raises():
     '''ClientResponseError 5xx that persists past max_retries is re-raised.'''
     func = AsyncMock(side_effect=_client_response_error(500))
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock):
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock):
         with pytest.raises(ClientResponseError):
             await async_retry_broker_command(func, max_retries=1)
     assert func.await_count == 2
@@ -141,7 +141,7 @@ def _recording_tracer():
 async def test_broker_retry_is_traced_by_default():
     '''Callers that lose work on failure keep their span -- the flag is opt-in.'''
     tracer, exporter = _recording_tracer()
-    with patch('discord_bot.core.utils.otel.TRACER', tracer):
+    with patch('discord_core.utils.otel.TRACER', tracer):
         await async_retry_broker_command(AsyncMock(return_value='ok'))
     assert [s.name for s in exporter.get_finished_spans()] == ['utils.retry_broker_command']
 
@@ -150,7 +150,7 @@ async def test_broker_retry_is_traced_by_default():
 async def test_broker_retry_untraced_emits_no_span():
     '''traced=False starts no span, and still returns the result.'''
     tracer, exporter = _recording_tracer()
-    with patch('discord_bot.core.utils.otel.TRACER', tracer):
+    with patch('discord_core.utils.otel.TRACER', tracer):
         result = await async_retry_broker_command(AsyncMock(return_value='ok'), traced=False)
     assert result == 'ok'
     assert not exporter.get_finished_spans()
@@ -162,8 +162,8 @@ async def test_broker_retry_untraced_emits_no_span_on_exhausted_failure():
     restart, so it must emit nothing too -- and must still raise.'''
     tracer, exporter = _recording_tracer()
     func = AsyncMock(side_effect=ClientConnectionError())
-    with patch('discord_bot.core.utils.otel.TRACER', tracer):
-        with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock):
+    with patch('discord_core.utils.otel.TRACER', tracer):
+        with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock):
             with pytest.raises(ClientConnectionError):
                 await async_retry_broker_command(func, max_retries=2, traced=False)
     assert not exporter.get_finished_spans()
@@ -174,7 +174,7 @@ async def test_broker_retry_untraced_emits_no_span_on_exhausted_failure():
 async def test_broker_retry_untraced_still_retries():
     '''traced only controls the span; retry behaviour is unchanged.'''
     func = AsyncMock(side_effect=[ClientConnectionError(), 'recovered'])
-    with patch('discord_bot.core.utils.retry.async_sleep', new_callable=AsyncMock) as mock_sleep:
+    with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock) as mock_sleep:
         result = await async_retry_broker_command(func, max_retries=2, traced=False)
     assert result == 'recovered'
     mock_sleep.assert_awaited_once_with(1)

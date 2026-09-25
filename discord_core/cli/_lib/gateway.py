@@ -16,7 +16,7 @@ import logging
 from discord import Intents
 from discord.ext.commands import Bot, when_mentioned_or
 
-from discord_bot.core.utils.common import GeneralConfig
+from discord_core.utils.common import GeneralConfig
 
 
 def build_bot(general_config: GeneralConfig) -> Bot:

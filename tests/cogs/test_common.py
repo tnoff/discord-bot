@@ -3,10 +3,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import BaseModel
 
+from discord_core.exceptions import CogMissingRequiredArg
+
+from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_bot.services.bot.clients.database_stores import DatabaseStores
 from discord_bot.services.bot.cogs.common import CogHelperBase
-from discord_bot.core.exceptions import CogMissingRequiredArg
-from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 
 from tests.helpers import fake_context  #pylint:disable=unused-import
 from tests.helpers import FakeMessage, FakeMessageDispatcher

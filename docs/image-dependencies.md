@@ -21,16 +21,16 @@ stack), which is why the numbers below are smaller than an image manifest.
 
 ## How much of the tree each image loads
 
-| image | `discord_bot` modules imported | exclusive to it |
+| image | first-party modules imported | exclusive to it |
 |---|---|---|
-| `discord-bot` | 141 | 36 |
-| `discord-dispatcher` | 65 | 10 |
-| `discord-broker` | 102 | 16 |
-| `discord-downloader` | 87 | 15 |
-| `discord-search` | 96 | 20 |
-| `discord-db` | 63 | 22 |
+| `discord-bot` | 140 | 36 |
+| `discord-dispatcher` | 64 | 10 |
+| `discord-broker` | 101 | 16 |
+| `discord-downloader` | 86 | 15 |
+| `discord-search` | 95 | 20 |
+| `discord-db` | 62 | 22 |
 
-## Why this is one package and not one per image
+## How shared the tree is
 
 Modules by how many of the 6 entrypoints import them:
 
@@ -41,10 +41,15 @@ Modules by how many of the 6 entrypoints import them:
 | 3 of 6 | 42 |
 | 4 of 6 | 11 |
 | 5 of 6 | 7 |
-| 6 of 6 | 27 |
+| 6 of 6 | 26 |
 
-121 of 240 modules (50%) are imported by two or more entrypoints but not all 6. Splitting the tree into one
-installable distribution per tier would force every one of those into a shared
-`core` distribution — and dependencies follow modules, so `boto3` (bot + broker + downloader), `dappertable` (bot + broker + db) and `discord` (bot + dispatcher)
-would land back on all 6 images. That is strictly worse than the per-image
-extras, which is why this stays one package with 6 per-image extras.
+120 of 239 modules (50%) are imported by two or more entrypoints but not all 6.
+
+This section used to end "which is why this stays one package with per-image
+extras", on the grounds that one distribution per tier would force every shared
+module into a single `core` — and dependencies follow modules, so `boto3` (bot + broker + downloader), `dappertable` (bot + broker + db) and `discord` (bot + dispatcher)
+would land back on all 6 images. The premise was right and the conclusion
+did not follow. Criterion 8 of per-image-code-split answers it: shared-but-not-
+all-six code goes into a package per SEAM, not into one undifferentiated core,
+so a pod installs the contracts it actually speaks. The number above is exactly
+the population that argument turns on, which is why it is still measured here.

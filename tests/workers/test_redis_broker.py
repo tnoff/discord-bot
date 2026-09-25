@@ -6,16 +6,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import fakeredis.aioredis
 import pytest
 
-from discord_bot.core.clients.redis_client import RedisManager
-from discord_bot.core.cogs.music_helpers.common import SearchType
-from discord_bot.services.broker.interfaces.broker_protocols import BrokerEntry, Zone
-from discord_bot.core.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
-from discord_bot.core.types.media_download import MediaDownload
-from discord_bot.core.types.media_request import MediaRequest
+from discord_core.clients.redis_client import RedisManager
+from discord_core.cogs.music_helpers.common import SearchType
+from discord_core.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
+from discord_core.types.media_download import MediaDownload
+from discord_core.types.media_request import MediaRequest
+from discord_core.types.playlist_add_request import PlaylistAddRequest
+from discord_core.types.search import SearchResult
+
 from discord_bot.seams.broker.types.player_session import PlayerSession
-from discord_bot.core.types.playlist_add_request import PlaylistAddRequest
-from discord_bot.core.types.search import SearchResult
 from discord_bot.seams.database.types.video_cache import VideoCacheEntry
+from discord_bot.services.broker.interfaces.broker_protocols import BrokerEntry, Zone
 from discord_bot.services.broker.workers.broker_registry import RedisBrokerRegistry
 from discord_bot.services.broker.workers.redis_broker import RedisBroker, _download_from_dict, _download_to_dict, _entry_from_dict
 

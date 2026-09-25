@@ -4,7 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, field_validator
 
-from discord_bot.core.types.playlist_add_request import AnyMediaRequest
+from discord_core.types.playlist_add_request import AnyMediaRequest
 
 
 class LifecycleEvent(str, Enum):

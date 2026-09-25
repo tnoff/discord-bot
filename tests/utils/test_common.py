@@ -10,15 +10,16 @@ from discord.errors import DiscordServerError, HTTPException, RateLimited, NotFo
 from opentelemetry.trace.status import StatusCode
 import pytest
 
-from discord_bot.core.exceptions import ExitEarlyException
-from discord_bot.core.utils.common import GeneralConfig, LoggingConfig, RedisSentinelConfig
-from discord_bot.core.utils.common import get_logger
+from discord_core.exceptions import ExitEarlyException
+from discord_core.utils.common import GeneralConfig, LoggingConfig, RedisSentinelConfig
+from discord_core.utils.common import get_logger
+from discord_core.utils.common import return_loop_runner, _LOOP_ERROR_BACKOFF_MAX_SECONDS
+from discord_core.utils.common import rm_tree
+from discord_core.utils.discord_utils import discord_format_string_embed
+from discord_core.utils.loop_health import LoopHealth
+
 from discord_bot.services.dispatcher.utils.discord_retry import async_retry_command
 from discord_bot.services.dispatcher.utils.discord_retry import async_retry_discord_message_command
-from discord_bot.core.utils.discord_utils import discord_format_string_embed
-from discord_bot.core.utils.common import rm_tree
-from discord_bot.core.utils.common import return_loop_runner, _LOOP_ERROR_BACKOFF_MAX_SECONDS
-from discord_bot.core.utils.loop_health import LoopHealth
 
 from tests.helpers import fake_bot_yielder
 
@@ -201,7 +202,7 @@ async def test_retry_command_async(mocker):
             self.reason = 'Cat unplugged the machines'
     async def test_send_message():
         raise DiscordServerError(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_bot.core.utils.retry.async_sleep', return_value=False)
+    mock_time = mocker.patch('discord_core.utils.retry.async_sleep', return_value=False)
     with pytest.raises(DiscordServerError):
         await async_retry_command(partial(test_send_message), retry_exceptions=DiscordServerError)
     assert mock_time.call_count == 3
@@ -216,7 +217,7 @@ async def test_retry_discord_message_command_server_error(mocker):
             self.reason = 'Service Unavailable'
     async def test_send_message():
         raise DiscordServerError(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_bot.core.utils.retry.async_sleep', return_value=False)
+    mock_time = mocker.patch('discord_core.utils.retry.async_sleep', return_value=False)
     with pytest.raises(DiscordServerError):
         await async_retry_discord_message_command(partial(test_send_message))
     assert mock_time.call_count == 3
@@ -225,7 +226,7 @@ async def test_retry_discord_message_command_server_error(mocker):
 async def test_retry_command_async_429(mocker):
     async def test_send_message():
         raise RateLimited(2)
-    mock_time = mocker.patch('discord_bot.core.utils.retry.async_sleep', return_value=False)
+    mock_time = mocker.patch('discord_core.utils.retry.async_sleep', return_value=False)
     with pytest.raises(RateLimited):
         await async_retry_discord_message_command(partial(test_send_message))
     assert mock_time.call_count == 3
@@ -239,7 +240,7 @@ async def test_retry_command_async_http_429(mocker):
             self.reason = 'Service resource is being rate limited'
     async def test_send_message():
         raise HTTPException(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_bot.core.utils.retry.async_sleep', return_value=False)
+    mock_time = mocker.patch('discord_core.utils.retry.async_sleep', return_value=False)
     with pytest.raises(HTTPException):
         await async_retry_discord_message_command(partial(test_send_message))
     assert mock_time.call_count == 3
@@ -253,7 +254,7 @@ async def test_retry_command_async_http_non_429(mocker):
             self.reason = 'Missing Permissions'
     async def test_send_message():
         raise HTTPException(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_bot.core.utils.retry.async_sleep', return_value=False)
+    mock_time = mocker.patch('discord_core.utils.retry.async_sleep', return_value=False)
     with pytest.raises(HTTPException):
         await async_retry_discord_message_command(partial(test_send_message))
     assert mock_time.call_count == 0
@@ -266,7 +267,7 @@ async def test_retry_command_async_404(mocker):
             self.reason = 'Cat ate the message'
     async def test_send_message():
         raise NotFound(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_bot.core.utils.retry.async_sleep', return_value=False)
+    mock_time = mocker.patch('discord_core.utils.retry.async_sleep', return_value=False)
     await async_retry_discord_message_command(partial(test_send_message), allow_404=True)
     assert mock_time.call_count == 0
 
@@ -293,7 +294,7 @@ async def test_return_loop_runner():
 async def test_return_loop_runner_standard_exception_backs_off_and_continues(mocker):
     # An unexpected error must not kill the loop task (health-green zombie); it
     # should back off and re-run the loop body until the bot is actually closed.
-    mock_sleep = mocker.patch('discord_bot.core.utils.common.sleep', new_callable=AsyncMock)
+    mock_sleep = mocker.patch('discord_core.utils.common.sleep', new_callable=AsyncMock)
     fake_bot = fake_bot_yielder()()
     call_count = 0
     async def fake_func():
@@ -354,7 +355,7 @@ async def test_return_loop_runner_exit_exception_sets_span_ok(mocker):
 
     # Mock the span
     mock_span = mocker.MagicMock()
-    mocker.patch('discord_bot.core.utils.common.get_current_span', return_value=mock_span)
+    mocker.patch('discord_core.utils.common.get_current_span', return_value=mock_span)
 
     fake_bot = fake_bot_yielder()()
     runner = return_loop_runner(fake_func, fake_bot, logging)
@@ -369,7 +370,7 @@ async def test_return_loop_runner_exit_exception_sets_span_ok(mocker):
 @pytest.mark.asyncio(loop_scope="session")
 async def test_return_loop_runner_standard_exception_does_not_set_span_ok(mocker):
     """Test that standard exceptions do NOT set the span status to OK"""
-    mocker.patch('discord_bot.core.utils.common.sleep', new_callable=AsyncMock)
+    mocker.patch('discord_core.utils.common.sleep', new_callable=AsyncMock)
     call_count = 0
     async def fake_func():
         nonlocal call_count
@@ -380,7 +381,7 @@ async def test_return_loop_runner_standard_exception_does_not_set_span_ok(mocker
 
     # Mock the span
     mock_span = mocker.MagicMock()
-    mocker.patch('discord_bot.core.utils.common.get_current_span', return_value=mock_span)
+    mocker.patch('discord_core.utils.common.get_current_span', return_value=mock_span)
 
     fake_bot = fake_bot_yielder()()
     runner = return_loop_runner(fake_func, fake_bot, logging)
@@ -395,7 +396,7 @@ async def test_return_loop_runner_standard_exception_does_not_set_span_ok(mocker
 @pytest.mark.asyncio(loop_scope="session")
 async def test_return_loop_runner_survives_broker_500(mocker):
     """A broker HTTP 500 (Redis blip) must not wedge the result loop task."""
-    mock_sleep = mocker.patch('discord_bot.core.utils.common.sleep', new_callable=AsyncMock)
+    mock_sleep = mocker.patch('discord_core.utils.common.sleep', new_callable=AsyncMock)
     fake_bot = fake_bot_yielder()()
     call_count = 0
     async def fake_func():
@@ -418,7 +419,7 @@ async def test_return_loop_runner_never_gives_up_and_reports_unhealthy(mocker):
     # It must NOT exit — exiting is what turned a ~20s deploy skew into a dead
     # consumer for the life of the pod (docs findings/2026-07-31). It keeps
     # retrying, and LoopHealth is what tells the alert/probe it's unhealthy.
-    mock_sleep = mocker.patch('discord_bot.core.utils.common.sleep', new_callable=AsyncMock)
+    mock_sleep = mocker.patch('discord_core.utils.common.sleep', new_callable=AsyncMock)
     fake_bot = fake_bot_yielder()()
     health = LoopHealth('test_loop', stale_after_seconds=60)
     call_count = 0
@@ -437,7 +438,7 @@ async def test_return_loop_runner_never_gives_up_and_reports_unhealthy(mocker):
 @pytest.mark.asyncio(loop_scope="session")
 async def test_return_loop_runner_backoff_grows_and_is_capped(mocker):
     # Retrying forever must not hot-spin at 1s for the length of a peer outage.
-    mock_sleep = mocker.patch('discord_bot.core.utils.common.sleep', new_callable=AsyncMock)
+    mock_sleep = mocker.patch('discord_core.utils.common.sleep', new_callable=AsyncMock)
     fake_bot = fake_bot_yielder()()
     call_count = 0
     async def fake_func():
@@ -455,7 +456,7 @@ async def test_return_loop_runner_backoff_grows_and_is_capped(mocker):
 @pytest.mark.asyncio(loop_scope="session")
 async def test_return_loop_runner_backoff_resets_after_success(mocker):
     # A recovered loop shouldn't stay stuck at the capped backoff.
-    mock_sleep = mocker.patch('discord_bot.core.utils.common.sleep', new_callable=AsyncMock)
+    mock_sleep = mocker.patch('discord_core.utils.common.sleep', new_callable=AsyncMock)
     fake_bot = fake_bot_yielder()()
     call_count = 0
     async def fake_func():
@@ -475,7 +476,7 @@ async def test_return_loop_runner_backoff_resets_after_success(mocker):
 @pytest.mark.asyncio(loop_scope="session")
 async def test_return_loop_runner_health_tracks_success_and_errors(mocker):
     # Health, not liveness: successes re-arm the window, errors count up.
-    mocker.patch('discord_bot.core.utils.common.sleep', new_callable=AsyncMock)
+    mocker.patch('discord_core.utils.common.sleep', new_callable=AsyncMock)
     fake_bot = fake_bot_yielder()()
     health = LoopHealth('test_loop', stale_after_seconds=60)
     call_count = 0
@@ -612,7 +613,7 @@ def test_logging_config_otlp_only_false_requires_file_fields():
 def test_get_logger_with_otlp_logger(mocker):
     '''get_logger attaches LoggingHandler when otlp_logger is provided'''
     mock_handler = MagicMock()
-    mocker.patch('discord_bot.core.utils.common.LoggingHandler', return_value=mock_handler)
+    mocker.patch('discord_core.utils.common.LoggingHandler', return_value=mock_handler)
     logging_config = LoggingConfig(log_level=30, otlp_only=True)
     logger = get_logger('test_otlp_logger', logging_config, otlp_logger=MagicMock())
     assert mock_handler in logger.handlers

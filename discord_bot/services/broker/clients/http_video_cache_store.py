@@ -39,13 +39,14 @@ owns. Sending them would let two callers disagree about one catalog's policy.
 import logging
 from typing import List
 
-from discord_bot.seams.database.clients.http_store_base import HttpStoreBase
-from discord_bot.core.types.media_download import (MediaDownload, media_download_from_dict,
+from discord_core.types.media_download import (MediaDownload, media_download_from_dict,
                                               media_download_to_dict)
-from discord_bot.core.types.media_request import MediaRequest
+from discord_core.types.media_request import MediaRequest
+from discord_core.utils.otel import MusicMediaDownloadNaming
+
+from discord_bot.seams.database.clients.http_store_base import HttpStoreBase
 from discord_bot.seams.database.routes import database as database_routes
 from discord_bot.seams.database.types.video_cache import VideoCacheEntry
-from discord_bot.core.utils.otel import MusicMediaDownloadNaming
 
 logger = logging.getLogger(__name__)
 

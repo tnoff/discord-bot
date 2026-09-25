@@ -25,7 +25,7 @@ lesser one.
 '''
 from dataclasses import dataclass
 
-from discord_bot.core.routes.route import Route
+from discord_core.routes.route import Route
 
 
 @dataclass(frozen=True)

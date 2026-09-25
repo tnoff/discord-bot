@@ -22,7 +22,7 @@ criterion 3 exists to prevent, arriving through the front door rather than the
 back. Every such reader now asks here instead of spelling `discord_bot/` out,
 and BOTH spellings are live for the length of the migration.
 
-It is deliberately import-free. `_affected_images` runs in ci.yml's `changes`
+It imports nothing but `pathlib`. `_affected_images` runs in ci.yml's `changes`
 job, which has no installed package and no dependencies, and must not import
 `_image_deps` (which shells out to a real interpreter per entrypoint). A table
 both can read has to cost nothing to import.
@@ -36,6 +36,7 @@ leave a rewrite plus a direction flip to do at the end. Here the end state is
 already written, and finishing the migration means deleting `LEGACY_ROOT` and
 the branch that handles it.
 '''
+from pathlib import Path
 
 #: The criterion 7 root, still the only one on disk. Everything below is the
 #: target; nothing has moved yet.
@@ -162,3 +163,69 @@ def folder_of(module: str) -> str | None:
         return root
     kind, name = home
     return f'{LEGACY_ROOT}/{kind}' if name is None else f'{LEGACY_ROOT}/{kind}/{name}'
+
+
+def package_dirs(repo_root: Path) -> list:
+    """Every declared import root that actually exists, as a directory.
+
+    The suite is full of scans written as `REPO_ROOT / 'discord_bot'` -- the
+    orphan guard, the client-validation scan, the metric-ownership scan. Each
+    one is a path-keyed reader that nobody thinks of as one, and hoisting a
+    package makes them cover strictly less without failing. Two of the three
+    would have gone on passing over a smaller tree; the third only breaks
+    loudly by luck, because the single file it locates moved out from under it.
+
+    Scans go through here so a new root is covered the moment it exists, rather
+    than the next time somebody remembers these exist.
+    """
+    return [repo_root / root for root in sorted(ROOTS)
+            if (repo_root / root / '__init__.py').is_file()]
+
+
+def source_files(repo_root: Path) -> list:
+    """Every first-party `.py` file, across every root that exists."""
+    return sorted(path for directory in package_dirs(repo_root)
+                  for path in directory.rglob('*.py'))
+
+
+def dirs_for(repo_root: Path, kind: str, name: str | None = None) -> list:
+    """Directories holding one home, in whichever spelling is on disk.
+
+    `dirs_for(root, 'core')` is `discord_core/` once it is hoisted and
+    `discord_bot/core/` before that. `dirs_for(root, 'seams')` is a LIST rather
+    than one path, because criterion 8 gives each seam its own root and the
+    `seams/` parent does not survive the move.
+
+    Rules keyed on a folder go through here for the same reason scans go through
+    `package_dirs`: this project has twice shipped a rule that stopped matching
+    the moment the thing it guards moved, and both times it passed rather than
+    failed.
+    """
+    targets = {CORE_DIR: [CORE_ROOT], SEAMS_DIR: sorted(SEAM_ROOTS.values()),
+               SERVICES_DIR: sorted(SERVICE_ROOTS.values())}
+    if name is not None:
+        lookup = {SEAMS_DIR: SEAM_ROOTS, SERVICES_DIR: SERVICE_ROOTS}.get(kind, {})
+        targets = {kind: [lookup[name]]} if name in lookup else {kind: []}
+    found = [repo_root / root for root in targets.get(kind, [])
+             if (repo_root / root / '__init__.py').is_file()]
+    legacy = repo_root / LEGACY_ROOT / kind
+    if name is not None:
+        legacy = legacy / name
+    if legacy.is_dir():
+        found.append(legacy)
+    return found
+
+
+def module_prefixes_for(kind: str, name: str | None = None) -> tuple:
+    """Dotted prefixes that name one home, in both spellings.
+
+    The companion to `dirs_for`: a rule that finds files by folder usually also
+    has to recognise an IMPORT of that folder, and the two spellings differ.
+    """
+    roots = {CORE_DIR: [CORE_ROOT], SEAMS_DIR: sorted(SEAM_ROOTS.values()),
+             SERVICES_DIR: sorted(SERVICE_ROOTS.values())}.get(kind, [])
+    if name is not None:
+        lookup = {SEAMS_DIR: SEAM_ROOTS, SERVICES_DIR: SERVICE_ROOTS}.get(kind, {})
+        roots = [lookup[name]] if name in lookup else []
+    legacy = f'{LEGACY_ROOT}.{kind}' + (f'.{name}' if name else '')
+    return tuple(sorted(roots + [legacy]))

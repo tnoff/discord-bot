@@ -24,7 +24,7 @@ from typing import NamedTuple
 
 from yt_dlp import YoutubeDL
 
-from discord_bot.core.exceptions import DiscordBotException
+from discord_core.exceptions import DiscordBotException
 
 # Default egress: one yt-dlp client through a single fixed proxy (today's model).
 # Any other egress_mode names an exit-proxy provider in EXIT_PROXY_RESOLVERS below,

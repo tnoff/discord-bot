@@ -6,11 +6,11 @@ import aiohttp
 from opentelemetry.propagate import inject
 from pydantic import ValidationError
 
-from discord_bot.core.clients.seam_contract import SeamContractCheck
-from discord_bot.core.exceptions import SeamResponseInvalid
-from discord_bot.core.routes.route import Route
-from discord_bot.core.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
-from discord_bot.core.utils.retry import async_retry_broker_command
+from discord_core.clients.seam_contract import SeamContractCheck
+from discord_core.exceptions import SeamResponseInvalid
+from discord_core.routes.route import Route
+from discord_core.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
+from discord_core.utils.retry import async_retry_broker_command
 
 logger = logging.getLogger(__name__)
 

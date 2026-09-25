@@ -5,7 +5,7 @@ from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 from sqlalchemy.exc import OperationalError, PendingRollbackError
 
-from discord_bot.core.utils.otel import async_otel_span_wrapper, AttributeNaming
+from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming
 
 OTEL_SPAN_PREFIX = 'sql_retry'
 

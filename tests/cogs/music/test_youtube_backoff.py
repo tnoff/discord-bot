@@ -4,10 +4,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from discord_bot.core.exceptions import ExitEarlyException
-from discord_bot.services.bot.cogs.music import Music
-from discord_bot.core.types.download import DownloadErrorType, DownloadResult, DownloadStatus
+from discord_core.exceptions import ExitEarlyException
+from discord_core.types.download import DownloadErrorType, DownloadResult, DownloadStatus
+
 from discord_bot.seams.queue_worker.utils.failure_queue import FailureStatus
+from discord_bot.services.bot.cogs.music import Music
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker

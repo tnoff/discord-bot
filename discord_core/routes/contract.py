@@ -17,7 +17,7 @@ docs/projects/http-seam-contract.md.
 '''
 from aiohttp import web
 
-from discord_bot.core.routes.route import Route
+from discord_core.routes.route import Route
 
 # The endpoint itself. Leading underscore keeps it clear of every seam prefix
 # (/requests, /downloads, /database/..., /search/...), and it is served from the

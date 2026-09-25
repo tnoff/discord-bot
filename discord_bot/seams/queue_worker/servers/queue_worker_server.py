@@ -22,13 +22,14 @@ from typing import ClassVar
 from aiohttp import web
 from opentelemetry.trace import SpanKind
 
+from discord_core.servers.base import AiohttpServerBase
+from discord_core.types.playlist_add_request import parse_media_request
+from discord_core.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,
+                                     MetricNaming, AttributeNaming)
+
 from discord_bot.seams.queue_worker.routes.queue_worker import QueueWorkerRoutes
 from discord_bot.seams.queue_worker.types import responses as qw_responses
-from discord_bot.core.servers.base import AiohttpServerBase
-from discord_bot.core.types.playlist_add_request import parse_media_request
 from discord_bot.seams.queue_worker.types.queue import PutsBlocked, QueueFull, submit_rejection_status
-from discord_bot.core.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,
-                                     MetricNaming, AttributeNaming)
 
 logger = logging.getLogger(__name__)
 

@@ -32,14 +32,15 @@ from asyncio import QueueEmpty
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 
-from discord_bot.core.types.download import LifecycleEvent, LifecycleStatusUpdate
-from discord_bot.core.types.media_request import MediaRequest, media_request_attributes
-from discord_bot.core.types.search_resolution import SearchResolution
-from discord_bot.seams.media_search.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
-from discord_bot.core.exceptions import YoutubeMusicRetryException
-from discord_bot.core.utils.otel import (
+from discord_core.exceptions import YoutubeMusicRetryException
+from discord_core.types.download import LifecycleEvent, LifecycleStatusUpdate
+from discord_core.types.media_request import MediaRequest, media_request_attributes
+from discord_core.types.search_resolution import SearchResolution
+from discord_core.utils.otel import (
     async_otel_span_wrapper, capture_span_context, span_links_from_context,
 )
+
+from discord_bot.seams.media_search.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 
 # Span name is deliberately the cog's old one ('music' + the loop name) rather
 # than a pod-flavoured rename: the same logical operation moved processes at the

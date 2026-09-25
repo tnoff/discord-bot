@@ -39,9 +39,9 @@ from enum import Enum
 import aiohttp
 from opentelemetry.metrics import Observation
 
-from discord_bot.core.routes import contract
-from discord_bot.core.routes.route import Route
-from discord_bot.core.utils.otel import AttributeNaming, MetricNaming, create_observable_gauge
+from discord_core.routes import contract
+from discord_core.routes.route import Route
+from discord_core.utils.otel import AttributeNaming, MetricNaming, create_observable_gauge
 
 logger = logging.getLogger(__name__)
 

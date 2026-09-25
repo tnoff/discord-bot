@@ -15,19 +15,19 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from yt_dlp.utils import DownloadError
 
-from discord_bot.services.downloader.interfaces.download_protocols import VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded, DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator, DirectItemAvailableException
+from discord_core.cogs.music_helpers.common import SearchType
+from discord_core.exceptions import DiscordBotException, ExitEarlyException
+from discord_core.types.download import DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus as DlStatus, is_rejection
+from discord_core.types.playlist_add_request import PlaylistAddRequest
+from discord_core.types.search import SearchResult
+
+from discord_bot.seams.queue_worker.types.queue import PutsBlocked
+from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
 from discord_bot.services.downloader.interfaces import download_protocols
+from discord_bot.services.downloader.interfaces.download_protocols import VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded, DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator, DirectItemAvailableException
+from discord_bot.services.downloader.utils.audio import AudioProcessingError
 from discord_bot.services.downloader.utils.integrations.egress_pool import (
     DownloadEgress, HttpProxyEgress, PoolEgress, ExitPool, ExitClients, MullvadSocks5Resolver)
-from discord_bot.services.downloader.utils.audio import AudioProcessingError
-from discord_bot.core.exceptions import DiscordBotException, ExitEarlyException
-from discord_bot.core.types.download import DownloadErrorType, LifecycleEvent, DownloadResult, DownloadStatus as DlStatus, is_rejection
-from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
-
-from discord_bot.core.types.playlist_add_request import PlaylistAddRequest
-from discord_bot.core.types.search import SearchResult
-from discord_bot.core.cogs.music_helpers.common import SearchType
-from discord_bot.seams.queue_worker.types.queue import PutsBlocked
 
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.helpers import fake_source_dict, generate_fake_context
@@ -625,7 +625,7 @@ def _recording_exporter(mocker):
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    mocker.patch('discord_bot.core.utils.otel.TRACER', provider.get_tracer('test'))
+    mocker.patch('discord_core.utils.otel.TRACER', provider.get_tracer('test'))
     return exporter
 
 

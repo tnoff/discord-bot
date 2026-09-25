@@ -9,27 +9,28 @@ import pytest
 
 from aiohttp import ClientConnectionError
 
-from discord_bot.services.bot.utils.bot_metrics import BotMetricNaming
-from discord_bot.core.exceptions import CogMissingRequiredArg, DiscordBotException
-from discord_bot.services.bot.cogs import music as music_module
-from discord_bot.services.bot.cogs.music import (Music, LOOP_CLEANUP_PLAYERS,
-                                    LOOP_POST_PLAY_PROCESSING, LOOP_PROCESS_DOWNLOAD_RESULTS,
-                                    LOOP_PROCESS_SEARCH_RESULTS)
-from discord_bot.core.utils.loop_health import LOOP_HEALTH
-from discord_bot.core.utils.otel import loop_heartbeat_observations
-from discord_bot.services.bot.types.cleanup_reason import CleanupReason
-from discord_bot.core.types.search import SearchResult, SearchCollection
-from discord_bot.core.types.media_request import MediaRequest
-from discord_bot.core.types.media_download import MediaDownload
-from discord_bot.core.types.download import DownloadErrorType, DownloadResult, DownloadStatus
+from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage
+from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException
+from discord_core.types.download import DownloadErrorType, DownloadResult, DownloadStatus
+from discord_core.types.media_download import MediaDownload
+from discord_core.types.media_request import MediaRequest
+from discord_core.types.search import SearchResult, SearchCollection
+from discord_core.utils.loop_health import LOOP_HEALTH
+from discord_core.utils.otel import loop_heartbeat_observations
+
 from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
 from discord_bot.services.bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.services.bot.clients.http_media_search_client import HttpMediaSearchClient
 from discord_bot.services.bot.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
-from discord_bot.services.downloader.interfaces.download_protocols import ClearGuildResult
+from discord_bot.services.bot.cogs import music as music_module
+from discord_bot.services.bot.cogs.music import (Music, LOOP_CLEANUP_PLAYERS,
+                                    LOOP_POST_PLAY_PROCESSING, LOOP_PROCESS_DOWNLOAD_RESULTS,
+                                    LOOP_PROCESS_SEARCH_RESULTS)
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.services.bot.cogs.music_helpers.search_client import SearchException
-from discord_bot.core.cogs.music_helpers.common import MediaRequestLifecycleStage
+from discord_bot.services.bot.types.cleanup_reason import CleanupReason
+from discord_bot.services.bot.utils.bot_metrics import BotMetricNaming
+from discord_bot.services.downloader.interfaces.download_protocols import ClearGuildResult
 
 from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
 from tests.fakes.in_memory_download_client import InMemoryDownloadClient

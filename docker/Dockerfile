@@ -59,7 +59,12 @@ RUN mkdir -p "${APPDIR}/discord_bot" && \
 # them here would put ~474 MB of dependencies into a layer that our own package
 # rewrites on every commit, and buildkit would recompress and re-upload all of
 # it per build (measured: `exporting layers` 270.9s of a 283.3s export step).
+# discord_core/ is its own top-level package as of criterion 8 step 2, so it
+# needs its own COPY -- `COPY discord_bot/` no longer brings the core along.
+# One COPY per root rather than `COPY . ${APPDIR}` on purpose: the whole point
+# of the split is that an image carries the roots it reaches and no others.
 COPY discord_bot/ "${APPDIR}/discord_bot/"
+COPY discord_core/ "${APPDIR}/discord_core/"
 # No alembic/ or alembic.ini. Both were COPYd here until the MR 4 cutover
 # (#928) took [database] -- and with it the alembic CLI -- out of [bot]. They
 # only ever landed in this builder stage, since the final stage copies the two

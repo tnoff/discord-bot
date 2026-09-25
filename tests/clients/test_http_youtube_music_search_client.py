@@ -18,14 +18,14 @@ from unittest.mock import AsyncMock
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from discord_bot.seams.queue_worker.types.queue import PutsBlocked
+from discord_core.cogs.music_helpers.common import SearchType
+from discord_core.types.media_request import MediaRequest
+from discord_core.types.playlist_add_request import PlaylistAddRequest
+from discord_core.types.search import SearchResult
 
+from discord_bot.seams.queue_worker.types.queue import PutsBlocked
 from discord_bot.services.bot.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_bot.services.search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
-from discord_bot.core.cogs.music_helpers.common import SearchType
-from discord_bot.core.types.media_request import MediaRequest
-from discord_bot.core.types.playlist_add_request import PlaylistAddRequest
-from discord_bot.core.types.search import SearchResult
 
 
 def _media_request(guild_id: int = 1) -> MediaRequest:

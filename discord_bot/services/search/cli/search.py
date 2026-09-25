@@ -47,26 +47,26 @@ import logging
 
 import click
 
-from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
-from discord_bot.services.search.clients.media_search_client import build_media_search_client
-from discord_bot.core.clients.redis_client import RedisManager
-from discord_bot.core.servers.base import AiohttpServerBase
-from discord_bot.services.search.servers.composite_server import CompositeHttpServer
-from discord_bot.services.search.servers.media_search_server import MediaSearchHttpServer
-from discord_bot.services.search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
-from discord_bot.core.utils.common import GeneralConfig
-from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue
-from discord_bot.services.search.utils.integrations.youtube_music import YoutubeMusicClient
-from discord_bot.core.utils.loop_health import LoopHealth
-from discord_bot.services.search.workers.redis_youtube_music_search_worker import RedisYoutubeMusicSearchWorker
-from discord_bot.services.search.workers.search_metrics import SearchMetrics
-from discord_bot.services.search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
-
-from discord_bot.core.cli._lib.common import parse_and_validate_config, run_loop, setup_observability
-from discord_bot.core.cli._lib.worker_pod import (
+from discord_core.cli._lib.common import parse_and_validate_config, run_loop, setup_observability
+from discord_core.cli._lib.worker_pod import (
     build_redis_health_server, drive_loop, require_broker_url, require_redis_manager,
     worker_pod_main_loop,
 )
+from discord_core.clients.redis_client import RedisManager
+from discord_core.servers.base import AiohttpServerBase
+from discord_core.utils.common import GeneralConfig
+from discord_core.utils.loop_health import LoopHealth
+
+from discord_bot.seams.queue_worker.clients.http_broker_client import HttpBrokerClient
+from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue
+from discord_bot.services.search.clients.media_search_client import build_media_search_client
+from discord_bot.services.search.servers.composite_server import CompositeHttpServer
+from discord_bot.services.search.servers.media_search_server import MediaSearchHttpServer
+from discord_bot.services.search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
+from discord_bot.services.search.utils.integrations.youtube_music import YoutubeMusicClient
+from discord_bot.services.search.workers.redis_youtube_music_search_worker import RedisYoutubeMusicSearchWorker
+from discord_bot.services.search.workers.search_metrics import SearchMetrics
+from discord_bot.services.search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
 logger = logging.getLogger(__name__)
 

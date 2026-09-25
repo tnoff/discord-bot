@@ -5,7 +5,7 @@ Tests for memory profiling utilities
 import time
 from unittest.mock import Mock, patch
 
-from discord_bot.core.utils.memory_profiler import MemoryProfiler
+from discord_core.utils.memory_profiler import MemoryProfiler
 
 
 class TestMemoryProfiler:
@@ -128,7 +128,7 @@ class TestMemoryProfiler:
         """Test that memory snapshots are logged"""
         mock_logger = Mock()
         tracker = MemoryProfiler(interval_seconds=1, top_n_lines=10)
-        with patch('discord_bot.core.utils.memory_profiler.logger', mock_logger):
+        with patch('discord_core.utils.memory_profiler.logger', mock_logger):
             # Start tracker and wait for snapshot
             tracker.start()
             time.sleep(1.5)  # Wait for one snapshot

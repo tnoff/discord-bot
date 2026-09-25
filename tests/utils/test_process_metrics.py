@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 import psutil
 
-from discord_bot.core.utils.process_metrics import (
+from discord_core.utils.process_metrics import (
     ProcessMetricsProfiler,
     get_glibc_malloc_stats,
 )
@@ -97,7 +97,7 @@ class TestProcessMetricsProfiler:
         """Test that metrics are logged"""
         mock_logger = Mock()
         profiler = ProcessMetricsProfiler(interval_seconds=1)
-        with patch('discord_bot.core.utils.process_metrics.logger', mock_logger):
+        with patch('discord_core.utils.process_metrics.logger', mock_logger):
             # Start profiler and wait for snapshot
             profiler.start()
             time.sleep(1.5)  # Wait for one snapshot
@@ -281,7 +281,7 @@ class TestGlibcMallocStats:
 
     def test_returns_mapped_fields(self):
         """mallinfo2 fields are mapped to the surfaced dict keys"""
-        with patch('discord_bot.core.utils.process_metrics.ctypes.CDLL') as cdll:
+        with patch('discord_core.utils.process_metrics.ctypes.CDLL') as cdll:
             cdll.return_value.mallinfo2.return_value = _fake_mallinfo2(
                 arena=100, hblkhd=200, uordblks=300, fordblks=400, keepcost=50)
 
@@ -297,13 +297,13 @@ class TestGlibcMallocStats:
 
     def test_returns_none_when_libc_missing(self):
         """A platform without libc.so.6 yields None instead of raising"""
-        with patch('discord_bot.core.utils.process_metrics.ctypes.CDLL',
+        with patch('discord_core.utils.process_metrics.ctypes.CDLL',
                    side_effect=OSError('no libc')):
             assert get_glibc_malloc_stats() is None
 
     def test_returns_none_when_symbol_absent(self):
         """An older glibc without the mallinfo2 symbol yields None"""
-        with patch('discord_bot.core.utils.process_metrics.ctypes.CDLL') as cdll:
+        with patch('discord_core.utils.process_metrics.ctypes.CDLL') as cdll:
             # Deleting the auto-created attr makes any later access raise
             # AttributeError, mimicking a libc that lacks the mallinfo2 symbol.
             del cdll.return_value.mallinfo2
@@ -317,7 +317,7 @@ class TestGlibcSummarySection:
     def test_summary_includes_glibc_section(self):
         """Summary renders the allocator section when glibc stats are available"""
         profiler = ProcessMetricsProfiler()
-        with patch('discord_bot.core.utils.process_metrics.get_glibc_malloc_stats',
+        with patch('discord_core.utils.process_metrics.get_glibc_malloc_stats',
                    return_value={'arena': 1, 'hblkhd': 2, 'in_use': 3,
                                  'free_retained': 4, 'trimmable': 5}):
             summary = profiler.get_metrics_summary()
@@ -329,7 +329,7 @@ class TestGlibcSummarySection:
     def test_summary_glibc_deltas_on_second_call(self):
         """In-use / free-retained deltas appear once a prior snapshot exists"""
         profiler = ProcessMetricsProfiler()
-        with patch('discord_bot.core.utils.process_metrics.get_glibc_malloc_stats',
+        with patch('discord_core.utils.process_metrics.get_glibc_malloc_stats',
                    side_effect=[
                        {'arena': 1, 'hblkhd': 2, 'in_use': 3,
                         'free_retained': 4, 'trimmable': 5},
@@ -345,7 +345,7 @@ class TestGlibcSummarySection:
     def test_summary_omits_glibc_section_when_unavailable(self):
         """No allocator section on a platform where mallinfo2 returns None"""
         profiler = ProcessMetricsProfiler()
-        with patch('discord_bot.core.utils.process_metrics.get_glibc_malloc_stats',
+        with patch('discord_core.utils.process_metrics.get_glibc_malloc_stats',
                    return_value=None):
             summary = profiler.get_metrics_summary()
 

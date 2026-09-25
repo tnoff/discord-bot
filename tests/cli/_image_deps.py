@@ -190,7 +190,7 @@ def render_table() -> str:
         '',
         '## How much of the tree each image loads',
         '',
-        '| image | `discord_bot` modules imported | exclusive to it |',
+        '| image | first-party modules imported | exclusive to it |',
         '|---|---|---|',
     ]
     for ep, name in IMAGE_NAMES.items():
@@ -201,7 +201,7 @@ def render_table() -> str:
     spread = {n: sum(1 for m, c in shared_by.items() if c == n) for n in range(1, total + 1)}
     lines += [
         '',
-        '## Why this is one package and not one per image',
+        '## How shared the tree is',
         '',
         f'Modules by how many of the {total} entrypoints import them:',
         '',
@@ -228,11 +228,16 @@ def render_table() -> str:
     lines += [
         '',
         f'{shared_2plus} of {len(every)} modules ({shared_2plus * 100 // len(every)}%) are '
-        f'imported by two or more entrypoints but not all {total}. Splitting the tree into one',
-        'installable distribution per tier would force every one of those into a shared',
-        f'`core` distribution — and dependencies follow modules, so {shared_desc}',
-        f'would land back on all {total} images. That is strictly worse than the per-image',
-        f'extras, which is why this stays one package with {total} per-image extras.',
+        f'imported by two or more entrypoints but not all {total}.',
+        '',
+        'This section used to end "which is why this stays one package with per-image',
+        'extras", on the grounds that one distribution per tier would force every shared',
+        f'module into a single `core` — and dependencies follow modules, so {shared_desc}',
+        f'would land back on all {total} images. The premise was right and the conclusion',
+        'did not follow. Criterion 8 of per-image-code-split answers it: shared-but-not-',
+        'all-six code goes into a package per SEAM, not into one undifferentiated core,',
+        'so a pod installs the contracts it actually speaks. The number above is exactly',
+        'the population that argument turns on, which is why it is still measured here.',
         '',
     ]
     return '\n'.join(lines)

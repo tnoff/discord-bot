@@ -1,7 +1,8 @@
 '''Tests for the per-download egress exit pool + pluggable proxy resolvers.'''
 import pytest
 
-from discord_bot.core.exceptions import DiscordBotException
+from discord_core.exceptions import DiscordBotException
+
 from discord_bot.services.downloader.utils.integrations.egress_pool import (
     EGRESS_MODE_HTTP_PROXY, ExitClients, ExitPool, HttpProxyEgress, PoolEgress,
     MullvadSocks5Resolver, build_exit_resolver, mullvad_socks5_endpoint,

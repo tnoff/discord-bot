@@ -121,7 +121,7 @@ queues DELete on pop, so a restart mid-wait would lose it.
 ## Adding a loop
 
 ```python
-from discord_bot.core.utils.loop_health import LOOP_HEALTH
+from discord_core.utils.loop_health import LOOP_HEALTH
 
 LOOP_MY_THING = 'my_thing'  # registry key AND heartbeat background_job label
 

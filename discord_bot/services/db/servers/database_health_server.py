@@ -13,8 +13,9 @@ primary signal and there is no bot to pass.
 '''
 from typing import ClassVar
 
+from discord_core.servers.health_server_base import HealthServerBase
+
 from discord_bot.services.db.servers.db_probe import db_ping
-from discord_bot.core.servers.health_server_base import HealthServerBase
 
 
 

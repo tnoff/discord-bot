@@ -16,12 +16,13 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from sqlalchemy.exc import OperationalError
 
+from discord_core.exceptions import DatabaseUnavailable
+
+from discord_bot.seams.database.interfaces.database_protocols import MarkovStore
+from discord_bot.seams.database.types.markov import MarkovChannelEntry, MarkovMessageWrite
 from discord_bot.services.bot.clients.http_markov_store import HttpMarkovStore
 from discord_bot.services.db.clients.markov_client import MarkovClient
-from discord_bot.core.exceptions import DatabaseUnavailable
-from discord_bot.seams.database.interfaces.database_protocols import MarkovStore
 from discord_bot.services.db.servers.database_server import DatabaseHttpServer
-from discord_bot.seams.database.types.markov import MarkovChannelEntry, MarkovMessageWrite
 
 from tests.helpers import fake_engine #pylint:disable=unused-import
 from tests.helpers import async_mock_session

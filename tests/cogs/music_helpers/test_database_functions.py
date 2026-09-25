@@ -3,11 +3,11 @@ from datetime import datetime, timezone, timedelta
 import pytest
 from sqlalchemy import select
 
-from discord_bot.services.db.database import VideoCache, Playlist, PlaylistItem
 from discord_bot.services.db.cogs.music_helpers.database_functions import (
     video_cache_mark_deletion_for_size,
     delete_video_cache,
 )
+from discord_bot.services.db.database import VideoCache, Playlist, PlaylistItem
 
 from tests.helpers import fake_engine, async_mock_session #pylint:disable=unused-import
 

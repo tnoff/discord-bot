@@ -20,7 +20,7 @@ from typing import ClassVar
 
 from opentelemetry.metrics import Observation
 
-from discord_bot.core.utils.otel import (create_observable_gauge, METER_PROVIDER,
+from discord_core.utils.otel import (create_observable_gauge, METER_PROVIDER,
                                      AttributeNaming)
 
 logger = logging.getLogger(__name__)

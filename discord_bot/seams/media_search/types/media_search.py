@@ -13,7 +13,8 @@ able to build one without importing anything the bot owns.
 '''
 from pydantic import BaseModel
 
-from discord_bot.core.exceptions import MediaSearchError
+from discord_core.exceptions import MediaSearchError
+
 from discord_bot.seams.media_search.types.catalog import CatalogResponse
 
 

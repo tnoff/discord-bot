@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 
-from discord_bot.core.cogs.music_helpers.common import SearchType
+from discord_core.cogs.music_helpers.common import SearchType
 
 
 class SearchResult(BaseModel):

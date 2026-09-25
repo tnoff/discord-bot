@@ -70,7 +70,12 @@ RUN apt-get update && \
 # `rm -rf "${APPDIR}"` moved down here from the layer above. It has to run AFTER
 # the real install, not before it -- deleting the directory in the dependency
 # layer would leave this one with nothing to install from.
+# discord_core/ is its own top-level package as of criterion 8 step 2, so it
+# needs its own COPY -- `COPY discord_bot/` no longer brings the core along.
+# One COPY per root rather than `COPY . ${APPDIR}` on purpose: the whole point
+# of the split is that an image carries the roots it reaches and no others.
 COPY discord_bot/ "${APPDIR}/discord_bot/"
+COPY discord_core/ "${APPDIR}/discord_core/"
 COPY VERSION "${APPDIR}/"
 RUN pip install --no-cache-dir --no-deps "${APPDIR}[downloader]" && \
     rm -rf "${APPDIR}" /root/.cache

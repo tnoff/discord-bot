@@ -4,7 +4,8 @@ import asyncio
 import fakeredis.aioredis
 import pytest
 
-from discord_bot.core.clients.redis_client import RedisManager
+from discord_core.clients.redis_client import RedisManager
+
 from discord_bot.services.broker.workers import broker_registry
 from discord_bot.services.broker.workers.broker_registry import (
     BUNDLE_LOCK_KEY_PREFIX,

@@ -2,8 +2,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from discord_core.exceptions import CogMissingRequiredArg
+
 from discord_bot.services.bot.cogs.general import General
-from discord_bot.core.exceptions import CogMissingRequiredArg
 
 from tests.helpers import fake_context #pylint:disable=unused-import
 

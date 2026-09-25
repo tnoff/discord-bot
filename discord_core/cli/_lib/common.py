@@ -26,15 +26,15 @@ from opentelemetry.instrumentation.requests import RequestsInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
 from pydantic import ValidationError as PydanticValidationError
 
-from discord_bot.core.exceptions import DiscordBotException, CogMissingRequiredArg
-from discord_bot.core.utils.common import get_logger, GeneralConfig
-from discord_bot.core.utils.loop_health import LOOP_HEALTH
+from discord_core.exceptions import DiscordBotException, CogMissingRequiredArg
+from discord_core.utils.common import get_logger, GeneralConfig
+from discord_core.utils.gc_census import GcCensusProfiler
+from discord_core.utils.loop_health import LOOP_HEALTH
 # HealthServer is intentionally NOT imported here — it transitively pulls in
 # sqlalchemy, which the dispatcher image (base extras only) does not install.
 # cli.bot and cli.full import it via discord_bot.cli.health instead.
-from discord_bot.core.utils.memory_profiler import MemoryProfiler
-from discord_bot.core.utils.process_metrics import ProcessMetricsProfiler
-from discord_bot.core.utils.gc_census import GcCensusProfiler
+from discord_core.utils.memory_profiler import MemoryProfiler
+from discord_core.utils.process_metrics import ProcessMetricsProfiler
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from discord.ext.commands import Bot

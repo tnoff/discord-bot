@@ -13,12 +13,13 @@ from asyncio import QueueEmpty
 from datetime import datetime, timezone
 from typing import Callable
 
-from discord_bot.core.cogs.music_helpers.common import SearchType
-from discord_bot.core.exceptions import ExitEarlyException
+from discord_core.cogs.music_helpers.common import SearchType
+from discord_core.exceptions import ExitEarlyException
+from discord_core.types.media_request import MediaRequest
+
 from discord_bot.services.downloader.interfaces.download_protocols import (
     DownloadWorkerBase, DirectItemAvailableException,
 )
-from discord_bot.core.types.media_request import MediaRequest
 from tests.fakes.distributed_queue import DistributedQueue
 
 

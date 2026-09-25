@@ -2,7 +2,7 @@ from typing import Annotated, Literal, Union
 
 from pydantic import Field, TypeAdapter
 
-from discord_bot.core.types.media_request import MediaRequest
+from discord_core.types.media_request import MediaRequest
 
 
 class PlaylistAddRequest(MediaRequest):

@@ -81,6 +81,9 @@ batch and `generate_words` returns a whole sentence for exactly this reason.
 from datetime import datetime
 from typing import List, Protocol, runtime_checkable
 
+from discord_core.types.media_download import MediaDownload
+from discord_core.types.media_request import MediaRequest
+
 from discord_bot.seams.database.types.guild_analytics import GuildAnalyticsEntry
 from discord_bot.seams.database.types.markov import MarkovChannelEntry, MarkovMessageWrite
 from discord_bot.seams.database.types.playlist import (
@@ -89,8 +92,6 @@ from discord_bot.seams.database.types.playlist import (
     PlaylistItemEntry,
     PlaylistItemWrite,
 )
-from discord_bot.core.types.media_download import MediaDownload
-from discord_bot.core.types.media_request import MediaRequest
 from discord_bot.seams.database.types.video_cache import VideoCacheEntry
 
 

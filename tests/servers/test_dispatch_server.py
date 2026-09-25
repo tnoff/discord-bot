@@ -7,7 +7,8 @@ import aiohttp
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from discord_bot.core.servers.base import AiohttpServerBase
+from discord_core.servers.base import AiohttpServerBase
+
 from discord_bot.services.dispatcher.servers.dispatch_server import DispatchHttpServer
 
 from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue

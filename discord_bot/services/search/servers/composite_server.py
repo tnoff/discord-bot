@@ -27,8 +27,8 @@ import logging
 
 from aiohttp import web
 
-from discord_bot.core.routes import contract
-from discord_bot.core.servers.base import AiohttpServerBase
+from discord_core.routes import contract
+from discord_core.servers.base import AiohttpServerBase
 
 logger = logging.getLogger(__name__)
 

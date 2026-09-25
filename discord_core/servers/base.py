@@ -6,8 +6,8 @@ from aiohttp import web
 from opentelemetry.metrics import Observation
 from opentelemetry.propagate import extract
 
-from discord_bot.core.routes import contract
-from discord_bot.core.utils.otel import AttributeNaming
+from discord_core.routes import contract
+from discord_core.utils.otel import AttributeNaming
 
 logger = logging.getLogger(__name__)
 

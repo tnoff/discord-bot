@@ -11,7 +11,7 @@ polls this route for the outcome. So a client that can submit but cannot poll is
 functional right up to the point it needs an answer — which is exactly the shape
 the subset check exists to catch before a user does.
 '''
-from discord_bot.core.routes.route import Route, collect
+from discord_core.routes.route import Route, collect
 
 ROUTE_PREFIX = '/dispatch'
 

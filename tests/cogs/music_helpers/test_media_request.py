@@ -1,7 +1,7 @@
 import pytest
 
-from discord_bot.core.types.media_request import MediaRequestStateMachine, RetryInformation, chunk_list
-from discord_bot.core.cogs.music_helpers.common import MediaRequestLifecycleStage
+from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage
+from discord_core.types.media_request import MediaRequestStateMachine, RetryInformation, chunk_list
 
 from tests.helpers import fake_source_dict
 from tests.helpers import fake_context #pylint:disable=unused-import

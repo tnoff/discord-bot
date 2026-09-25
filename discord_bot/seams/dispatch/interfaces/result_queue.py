@@ -13,8 +13,8 @@ GET /results/next, and broker-pod restarts don't lose work.
 '''
 from abc import ABC, abstractmethod
 
-from discord_bot.core.types.download import DownloadResult
-from discord_bot.core.types.search_resolution import SearchResolution
+from discord_core.types.download import DownloadResult
+from discord_core.types.search_resolution import SearchResolution
 
 
 class DownloadResultQueue(ABC):

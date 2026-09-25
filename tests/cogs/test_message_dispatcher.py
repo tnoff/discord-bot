@@ -7,20 +7,21 @@ import redis
 
 from discord.errors import NotFound
 
+from discord_core.exceptions import CogMissingRequiredArg
+from discord_core.utils.loop_health import LOOP_HEALTH
+from discord_core.utils.otel import loop_heartbeat_observations
+
+from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchRemoteError
+from discord_bot.seams.dispatch.types.dispatch_request import (
+    FetchChannelHistoryRequest, FetchGuildEmojisRequest, SendRequest, DeleteRequest,
+)
+from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
+from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
+from discord_bot.services.broker.workers.asyncio_queues import AsyncioBundleStore, AsyncioWorkQueue
 from discord_bot.services.dispatcher.workers.message_dispatcher import (
     MessageDispatcher, MessageMutableBundle, MessageContext, DispatchPriority,
     LOOP_MESSAGE_DISPATCHER,
 )
-from discord_bot.core.utils.loop_health import LOOP_HEALTH
-from discord_bot.core.utils.otel import loop_heartbeat_observations
-from discord_bot.services.broker.workers.asyncio_queues import AsyncioBundleStore, AsyncioWorkQueue
-from discord_bot.core.exceptions import CogMissingRequiredArg
-from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
-from discord_bot.seams.dispatch.types.dispatch_request import (
-    FetchChannelHistoryRequest, FetchGuildEmojisRequest, SendRequest, DeleteRequest,
-)
-from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchRemoteError
-from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 
 from tests.helpers import (
     fake_bot_yielder, FakeChannel, FakeGuild, FakeMessage, FakeResponse,
