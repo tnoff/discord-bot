@@ -21,8 +21,9 @@ from discord_core.types.download import DownloadErrorType, LifecycleEvent, Downl
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 
-from discord_bot.seams.queue_worker.types.queue import PutsBlocked
-from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
+from discord_seam_queue_worker.types.queue import PutsBlocked
+from discord_seam_queue_worker.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
+
 from discord_bot.services.downloader.interfaces import download_protocols
 from discord_bot.services.downloader.interfaces.download_protocols import VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded, DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator, DirectItemAvailableException
 from discord_bot.services.downloader.utils.audio import AudioProcessingError

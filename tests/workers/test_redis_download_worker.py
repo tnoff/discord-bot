@@ -26,8 +26,9 @@ from discord_core.types.download import DownloadErrorType, DownloadResult, Downl
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchResult
 
-from discord_bot.seams.queue_worker.types.queue import PutsBlocked
-from discord_bot.seams.queue_worker.workers.redis_guild_queue import GUILD_BLOCK_TTL_SECONDS
+from discord_seam_queue_worker.types.queue import PutsBlocked
+from discord_seam_queue_worker.workers.redis_guild_queue import GUILD_BLOCK_TTL_SECONDS
+
 from discord_bot.services.downloader.workers.redis_download_worker import (
     RedisDownloadWorker, DirectItemAvailableException,
     DEFERRED_RETRIES_KEY, FAILURES_DIRECT_KEY, GUILDS_DIRECT_KEY, GUILDS_YOUTUBE_KEY,
@@ -675,7 +676,7 @@ async def test_pop_lock_falls_through_on_contention(monkeypatch):
     # Lock always contested -> the acquire loop should time out and fall through
     # (token=None) rather than deadlock, and skip the release.
     monkeypatch.setattr(
-        'discord_bot.seams.queue_worker.workers.redis_guild_queue.POP_LOCK_WAIT_SECONDS', 0.0)
+        'discord_seam_queue_worker.workers.redis_guild_queue.POP_LOCK_WAIT_SECONDS', 0.0)
     w._manager.client.set = AsyncMock(return_value=None)
     async with w._pop_lock(direct=True):
         pass  # no exception == fell through cleanly

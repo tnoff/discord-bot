@@ -35,7 +35,7 @@ from discord_seam_broker.types.responses import (
     CheckoutStagedResponse, CreateBundleResponse, GetCacheCountResponse,
 )
 
-from discord_bot.seams.queue_worker.clients.http_player_session import HttpPlayerSessionMixin
+from discord_seam_queue_worker.clients.http_player_session import HttpPlayerSessionMixin
 
 logger = logging.getLogger(__name__)
 

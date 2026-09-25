@@ -10,7 +10,8 @@ from discord.errors import ClientException
 
 from discord_core.exceptions import ExitEarlyException
 
-from discord_bot.seams.queue_worker.types.queue import Queue
+from discord_seam_queue_worker.types.queue import Queue
+
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer, cleanup_source
 from discord_bot.services.broker.interfaces.broker_protocols import CheckoutResult
 

@@ -63,6 +63,7 @@ RUN mkdir -p "${APPDIR}/discord_bot" && \
 # of the split is that an image carries the roots it reaches and no others.
 COPY discord_bot/ "${APPDIR}/discord_bot/"
 COPY discord_core/ "${APPDIR}/discord_core/"
+COPY discord_seam_queue_worker/ "${APPDIR}/discord_seam_queue_worker/"
 COPY discord_seam_broker/ "${APPDIR}/discord_seam_broker/"
 # discord_seam_media_search/ is the FIRST root not copied by all six: only the
 # bot and search images reach that seam, so the other four Dockerfiles do not

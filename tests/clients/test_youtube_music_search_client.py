@@ -13,7 +13,8 @@ from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchResult
 
-from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue
+from discord_seam_queue_worker.utils.failure_queue import FailureQueue
+
 from discord_bot.services.search.utils.integrations.youtube_music import YoutubeMusicRetryException
 
 from tests.fakes.in_memory_youtube_music_search_client import InMemoryYoutubeMusicSearchClient

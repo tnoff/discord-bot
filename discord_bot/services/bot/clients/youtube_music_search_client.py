@@ -18,8 +18,9 @@ from discord_seam_media_search.interfaces.youtube_music_search_protocols import 
     YoutubeMusicSearchClient, YoutubeMusicSearchWorkerBase,
 )
 
-from discord_bot.seams.queue_worker.routes import queue_worker as queue_worker_routes
-from discord_bot.seams.queue_worker.routes.queue_worker import QueueWorkerRoutes
+from discord_seam_queue_worker.routes import queue_worker as queue_worker_routes
+from discord_seam_queue_worker.routes.queue_worker import QueueWorkerRoutes
+
 from discord_bot.services.bot.clients.http_queue_worker_client import HttpQueueWorkerClient
 
 __all__ = [

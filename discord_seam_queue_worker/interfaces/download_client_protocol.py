@@ -20,7 +20,7 @@ from typing import Callable, Protocol
 
 from discord_core.types.media_request import MediaRequest
 
-from discord_bot.seams.queue_worker.types.clear_guild_result import ClearGuildResult
+from discord_seam_queue_worker.types.clear_guild_result import ClearGuildResult
 
 __all__ = ['DownloadClient', 'RETRY_BACKOFF_SECONDS_MINIMUM']
 

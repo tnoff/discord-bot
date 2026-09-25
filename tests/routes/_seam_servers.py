@@ -25,8 +25,9 @@ from discord_seam_database.routes import database as database_routes
 
 from discord_seam_media_search.routes import media_search as media_search_routes
 
+from discord_seam_queue_worker.routes import queue_worker as queue_worker_routes
+
 from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
-from discord_bot.seams.queue_worker.routes import queue_worker as queue_worker_routes
 from discord_bot.services.broker.servers.broker_server import BrokerHttpServer
 from discord_bot.services.db.servers.database_server import DatabaseHttpServer
 from discord_bot.services.dispatcher.servers.dispatch_server import DispatchHttpServer

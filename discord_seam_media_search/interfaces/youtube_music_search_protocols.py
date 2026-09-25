@@ -33,8 +33,8 @@ from discord_core.exceptions import ExitEarlyException, YoutubeMusicRetryExcepti
 from discord_core.types.media_request import MediaRequest
 from discord_core.utils.common import LoggingConfig, get_logger
 
-from discord_bot.seams.queue_worker.types.clear_guild_result import ClearGuildResult
-from discord_bot.seams.queue_worker.utils.failure_queue import FailureQueue, FailureStatus
+from discord_seam_queue_worker.types.clear_guild_result import ClearGuildResult
+from discord_seam_queue_worker.utils.failure_queue import FailureQueue, FailureStatus
 
 if TYPE_CHECKING:  # pragma: no cover
     # Annotation only — importing it for real would pull ytmusicapi into every

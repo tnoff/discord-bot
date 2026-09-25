@@ -16,8 +16,9 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 
-from discord_bot.seams.queue_worker.types.queue import PutsBlocked
-from discord_bot.seams.queue_worker.utils.failure_queue import FailureStatus
+from discord_seam_queue_worker.types.queue import PutsBlocked
+from discord_seam_queue_worker.utils.failure_queue import FailureStatus
+
 from discord_bot.services.bot.cogs.music import Music
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.services.broker.workers.media_bundle import BundleRenderer

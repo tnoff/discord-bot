@@ -2,7 +2,7 @@ from asyncio import QueueFull
 
 import pytest
 
-from discord_bot.seams.queue_worker.types.queue import (Queue, PutsBlocked, submit_rejection_status,
+from discord_seam_queue_worker.types.queue import (Queue, PutsBlocked, submit_rejection_status,
                                       SUBMIT_REJECTION_BY_STATUS)
 
 @pytest.mark.asyncio
