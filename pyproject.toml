@@ -280,3 +280,30 @@ filterwarnings = [
     # affects py311.
     "ignore:SelectableGroups dict interface is deprecated:DeprecationWarning",
 ]
+
+[tool.coverage.run]
+# ONE source root, so every file has ONE unambiguous path in coverage.xml.
+#
+# With several `--cov=<root>` flags coverage writes one <source> per root and
+# strips the matching root off each filename, so `discord_core/utils/otel.py`
+# is recorded as `utils/otel.py`. diff-cover then reconstructs the full path by
+# testing each <source> in turn, and for a name present under more than one
+# root it takes the first that exists.
+#
+# Measured at the media_search move: `__init__.py`, `routes/__init__.py`,
+# `types/__init__.py` and `utils/__init__.py` each live under several roots and
+# coverage.xml held ONE entry for each. Harmless at three roots -- every
+# collision is a codeless package init with zero measured lines -- and not
+# harmless at twelve, where a real module can collide. The gate would not fail;
+# it would report the wrong file's coverage.
+#
+# `relative_files` does NOT fix this. It makes the <source> entries relative and
+# leaves the filenames stripped, which was measured before choosing this.
+source = ["."]
+omit = [
+    "tests/*",
+    "alembic/*",
+    ".tox/*",
+    ".venv/*",
+    "setup.py",
+]
