@@ -9,11 +9,12 @@ from unittest.mock import AsyncMock, MagicMock, Mock
 import fakeredis.aioredis
 import pytest
 
-from discord_bot.core.clients.redis_client import RedisManager
-from discord_bot.services.dispatcher.servers.dispatch_health_server import DispatchHealthServer
+from discord_core.clients.redis_client import RedisManager
+from discord_core.servers.health_server_base import HealthServerBase, close_writer
+from discord_core.utils.loop_health import LOOP_HEALTH
+
 from discord_bot.services.bot.servers.health_server import HealthServer
-from discord_bot.core.servers.health_server_base import HealthServerBase, close_writer
-from discord_bot.core.utils.loop_health import LOOP_HEALTH
+from discord_bot.services.dispatcher.servers.dispatch_health_server import DispatchHealthServer
 
 
 class _FakeClock:

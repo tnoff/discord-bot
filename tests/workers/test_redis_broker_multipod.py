@@ -17,11 +17,12 @@ import asyncio
 import fakeredis.aioredis
 import pytest
 
-from discord_bot.core.clients.redis_client import RedisManager
-from discord_bot.core.cogs.music_helpers.common import SearchType
-from discord_bot.core.types.download import LifecycleEvent, LifecycleStatusUpdate
-from discord_bot.core.types.media_request import MediaRequest
-from discord_bot.core.types.search import SearchResult
+from discord_core.clients.redis_client import RedisManager
+from discord_core.cogs.music_helpers.common import SearchType
+from discord_core.types.download import LifecycleEvent, LifecycleStatusUpdate
+from discord_core.types.media_request import MediaRequest
+from discord_core.types.search import SearchResult
+
 from discord_bot.services.broker.workers.broker_registry import RedisBrokerRegistry
 from discord_bot.services.broker.workers.media_bundle import BundleRenderer
 from discord_bot.services.broker.workers.redis_broker import RedisBroker

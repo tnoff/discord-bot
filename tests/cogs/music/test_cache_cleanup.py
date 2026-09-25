@@ -5,11 +5,11 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.services.db.database import VideoCache
-from discord_bot.services.bot.cogs.music import Music
-from discord_bot.core.exceptions import DiscordBotException
+from discord_core.exceptions import DiscordBotException
 
+from discord_bot.services.bot.cogs.music import Music
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_bot.services.db.database import VideoCache
 
 from tests.cogs.test_music import music_config
 from tests.helpers import async_mock_session, fake_media_download

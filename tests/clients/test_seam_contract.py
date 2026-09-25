@@ -16,10 +16,11 @@ from aiohttp.test_utils import TestServer
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 
-from discord_bot.core.clients.seam_contract import (DEFAULT_GRACE_SECONDS, GAUGE_REGISTRY,
+from discord_core.clients.seam_contract import (DEFAULT_GRACE_SECONDS, GAUGE_REGISTRY,
                                                PeerContractStatus, SeamContractCheck)
+from discord_core.routes import contract
+
 from discord_bot.seams.broker.routes import broker as broker_routes
-from discord_bot.core.routes import contract
 
 
 class _Clock:

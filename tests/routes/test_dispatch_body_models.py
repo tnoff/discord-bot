@@ -16,14 +16,13 @@ from datetime import datetime
 import pytest
 from pydantic import BaseModel
 
+from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
+from discord_bot.seams.dispatch.types import requests, responses
 from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
 from discord_bot.seams.dispatch.types.results import (
     ChannelHistoryResultBody, DispatchErrorDetailBody, DispatchErrorResultBody,
     GuildEmojisResultBody,
 )
-
-from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
-from discord_bot.seams.dispatch.types import requests, responses
 
 #: Route constant -> (request model, response model). Written out rather than
 #: derived, because deriving it from the modules would make this test agree with

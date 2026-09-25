@@ -19,7 +19,7 @@ import uuid as uuid_module
 
 import redis.asyncio as aioredis
 
-from discord_bot.core.clients.redis_client import RedisManager
+from discord_core.clients.redis_client import RedisManager
 
 logger = logging.getLogger(__name__)
 

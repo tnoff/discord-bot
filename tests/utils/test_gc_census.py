@@ -5,7 +5,7 @@ Tests for the GC object-census profiler
 import time
 from unittest.mock import Mock, patch
 
-from discord_bot.core.utils.gc_census import GcCensusProfiler
+from discord_core.utils.gc_census import GcCensusProfiler
 
 
 class TestGcCensusProfiler:
@@ -57,7 +57,7 @@ class TestGcCensusProfiler:
         """Census returns the total and a per-type Counter"""
         profiler = GcCensusProfiler()
         fake_objects = [1, 2, 'a', 'b', 'c', {}, {}]
-        with patch('discord_bot.core.utils.gc_census.gc.get_objects',
+        with patch('discord_core.utils.gc_census.gc.get_objects',
                    return_value=fake_objects):
             census = profiler.get_census()
 
@@ -69,7 +69,7 @@ class TestGcCensusProfiler:
     def test_summary_first_call_has_no_deltas(self):
         """First summary shows totals + top types but no delta/grower sections"""
         profiler = GcCensusProfiler(top_n=5)
-        with patch('discord_bot.core.utils.gc_census.gc.get_objects',
+        with patch('discord_core.utils.gc_census.gc.get_objects',
                    return_value=['a', 'b', {}]):
             summary = profiler.get_census_summary()
 
@@ -87,7 +87,7 @@ class TestGcCensusProfiler:
         """Second summary shows total delta, per-type deltas, and a growers section"""
         profiler = GcCensusProfiler(top_n=5)
         # Second snapshot has one extra 'dict' -> a positive grower.
-        with patch('discord_bot.core.utils.gc_census.gc.get_objects',
+        with patch('discord_core.utils.gc_census.gc.get_objects',
                    side_effect=[['a', 'b', {}], ['a', 'b', {}, {}]]):
             profiler.get_census_summary()          # seeds _last_census
             summary = profiler.get_census_summary()  # deltas now visible
@@ -101,7 +101,7 @@ class TestGcCensusProfiler:
         """When nothing grows, the growers section is omitted (deltas still shown)"""
         profiler = GcCensusProfiler(top_n=5)
         # Second snapshot is smaller: every delta is <= 0, so no growers.
-        with patch('discord_bot.core.utils.gc_census.gc.get_objects',
+        with patch('discord_core.utils.gc_census.gc.get_objects',
                    side_effect=[['a', 'b', {}], ['a']]):
             profiler.get_census_summary()
             summary = profiler.get_census_summary()
@@ -113,7 +113,7 @@ class TestGcCensusProfiler:
         """The background loop logs a census summary"""
         mock_logger = Mock()
         profiler = GcCensusProfiler(interval_seconds=1)
-        with patch('discord_bot.core.utils.gc_census.logger', mock_logger):
+        with patch('discord_core.utils.gc_census.logger', mock_logger):
             profiler.start()
             time.sleep(1.5)  # wait for at least one census
             profiler.stop()

@@ -7,17 +7,18 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.services.db.database import Playlist, PlaylistItem
-from discord_bot.services.bot.cogs.music import Music
-from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem
-from discord_bot.core.types.media_download import MediaDownload
-from discord_bot.core.types.download import LifecycleEvent
-from discord_bot.core.types.playlist_add_request import PlaylistAddRequest
-from discord_bot.services.bot.types.playlist_add_result import PlaylistAddResult
+from discord_core.cogs.music_helpers.common import SearchType
+from discord_core.types.download import LifecycleEvent
+from discord_core.types.media_download import MediaDownload
+from discord_core.types.playlist_add_request import PlaylistAddRequest
+from discord_core.types.search import SearchResult
+
 from discord_bot.seams.database.types.playlist import PlaylistEntry, PlaylistItemEntry, PlaylistItemWrite
-from discord_bot.core.types.search import SearchResult
-from discord_bot.core.cogs.music_helpers.common import SearchType
+from discord_bot.services.bot.cogs.music import Music
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem
+from discord_bot.services.bot.types.playlist_add_result import PlaylistAddResult
+from discord_bot.services.db.database import Playlist, PlaylistItem
 
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG, yield_fake_download_worker, yield_fake_search_client, yield_download_worker_download_exception
 from tests.helpers import async_mock_session, fake_source_dict, fake_media_download

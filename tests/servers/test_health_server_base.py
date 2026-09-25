@@ -12,8 +12,8 @@ import json
 
 import pytest
 
-from discord_bot.core.servers.health_server_base import HealthServerBase
-from discord_bot.core.utils.otel import AttributeNaming
+from discord_core.servers.health_server_base import HealthServerBase
+from discord_core.utils.otel import AttributeNaming
 
 
 class _AlwaysOk(HealthServerBase):
@@ -60,7 +60,7 @@ async def test_every_pod_records_its_own_name(mocker):
     default would file two pods under one series, which is exactly the collision
     the naming scheme exists to prevent.
     '''
-    counter = mocker.patch('discord_bot.core.servers.health_server_base._POD_READY_CHECK_COUNTER')
+    counter = mocker.patch('discord_core.servers.health_server_base._POD_READY_CHECK_COUNTER')
     for pod in ('downloader', 'search'):
         counter.reset_mock()
         await _probe(_AlwaysOk(port=0, bind_address='127.0.0.1', pod=pod))
@@ -76,7 +76,7 @@ async def test_a_stalled_loop_makes_the_metric_agree_with_the_status(mocker):
     fine, a registered loop is stalled, the endpoint 503s -- and the counter had
     already recorded 'ok' because it ran first.
     '''
-    counter = mocker.patch('discord_bot.core.servers.health_server_base._POD_READY_CHECK_COUNTER')
+    counter = mocker.patch('discord_core.servers.health_server_base._POD_READY_CHECK_COUNTER')
     mocker.patch.object(HealthServerBase, '_apply_loop_health',
                         staticmethod(lambda ok, extra: (False, extra)))
     status, _ = await _probe(_AlwaysOk(port=0, bind_address='127.0.0.1', pod='broker'))
@@ -89,6 +89,6 @@ async def test_a_stalled_loop_makes_the_metric_agree_with_the_status(mocker):
 @pytest.mark.asyncio
 async def test_one_observation_per_probe(mocker):
     '''Not one per _check plus another for the readiness path.'''
-    counter = mocker.patch('discord_bot.core.servers.health_server_base._POD_READY_CHECK_COUNTER')
+    counter = mocker.patch('discord_core.servers.health_server_base._POD_READY_CHECK_COUNTER')
     await _probe(_AlwaysOk(port=0, bind_address='127.0.0.1', pod='bot'), path=b'/ready')
     assert counter.add.call_count == 1

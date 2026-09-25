@@ -13,9 +13,10 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from discord_core.types.download import LifecycleEvent, DownloadResult, DownloadStatus
+from discord_core.types.playlist_add_request import PlaylistAddRequest
+
 from discord_bot.services.broker.servers.broker_server import BrokerHttpServer, _QueueItemProxy
-from discord_bot.core.types.download import LifecycleEvent, DownloadResult, DownloadStatus
-from discord_bot.core.types.playlist_add_request import PlaylistAddRequest
 
 from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
@@ -43,7 +44,7 @@ def _span_exporter(mocker) -> InMemorySpanExporter:
     exporter = InMemorySpanExporter()
     provider = TracerProvider()
     provider.add_span_processor(SimpleSpanProcessor(exporter))
-    mocker.patch('discord_bot.core.utils.otel.TRACER', provider.get_tracer('test'))
+    mocker.patch('discord_core.utils.otel.TRACER', provider.get_tracer('test'))
     return exporter
 
 

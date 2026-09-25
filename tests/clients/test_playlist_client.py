@@ -5,8 +5,6 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_bot.services.db.clients.playlist_client import PlaylistClient
-from discord_bot.services.db.database import Playlist, PlaylistItem
 from discord_bot.seams.database.interfaces.database_protocols import PlaylistStore
 from discord_bot.seams.database.types.playlist import (
     PlaylistEntry,
@@ -14,6 +12,8 @@ from discord_bot.seams.database.types.playlist import (
     PlaylistItemEntry,
     PlaylistItemWrite,
 )
+from discord_bot.services.db.clients.playlist_client import PlaylistClient
+from discord_bot.services.db.database import Playlist, PlaylistItem
 
 from tests.helpers import fake_engine #pylint:disable=unused-import
 from tests.helpers import async_mock_session

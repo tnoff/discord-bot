@@ -48,12 +48,13 @@ import pytest
 
 from tests.cli._image_deps import (
     ALL_SIX, CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, IMAGE_NAMES, LAYOUT_DOC, NOT_YET_SPLIT,
-    OWNERSHIP_DOC, REPO_ROOT, PACKAGE, SEAMS_DIR, VOCABULARY,
+    OWNERSHIP_DOC, REPO_ROOT, PACKAGE, VOCABULARY,
     codeless_inits, declared_home, layout_violations, measure, measured_owners,
     render_closure, route_leaf, render_layout, render_table,
 )
 from tests.cli._roots import (
-    CORE_ROOT, LEGACY_ROOT, ROOTS, SEAM_ROOTS, SERVICE_ROOTS, canonical, home_of,
+    CORE_DIR, CORE_ROOT, LEGACY_ROOT, ROOTS, SEAMS_DIR, SEAM_ROOTS, SERVICE_ROOTS,
+    canonical, dirs_for, home_of, module_prefixes_for, source_files,
 )
 
 
@@ -444,7 +445,7 @@ def test_every_module_is_claimed_by_some_image():
     closure = json.loads(CLOSURE_DOC.read_text(encoding='utf-8'))
     claimed = set().union(*(set(image['modules']) for image in closure['images']))
     orphans = []
-    for path in sorted((REPO_ROOT / 'discord_bot').rglob('*.py')):
+    for path in source_files(REPO_ROOT):
         module = str(path.relative_to(REPO_ROOT).with_suffix('')).replace('/', '.')
         if module.endswith('.__init__'):
             module = module[: -len('.__init__')]
@@ -489,8 +490,12 @@ def test_the_all_six_set_is_exactly_declared():
     )
 
 
-def _runtime_imports(path, prefix):
-    """Modules under `prefix` that `path` imports AT RUNTIME.
+def _runtime_imports(path, prefixes):
+    """Modules under `prefixes` that `path` imports AT RUNTIME.
+
+    Takes a TUPLE of prefixes, because a home has two dotted spellings while the
+    criterion 8 migration runs -- `discord_bot.core.` and `discord_core.` name
+    the same folder, and a rule that knows only one stops matching mid-move.
 
     AST rather than substring, and `if TYPE_CHECKING:` blocks are skipped on
     purpose: an annotation-only import creates no runtime dependency, pip never
@@ -514,10 +519,10 @@ def _runtime_imports(path, prefix):
     for node in ast.walk(tree):
         if id(node) in guarded:
             continue
-        if isinstance(node, ast.ImportFrom) and (node.module or '').startswith(prefix):
+        if isinstance(node, ast.ImportFrom) and (node.module or '').startswith(prefixes):
             found.append(node.module)
         elif isinstance(node, ast.Import):
-            found += [a.name for a in node.names if a.name.startswith(prefix)]
+            found += [a.name for a in node.names if a.name.startswith(prefixes)]
     return found
 
 
@@ -540,20 +545,24 @@ def test_the_core_does_not_import_a_seam():
     Asserted in BOTH directions, because a rule about a direction proves nothing
     if traffic has quietly stopped flowing the other way too.
     '''
-    core = REPO_ROOT / PACKAGE / 'core'
-    seams = REPO_ROOT / PACKAGE / SEAMS_DIR
-    assert core.is_dir() and seams.is_dir(), 'core/ or seams/ is missing'
+    core_dirs = dirs_for(REPO_ROOT, CORE_DIR)
+    seam_dirs = dirs_for(REPO_ROOT, SEAMS_DIR)
+    assert core_dirs and seam_dirs, 'core/ or seams/ is missing'
+    core_files = sorted(f for d in core_dirs for f in d.rglob('*.py'))
+    seam_files = sorted(f for d in seam_dirs for f in d.rglob('*.py'))
+    core_prefixes = module_prefixes_for(CORE_DIR)
+    seam_prefixes = module_prefixes_for(SEAMS_DIR)
 
-    upward = [str(p.relative_to(REPO_ROOT)) for p in sorted(seams.rglob('*.py'))
-              if _runtime_imports(p, f'{PACKAGE}.core')]
+    upward = [str(p.relative_to(REPO_ROOT)) for p in seam_files
+              if _runtime_imports(p, core_prefixes)]
     assert upward, (
         'no seam imports the core -- the detector is broken, or the layout has '
         'changed shape so completely that this rule needs rewriting rather than '
         'passing quietly'
     )
-    downward = {str(p.relative_to(REPO_ROOT)): _runtime_imports(p, f'{PACKAGE}.{SEAMS_DIR}')
-                for p in sorted(core.rglob('*.py'))
-                if _runtime_imports(p, f'{PACKAGE}.{SEAMS_DIR}')}
+    downward = {str(p.relative_to(REPO_ROOT)): _runtime_imports(p, seam_prefixes)
+                for p in core_files
+                if _runtime_imports(p, seam_prefixes)}
     assert not downward, (
         f'these core modules import a seam at runtime, which inverts the '
         f'dependency: {downward}. A core module that needs a seam is contract '

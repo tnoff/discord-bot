@@ -13,11 +13,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from discord_bot.core.cogs.music_helpers.common import MediaRequestLifecycleStage
-from discord_bot.services.broker.interfaces.broker_protocols import BrokerEntry, CheckoutResult, Zone
-from discord_bot.core.types.download import LifecycleEvent, LifecycleStatusUpdate
+from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage
+from discord_core.types.download import LifecycleEvent, LifecycleStatusUpdate
+from discord_core.types.playlist_add_request import parse_media_request
+
 from discord_bot.seams.broker.types.player_session import PlayerSession
-from discord_bot.core.types.playlist_add_request import parse_media_request
+from discord_bot.services.broker.interfaces.broker_protocols import BrokerEntry, CheckoutResult, Zone
 
 from tests.fakes.asyncio_broker import AsyncioBroker
 from tests.helpers import fake_context, fake_media_download, fake_source_dict  # pylint: disable=unused-import

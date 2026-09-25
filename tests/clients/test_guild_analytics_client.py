@@ -5,10 +5,10 @@ from functools import partial
 import pytest
 from sqlalchemy import select
 
-from discord_bot.services.db.clients.guild_analytics_client import GuildAnalyticsClient
-from discord_bot.services.db.database import Guild, GuildVideoAnalytics
 from discord_bot.seams.database.interfaces.database_protocols import GuildAnalyticsStore
 from discord_bot.seams.database.types.guild_analytics import GuildAnalyticsEntry
+from discord_bot.services.db.clients.guild_analytics_client import GuildAnalyticsClient
+from discord_bot.services.db.database import Guild, GuildVideoAnalytics
 
 from tests.helpers import fake_engine #pylint:disable=unused-import
 from tests.helpers import async_mock_session

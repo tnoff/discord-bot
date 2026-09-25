@@ -32,7 +32,7 @@ from contextlib import nullcontext
 import aiohttp
 from opentelemetry.instrumentation.utils import suppress_instrumentation
 
-from discord_bot.core.exceptions import DiscordBotException
+from discord_core.exceptions import DiscordBotException
 
 logger = logging.getLogger(__name__)
 

@@ -12,8 +12,9 @@ client-source assertions specific to it.
 '''
 import pytest
 
+from discord_core.routes import contract
+
 from discord_bot.seams.broker.routes import broker as broker_routes
-from discord_bot.core.routes import contract
 from discord_bot.seams.database.routes import database as database_routes
 from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
 from discord_bot.seams.media_search.routes import media_search as media_search_routes
@@ -22,8 +23,8 @@ from discord_bot.services.bot.clients.http_download_client import HttpDownloadCl
 from discord_bot.services.bot.clients.http_markov_store import HttpMarkovStore
 from discord_bot.services.bot.clients.http_playlist_store import HttpPlaylistStore
 from discord_bot.services.bot.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
-from discord_bot.services.search.servers.composite_server import CompositeHttpServer
 from discord_bot.services.db.servers.database_server import DatabaseHttpServer
+from discord_bot.services.search.servers.composite_server import CompositeHttpServer
 from discord_bot.services.search.servers.media_search_server import MediaSearchHttpServer
 from discord_bot.services.search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
 

@@ -5,9 +5,10 @@ import redis
 from redis.asyncio.retry import Retry
 from redis.backoff import ExponentialBackoff
 
-from discord_bot.core.clients import redis_client as redis_client_module
-from discord_bot.core.clients.redis_client import RedisManager
-from discord_bot.core.utils.common import GeneralConfig, RedisSentinelConfig
+from discord_core.clients import redis_client as redis_client_module
+from discord_core.clients.redis_client import RedisManager
+from discord_core.utils.common import GeneralConfig, RedisSentinelConfig
+
 from discord_bot.seams.dispatch.workers.redis_queues import (
     BUNDLE_KEY_PREFIX,
     save_bundle,
@@ -89,7 +90,7 @@ async def test_redis_manager_start_opens_connection(mocker):
     '''start() calls aioredis.from_url with the resilience kwargs and stores the client.'''
     fake_client = AsyncMock()
     mock_from_url = mocker.patch(
-        'discord_bot.core.clients.redis_client.aioredis.from_url',
+        'discord_core.clients.redis_client.aioredis.from_url',
         return_value=fake_client,
     )
     retry_spy = mocker.spy(redis_client_module, 'Retry')
@@ -139,7 +140,7 @@ async def test_redis_manager_start_uses_sentinel(mocker):
     mock_sentinel = MagicMock()
     mock_sentinel.master_for.return_value = fake_client
     mock_sentinel_cls = mocker.patch(
-        'discord_bot.core.clients.redis_client.Sentinel',
+        'discord_core.clients.redis_client.Sentinel',
         return_value=mock_sentinel,
     )
     manager = RedisManager(sentinels=[('redis-sentinel', 26379)], service_name='mymaster')
@@ -173,7 +174,7 @@ async def test_redis_manager_close_also_closes_sentinels(mocker):
     mock_sentinel = MagicMock()
     mock_sentinel.master_for.return_value = fake_client
     mock_sentinel.sentinels = [sentinel_conn_a, sentinel_conn_b]
-    mocker.patch('discord_bot.core.clients.redis_client.Sentinel', return_value=mock_sentinel)
+    mocker.patch('discord_core.clients.redis_client.Sentinel', return_value=mock_sentinel)
     manager = RedisManager(sentinels=[('redis-sentinel', 26379)], service_name='mymaster')
     await manager.start()
     await manager.close()
@@ -194,7 +195,7 @@ async def test_from_general_config_uses_sentinel_when_configured(mocker):
     mock_sentinel = MagicMock()
     mock_sentinel.master_for.return_value = AsyncMock()
     sentinel_cls = mocker.patch(
-        'discord_bot.core.clients.redis_client.Sentinel',
+        'discord_core.clients.redis_client.Sentinel',
         return_value=mock_sentinel,
     )
     manager = RedisManager.from_general_config(gc)
@@ -209,7 +210,7 @@ async def test_from_general_config_falls_back_to_url(mocker):
     '''from_general_config uses the direct URL when no Sentinel config is present.'''
     gc = GeneralConfig(discord_token='t', redis_url='redis://localhost:6379/0')
     mock_from_url = mocker.patch(
-        'discord_bot.core.clients.redis_client.aioredis.from_url',
+        'discord_core.clients.redis_client.aioredis.from_url',
         return_value=AsyncMock(),
     )
     manager = RedisManager.from_general_config(gc)

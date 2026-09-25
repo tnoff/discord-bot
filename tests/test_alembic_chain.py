@@ -35,10 +35,11 @@ import pytest
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.pool import NullPool
 
+from discord_core.utils.common import GeneralConfig
+
 from discord_bot.services.db.cli._lib.db import setup_db
 from discord_bot.services.db.cli._lib.migrations import run_pending_migrations
 from discord_bot.services.db.database import BASE
-from discord_bot.core.utils.common import GeneralConfig
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 

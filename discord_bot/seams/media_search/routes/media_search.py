@@ -14,7 +14,7 @@ routes from two registries. Adding a route here that starts `/search/ytmusic`
 would collide at startup rather than quietly shadow, which is the behaviour worth
 having.
 '''
-from discord_bot.core.routes.route import Route, collect
+from discord_core.routes.route import Route, collect
 
 # Kept as a named constant because both sides derive route names from it, and the
 # client's public methods are named after the suffixes.

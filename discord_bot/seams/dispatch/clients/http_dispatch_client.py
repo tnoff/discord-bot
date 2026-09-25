@@ -5,11 +5,18 @@ import logging
 import aiohttp
 from opentelemetry import trace
 
+from discord_core.clients.http_client_base import HttpClientMixin
+from discord_core.routes.route import Route
+from discord_core.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
+from discord_core.utils.otel import AttributeNaming, DispatchNaming, METER_PROVIDER, MetricNaming
+from discord_core.utils.retry import async_retry_broker_command
+
+from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
+from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
 from discord_bot.seams.dispatch.types.dispatch_request import (
     DeleteRequest,
     SendRequest,
 )
-from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
 from discord_bot.seams.dispatch.types.requests import (
     DeleteRequestBody, RemoveMutableRequestBody, SendRequestBody,
     UpdateMutableChannelRequestBody, UpdateMutableRequestBody,
@@ -20,13 +27,7 @@ from discord_bot.seams.dispatch.types.responses import (
 from discord_bot.seams.dispatch.types.results import (
     ChannelHistoryResultBody, DispatchErrorResultBody, GuildEmojisResultBody,
 )
-from discord_bot.core.routes.route import Route
-from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase, DispatchRemoteError
-from discord_bot.core.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from discord_bot.seams.dispatch.utils.dispatch_queue import dispatch_request_id
-from discord_bot.core.utils.retry import async_retry_broker_command
-from discord_bot.core.clients.http_client_base import HttpClientMixin
-from discord_bot.core.utils.otel import AttributeNaming, DispatchNaming, METER_PROVIDER, MetricNaming
 
 logger = logging.getLogger(__name__)
 

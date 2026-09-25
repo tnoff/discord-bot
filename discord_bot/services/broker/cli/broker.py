@@ -37,20 +37,20 @@ import signal
 
 import click
 
-from discord_bot.core.clients.http_client_base import start_seam_checks
+from discord_core.cli._lib.common import parse_and_validate_config, run_loop, setup_observability
+from discord_core.clients.http_client_base import start_seam_checks
+from discord_core.clients.redis_client import RedisManager
+from discord_core.utils.common import GeneralConfig
+
+from discord_bot.seams.database.types.video_cache import MusicCacheConfig
 from discord_bot.seams.dispatch.clients.http_dispatch_client import HttpDispatchClient
+from discord_bot.seams.dispatch.workers.redis_queues import RedisDownloadResultQueue, RedisSearchResultQueue
 from discord_bot.services.broker.clients.http_video_cache_store import HttpVideoCacheStore
-from discord_bot.core.clients.redis_client import RedisManager
 from discord_bot.services.broker.servers.broker_health_server import BrokerHealthServer
 from discord_bot.services.broker.servers.broker_server import BrokerHttpServer
-from discord_bot.seams.database.types.video_cache import MusicCacheConfig
-from discord_bot.core.utils.common import GeneralConfig
 from discord_bot.services.broker.workers.broker_metrics import BrokerMetrics
 from discord_bot.services.broker.workers.broker_registry import RedisBrokerRegistry
 from discord_bot.services.broker.workers.redis_broker import RedisBroker
-from discord_bot.seams.dispatch.workers.redis_queues import RedisDownloadResultQueue, RedisSearchResultQueue
-
-from discord_bot.core.cli._lib.common import parse_and_validate_config, run_loop, setup_observability
 
 logger = logging.getLogger(__name__)
 

@@ -4,15 +4,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from discord_bot.services.bot.cogs.music import Music
-from discord_bot.core.exceptions import ExitEarlyException
-from discord_bot.services.bot.types.cleanup_reason import CleanupReason
-from discord_bot.core.types.playlist_add_request import PlaylistAddRequest
-from discord_bot.core.types.search import SearchResult
-from discord_bot.core.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage
-from discord_bot.core.utils.discord_context import DiscordContextNaming
+from discord_core.cogs.music_helpers.common import SearchType, MultipleMutableType, MediaRequestLifecycleStage
+from discord_core.exceptions import ExitEarlyException
+from discord_core.types.playlist_add_request import PlaylistAddRequest
+from discord_core.types.search import SearchResult
+from discord_core.utils.discord_context import DiscordContextNaming
 
+from discord_bot.services.bot.cogs.music import Music
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_bot.services.bot.types.cleanup_reason import CleanupReason
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import FakeGuild, FakeVoiceClient, fake_engine, fake_context, fake_source_dict #pylint:disable=unused-import

@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **87 are package
+`services/`. A further **86 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -58,38 +58,38 @@ confuse them; it is the prose and the review conversation that need the care.
 
 ### `discord_bot/core/` — 32, reached by all 6
 
-- `discord_bot.core.cli._lib.common`
-- `discord_bot.core.cli._lib.gateway`
-- `discord_bot.core.cli._lib.worker_pod`
-- `discord_bot.core.clients.http_client_base`
-- `discord_bot.core.clients.redis_client`
-- `discord_bot.core.clients.seam_contract`
-- `discord_bot.core.cogs.music_helpers.common`
-- `discord_bot.core.cogs.schema`
-- `discord_bot.core.common`
-- `discord_bot.core.exceptions`
-- `discord_bot.core.routes.contract`
-- `discord_bot.core.routes.route`
-- `discord_bot.core.servers.base`
-- `discord_bot.core.servers.health_server_base`
-- `discord_bot.core.servers.redis_health_server`
-- `discord_bot.core.types.download`
-- `discord_bot.core.types.media_download`
-- `discord_bot.core.types.media_request`
-- `discord_bot.core.types.playlist_add_request`
-- `discord_bot.core.types.search`
-- `discord_bot.core.types.search_resolution`
-- `discord_bot.core.utils.circuit_breaker`
-- `discord_bot.core.utils.common`
-- `discord_bot.core.utils.discord_context`
-- `discord_bot.core.utils.discord_utils`
-- `discord_bot.core.utils.gc_census`
-- `discord_bot.core.utils.loop_health`
-- `discord_bot.core.utils.memory_profiler`
-- `discord_bot.core.utils.otel`
-- `discord_bot.core.utils.process_metrics`
-- `discord_bot.core.utils.retry`
-- `discord_bot.core.workers.queue_metrics`
+- `discord_core.cli._lib.common`
+- `discord_core.cli._lib.gateway`
+- `discord_core.cli._lib.worker_pod`
+- `discord_core.clients.http_client_base`
+- `discord_core.clients.redis_client`
+- `discord_core.clients.seam_contract`
+- `discord_core.cogs.music_helpers.common`
+- `discord_core.cogs.schema`
+- `discord_core.common`
+- `discord_core.exceptions`
+- `discord_core.routes.contract`
+- `discord_core.routes.route`
+- `discord_core.servers.base`
+- `discord_core.servers.health_server_base`
+- `discord_core.servers.redis_health_server`
+- `discord_core.types.download`
+- `discord_core.types.media_download`
+- `discord_core.types.media_request`
+- `discord_core.types.playlist_add_request`
+- `discord_core.types.search`
+- `discord_core.types.search_resolution`
+- `discord_core.utils.circuit_breaker`
+- `discord_core.utils.common`
+- `discord_core.utils.discord_context`
+- `discord_core.utils.discord_utils`
+- `discord_core.utils.gc_census`
+- `discord_core.utils.loop_health`
+- `discord_core.utils.memory_profiler`
+- `discord_core.utils.otel`
+- `discord_core.utils.process_metrics`
+- `discord_core.utils.retry`
+- `discord_core.workers.queue_metrics`
 
 ### `discord_bot/seams/broker/` — 7, reached by bot, broker, downloader, search
 

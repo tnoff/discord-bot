@@ -3,10 +3,10 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
-from discord_bot.core.cogs.music_helpers.common import MediaRequestLifecycleStage
-from discord_bot.core.types.search import SearchResult
-from discord_bot.core.utils.discord_utils import discord_format_string_embed
-from discord_bot.core.utils.otel import MediaRequestNaming, AttributeNaming
+from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage
+from discord_core.types.search import SearchResult
+from discord_core.utils.discord_utils import discord_format_string_embed
+from discord_core.utils.otel import MediaRequestNaming, AttributeNaming
 
 
 class RetryInformation(BaseModel):

@@ -23,11 +23,11 @@ from uuid import uuid4
 from dappertable import DapperTable, PaginationLength, shorten_string
 from pydantic import BaseModel, Field
 
-from discord_bot.core.common import DISCORD_MAX_MESSAGE_LENGTH
-from discord_bot.core.cogs.music_helpers.common import MediaRequestLifecycleStage
-from discord_bot.core.types.media_request import MediaRequest
-from discord_bot.core.types.playlist_add_request import AnyMediaRequest
-from discord_bot.core.utils.discord_utils import discord_format_string_embed
+from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage
+from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
+from discord_core.types.media_request import MediaRequest
+from discord_core.types.playlist_add_request import AnyMediaRequest
+from discord_core.utils.discord_utils import discord_format_string_embed
 
 
 _TERMINAL_STAGES = frozenset({

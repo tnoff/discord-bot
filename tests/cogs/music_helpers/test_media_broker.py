@@ -7,12 +7,13 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
+from discord_core.types.download import LifecycleEvent, LifecycleStatusUpdate
+from discord_core.types.media_download import MediaDownload
+from discord_core.types.media_request import MediaRequestLifecycleStage
+
 from discord_bot.services.broker.interfaces.broker_protocols import Zone
 from discord_bot.services.db.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.services.db.database import VideoCache
-from discord_bot.core.types.download import LifecycleEvent, LifecycleStatusUpdate
-from discord_bot.core.types.media_download import MediaDownload
-from discord_bot.core.types.media_request import MediaRequestLifecycleStage
 
 from tests.fakes.asyncio_broker import AsyncioBroker
 from tests.helpers import (

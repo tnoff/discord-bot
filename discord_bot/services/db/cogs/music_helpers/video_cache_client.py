@@ -4,13 +4,14 @@ from typing import Callable, List
 
 from opentelemetry.trace import SpanKind
 
-from discord_bot.services.db.database import VideoCache
-from discord_bot.core.types.media_download import MediaDownload, media_download_attributes
-from discord_bot.core.types.media_request import MediaRequest, media_request_attributes
+from discord_core.types.media_download import MediaDownload, media_download_attributes
+from discord_core.types.media_request import MediaRequest, media_request_attributes
+from discord_core.utils.otel import async_otel_span_wrapper
+
 from discord_bot.seams.database.types.video_cache import VideoCacheEntry
 from discord_bot.services.db.cogs.music_helpers import database_functions
+from discord_bot.services.db.database import VideoCache
 from discord_bot.services.db.utils.sql_retry import async_retry_database_commands
-from discord_bot.core.utils.otel import async_otel_span_wrapper
 
 OTEL_SPAN_PREFIX = 'music.video_cache'
 

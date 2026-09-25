@@ -3,9 +3,10 @@ import json
 
 import pytest
 
-from discord_bot.core.cogs.music_helpers.common import MediaRequestLifecycleStage, SearchType
-from discord_bot.core.types.playlist_add_request import PlaylistAddRequest
-from discord_bot.core.types.search import SearchResult
+from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage, SearchType
+from discord_core.types.playlist_add_request import PlaylistAddRequest
+from discord_core.types.search import SearchResult
+
 from discord_bot.services.broker.workers.media_bundle import (
     BundleRenderer,
     BundleState,

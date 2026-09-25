@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 
-from discord_bot.core.types.playlist_add_request import AnyMediaRequest
+from discord_core.types.playlist_add_request import AnyMediaRequest
 
 
 class PlayerSession(BaseModel):

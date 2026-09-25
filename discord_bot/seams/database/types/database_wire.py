@@ -31,7 +31,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from discord_bot.core.exceptions import DatabaseUnavailable
+from discord_core.exceptions import DatabaseUnavailable
 
 
 class DatabaseErrorBody(BaseModel):

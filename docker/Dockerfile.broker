@@ -61,7 +61,12 @@ RUN apt-get update && \
 # requirement. The stub is UNINSTALLED up there rather than overwritten here:
 # leaving it produced both a discord_bot-0.0.0.dist-info and the real one, and
 # `importlib.metadata.version()` resolved to the 0.0.0.
+# discord_core/ is its own top-level package as of criterion 8 step 2, so it
+# needs its own COPY -- `COPY discord_bot/` no longer brings the core along.
+# One COPY per root rather than `COPY . ${APPDIR}` on purpose: the whole point
+# of the split is that an image carries the roots it reaches and no others.
 COPY discord_bot/ "${APPDIR}/discord_bot/"
+COPY discord_core/ "${APPDIR}/discord_core/"
 COPY VERSION "${APPDIR}/"
 RUN pip install --no-deps "${APPDIR}[broker]"
 

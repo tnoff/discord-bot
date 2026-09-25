@@ -27,8 +27,8 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 
-from discord_bot.core.exceptions import DiscordBotException
-from discord_bot.core.utils.common import GeneralConfig
+from discord_core.exceptions import DiscordBotException
+from discord_core.utils.common import GeneralConfig
 
 # alembic.ini sets `script_location = %(here)s/alembic`, so the ini's own
 # directory decides where the revisions are read from. Relative by design: it

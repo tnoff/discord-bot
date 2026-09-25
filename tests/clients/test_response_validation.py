@@ -17,9 +17,12 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from discord_bot.core.clients.http_client_base import HttpClientMixin
+from tests.cli._roots import package_dirs
+
+from discord_core.clients.http_client_base import HttpClientMixin
+from discord_core.exceptions import SeamResponseInvalid
+
 from discord_bot.services.bot.clients.http_markov_store import HttpMarkovStore
-from discord_bot.core.exceptions import SeamResponseInvalid
 
 #: Every `clients` package in the tree, not one hard-coded directory. The
 #: per-image-code-split moved the helper and two more clients into
@@ -27,7 +30,10 @@ from discord_bot.core.exceptions import SeamResponseInvalid
 #: stopped covering them -- a guard that keeps passing while checking less is
 #: the failure this file exists to prevent.
 REPO_ROOT = Path(__file__).resolve().parents[2]
-CLIENT_DIRS = sorted(REPO_ROOT.glob('discord_bot/**/clients'))
+CLIENT_DIRS = sorted(directory
+                     for root in package_dirs(REPO_ROOT)
+                     for directory in root.rglob('clients')
+                     if directory.is_dir())
 
 #: The one module allowed to call model_validate directly -- it is the helper.
 VALIDATION_HOME = 'http_client_base.py'
@@ -143,7 +149,7 @@ def test_the_counter_is_labelled_per_seam(monkeypatch):
     '''Attribution has to reach Mimir, not only the log line.'''
     recorded = []
     monkeypatch.setattr(
-        'discord_bot.core.clients.http_client_base._RESPONSE_INVALID_COUNTER',
+        'discord_core.clients.http_client_base._RESPONSE_INVALID_COUNTER',
         type('_C', (), {'add': lambda _self, amount, attrs: recorded.append((amount, attrs))})())
     with pytest.raises(SeamResponseInvalid):
         _Double().parse(_Body, {})
