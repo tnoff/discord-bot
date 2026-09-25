@@ -13,9 +13,9 @@ from discord_core.clients.redis_client import RedisManager
 from discord_core.types.download import DownloadResult
 from discord_core.types.search_resolution import SearchResolution
 
-from discord_bot.seams.dispatch.interfaces.dispatch_protocols import BundleStore, WorkQueue
-from discord_bot.seams.dispatch.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
-from discord_bot.seams.dispatch.utils.dispatch_queue import RedisDispatchQueue
+from discord_seam_dispatch.interfaces.dispatch_protocols import BundleStore, WorkQueue
+from discord_seam_dispatch.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
+from discord_seam_dispatch.utils.dispatch_queue import RedisDispatchQueue
 
 BUNDLE_KEY_PREFIX = 'discord_bot:bundle:'
 BUNDLE_TTL_SECONDS = 86400  # 1 day — fallback expiry for orphaned bundles

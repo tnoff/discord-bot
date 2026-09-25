@@ -16,10 +16,10 @@ from datetime import datetime
 import pytest
 from pydantic import BaseModel
 
-from discord_bot.seams.dispatch.routes import dispatch as dispatch_routes
-from discord_bot.seams.dispatch.types import requests, responses
-from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
-from discord_bot.seams.dispatch.types.results import (
+from discord_seam_dispatch.routes import dispatch as dispatch_routes
+from discord_seam_dispatch.types import requests, responses
+from discord_seam_dispatch.types.fetched_message import FetchedMessage
+from discord_seam_dispatch.types.results import (
     ChannelHistoryResultBody, DispatchErrorDetailBody, DispatchErrorResultBody,
     GuildEmojisResultBody,
 )

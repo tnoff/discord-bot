@@ -55,6 +55,21 @@ CORE_ROOT = 'discord_core'
 #: to the broker, `services/broker/` is the pod. A shared `discord_broker`
 #: would merge a contract with its implementation, which is the one distinction
 #: the whole packaging split exists to make visible.
+#:
+#: THERE IS NO AGGREGATING SEAM PACKAGE, AND THAT IS NOW STRUCTURAL.
+#: `discord_bot/seams/__init__.py` carried a long note arguing it had to stay
+#: EMPTY: the package was fanout 6, since every image imports some seam, and
+#: importing the registries into it would have made it churn on every route
+#: addition at fanout 6 -- the shape `utils/otel.py` had before criterion 5 took
+#: it apart -- while dragging every seam onto every pod. The note was right and
+#: it depended on nobody ever adding an import to one file.
+#:
+#: Under this table the hazard cannot be reintroduced: there is no file above the
+#: seams to add an import to. Each seam is its own distribution, imported by the
+#: pods on it, and `pip install discord-gateway` resolves exactly the seams the
+#: gateway speaks. What was a convention defended by a docstring is now a fact
+#: about the dependency graph, which is the strongest form of the argument the
+#: retired file was making.
 SEAM_ROOTS = {
     'broker': 'discord_seam_broker',
     'database': 'discord_seam_database',

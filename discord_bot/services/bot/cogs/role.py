@@ -11,7 +11,8 @@ from pydantic import BaseModel, Field, ValidationError as PydanticValidationErro
 from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_core.exceptions import CogMissingRequiredArg
 
-from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase
+from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase
+
 from discord_bot.services.bot.cogs.common import CogHelperBase
 from discord_bot.services.bot.utils.otel_command import command_wrapper
 

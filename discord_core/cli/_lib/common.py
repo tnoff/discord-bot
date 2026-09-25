@@ -44,7 +44,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     # because this module is the shared CLI plumbing all six entrypoints load.
     # The db, downloader and search pods carried dispatch machinery they never
     # call. Same shape as utils/otel.py in criterion 5 of per-image-code-split.
-    from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchClientBase
+    from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase
 
 
 def read_config(config_file: str) -> dict:

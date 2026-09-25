@@ -18,7 +18,8 @@ from discord_core.clients.redis_client import RedisManager
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig
 
-from discord_bot.seams.dispatch.workers.redis_queues import RedisBundleStore, RedisWorkQueue
+from discord_seam_dispatch.workers.redis_queues import RedisBundleStore, RedisWorkQueue
+
 from discord_bot.services.dispatcher.servers.dispatch_health_server import DispatchHealthServer
 from discord_bot.services.dispatcher.servers.dispatch_server import DispatchHttpServer
 from discord_bot.services.dispatcher.workers.message_dispatcher import MessageDispatcher

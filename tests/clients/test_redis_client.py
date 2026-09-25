@@ -9,7 +9,7 @@ from discord_core.clients import redis_client as redis_client_module
 from discord_core.clients.redis_client import RedisManager
 from discord_core.utils.common import GeneralConfig, RedisSentinelConfig
 
-from discord_bot.seams.dispatch.workers.redis_queues import (
+from discord_seam_dispatch.workers.redis_queues import (
     BUNDLE_KEY_PREFIX,
     save_bundle,
     delete_bundle,

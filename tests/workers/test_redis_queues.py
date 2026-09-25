@@ -6,7 +6,7 @@ from discord_core.clients.redis_client import RedisManager
 from discord_core.types.download import DownloadResult, DownloadStatus
 from discord_core.types.search_resolution import SearchResolution
 
-from discord_bot.seams.dispatch.workers.redis_queues import (
+from discord_seam_dispatch.workers.redis_queues import (
     load_bundle,
     save_bundle,
     RedisBundleStore,

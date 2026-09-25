@@ -11,12 +11,13 @@ from discord_core.exceptions import CogMissingRequiredArg
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import loop_heartbeat_observations
 
-from discord_bot.seams.dispatch.clients.dispatch_client_base import DispatchRemoteError
-from discord_bot.seams.dispatch.types.dispatch_request import (
+from discord_seam_dispatch.clients.dispatch_client_base import DispatchRemoteError
+from discord_seam_dispatch.types.dispatch_request import (
     FetchChannelHistoryRequest, FetchGuildEmojisRequest, SendRequest, DeleteRequest,
 )
-from discord_bot.seams.dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
-from discord_bot.seams.dispatch.types.fetched_message import FetchedMessage
+from discord_seam_dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
+from discord_seam_dispatch.types.fetched_message import FetchedMessage
+
 from discord_bot.services.broker.workers.asyncio_queues import AsyncioBundleStore, AsyncioWorkQueue
 from discord_bot.services.dispatcher.workers.message_dispatcher import (
     MessageDispatcher, MessageMutableBundle, MessageContext, DispatchPriority,

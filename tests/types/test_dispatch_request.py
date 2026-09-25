@@ -2,7 +2,7 @@ import dataclasses
 import inspect
 from datetime import datetime, timezone
 
-from discord_bot.seams.dispatch.types.dispatch_request import (
+from discord_seam_dispatch.types.dispatch_request import (
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,
     SendRequest,

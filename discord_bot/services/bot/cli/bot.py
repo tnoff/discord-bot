@@ -23,7 +23,8 @@ from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig
 
-from discord_bot.seams.dispatch.clients.http_dispatch_client import HttpDispatchClient
+from discord_seam_dispatch.clients.http_dispatch_client import HttpDispatchClient
+
 from discord_bot.services.bot.cli._lib.cog_registry import POSSIBLE_COGS
 from discord_bot.services.bot.cli.health import setup_health_server
 from discord_bot.services.bot.clients.database_stores import build_http_stores
