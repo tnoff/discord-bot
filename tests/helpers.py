@@ -41,7 +41,7 @@ from discord_bot.services.db.clients.markov_client import MarkovClient
 from discord_bot.services.db.clients.playlist_client import PlaylistClient
 from discord_bot.services.db.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_bot.services.db.database import BASE
-from discord_bot.services.search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
+from discord_search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
 from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
 from tests.fakes.in_memory_download_client import InMemoryDownloadClient

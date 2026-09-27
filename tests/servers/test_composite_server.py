@@ -15,7 +15,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from discord_core.servers.base import AiohttpServerBase
 
-from discord_bot.services.search.servers.composite_server import CompositeHttpServer
+from discord_search.servers.composite_server import CompositeHttpServer
 
 
 class _RouteFamily(AiohttpServerBase):

@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **77 are package
+`services/`. A further **76 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -37,7 +37,6 @@ own account.
 |---|---|---|
 | `discord_bot/services/bot/` | 27 | bot |
 | `discord_bot/services/db/` | 14 | db |
-| `discord_bot/services/search/` | 13 | search |
 | `discord_broker/` | 10 | broker |
 | `discord_core/` | 32 | all 6 |
 | `discord_dispatcher/` | 5 | dispatcher |
@@ -47,6 +46,7 @@ own account.
 | `discord_seam_dispatch/` | 13 | bot, broker, dispatcher |
 | `discord_seam_media_search/` | 6 | bot, search |
 | `discord_seam_queue_worker/` | 10 | bot, downloader, search |
+| `discord_search/` | 13 | search |
 
 ## Homed
 
@@ -96,22 +96,6 @@ own account.
 - `discord_bot.services.db.servers.database_server`
 - `discord_bot.services.db.servers.db_probe`
 - `discord_bot.services.db.utils.sql_retry`
-
-### `discord_bot/services/search/` — 13, reached by search
-
-- `discord_bot.services.search.cli.search`
-- `discord_bot.services.search.clients.media_search_client`
-- `discord_bot.services.search.servers.composite_server`
-- `discord_bot.services.search.servers.media_search_server`
-- `discord_bot.services.search.servers.youtube_music_search_server`
-- `discord_bot.services.search.utils.integrations._youtube_music_impl`
-- `discord_bot.services.search.utils.integrations.spotify`
-- `discord_bot.services.search.utils.integrations.third_party_naming`
-- `discord_bot.services.search.utils.integrations.youtube`
-- `discord_bot.services.search.utils.integrations.youtube_music`
-- `discord_bot.services.search.workers.redis_youtube_music_search_worker`
-- `discord_bot.services.search.workers.search_metrics`
-- `discord_bot.services.search.workers.youtube_music_search_driver`
 
 ### `discord_broker/` — 10, reached by broker
 
@@ -238,6 +222,22 @@ own account.
 - `discord_seam_queue_worker.types.responses`
 - `discord_seam_queue_worker.utils.failure_queue`
 - `discord_seam_queue_worker.workers.redis_guild_queue`
+
+### `discord_search/` — 13, reached by search
+
+- `discord_search.cli.search`
+- `discord_search.clients.media_search_client`
+- `discord_search.servers.composite_server`
+- `discord_search.servers.media_search_server`
+- `discord_search.servers.youtube_music_search_server`
+- `discord_search.utils.integrations._youtube_music_impl`
+- `discord_search.utils.integrations.spotify`
+- `discord_search.utils.integrations.third_party_naming`
+- `discord_search.utils.integrations.youtube`
+- `discord_search.utils.integrations.youtube_music`
+- `discord_search.workers.redis_youtube_music_search_worker`
+- `discord_search.workers.search_metrics`
+- `discord_search.workers.youtube_music_search_driver`
 
 ## Nothing is unplaced
 

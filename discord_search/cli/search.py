@@ -60,14 +60,14 @@ from discord_core.utils.loop_health import LoopHealth
 from discord_seam_queue_worker.clients.http_broker_client import HttpBrokerClient
 from discord_seam_queue_worker.utils.failure_queue import FailureQueue
 
-from discord_bot.services.search.clients.media_search_client import build_media_search_client
-from discord_bot.services.search.servers.composite_server import CompositeHttpServer
-from discord_bot.services.search.servers.media_search_server import MediaSearchHttpServer
-from discord_bot.services.search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
-from discord_bot.services.search.utils.integrations.youtube_music import YoutubeMusicClient
-from discord_bot.services.search.workers.redis_youtube_music_search_worker import RedisYoutubeMusicSearchWorker
-from discord_bot.services.search.workers.search_metrics import SearchMetrics
-from discord_bot.services.search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
+from discord_search.clients.media_search_client import build_media_search_client
+from discord_search.servers.composite_server import CompositeHttpServer
+from discord_search.servers.media_search_server import MediaSearchHttpServer
+from discord_search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
+from discord_search.utils.integrations.youtube_music import YoutubeMusicClient
+from discord_search.workers.redis_youtube_music_search_worker import RedisYoutubeMusicSearchWorker
+from discord_search.workers.search_metrics import SearchMetrics
+from discord_search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
 logger = logging.getLogger(__name__)
 

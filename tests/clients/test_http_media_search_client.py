@@ -20,7 +20,7 @@ from discord_core.exceptions import MediaSearchError
 from discord_seam_media_search.types.catalog import CatalogResponse, CatalogItem
 
 from discord_bot.services.bot.clients.http_media_search_client import HttpMediaSearchClient
-from discord_bot.services.search.servers.media_search_server import MediaSearchHttpServer
+from discord_search.servers.media_search_server import MediaSearchHttpServer
 
 from tests.cli._image_deps import measure
 

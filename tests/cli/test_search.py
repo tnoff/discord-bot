@@ -13,8 +13,8 @@ from discord_core.exceptions import DiscordBotException, ExitEarlyException
 from discord_core.utils.common import SeamContractConfig
 from discord_core.utils.loop_health import LOOP_HEALTH, LoopHealth, LoopStatus
 
-from discord_bot.services.search.cli import search as search_cli
-from discord_bot.services.search.servers.composite_server import CompositeHttpServer
+from discord_search.cli import search as search_cli
+from discord_search.servers.composite_server import CompositeHttpServer
 
 
 def _settings(*, broker_url='http://broker:8081', extra_download=None, extra_general=None):

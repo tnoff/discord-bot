@@ -21,8 +21,8 @@ from discord_seam_queue_worker.utils.failure_queue import FailureStatus
 
 from discord_bot.services.bot.cogs.music import Music
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
-from discord_bot.services.search.utils.integrations.youtube_music import YoutubeMusicRetryException
-from discord_bot.services.search.workers.youtube_music_search_driver import SEARCH_BACKOFF_SLICE_SECONDS
+from discord_search.utils.integrations.youtube_music import YoutubeMusicRetryException
+from discord_search.workers.youtube_music_search_driver import SEARCH_BACKOFF_SLICE_SECONDS
 
 from discord_broker.workers.media_bundle import BundleRenderer
 
