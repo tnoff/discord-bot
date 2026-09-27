@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **78 are package
+`services/`. A further **77 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -36,9 +36,9 @@ own account.
 | folder | modules | reached by |
 |---|---|---|
 | `discord_bot/services/bot/` | 27 | bot |
-| `discord_bot/services/broker/` | 10 | broker |
 | `discord_bot/services/db/` | 14 | db |
 | `discord_bot/services/search/` | 13 | search |
+| `discord_broker/` | 10 | broker |
 | `discord_core/` | 32 | all 6 |
 | `discord_dispatcher/` | 5 | dispatcher |
 | `discord_downloader/` | 8 | downloader |
@@ -80,19 +80,6 @@ own account.
 - `discord_bot.services.bot.utils.bot_metrics`
 - `discord_bot.services.bot.utils.otel_command`
 
-### `discord_bot/services/broker/` — 10, reached by broker
-
-- `discord_bot.services.broker.cli.broker`
-- `discord_bot.services.broker.clients.http_video_cache_store`
-- `discord_bot.services.broker.interfaces.broker_protocols`
-- `discord_bot.services.broker.servers.broker_health_server`
-- `discord_bot.services.broker.servers.broker_server`
-- `discord_bot.services.broker.workers.asyncio_queues`
-- `discord_bot.services.broker.workers.broker_metrics`
-- `discord_bot.services.broker.workers.broker_registry`
-- `discord_bot.services.broker.workers.media_bundle`
-- `discord_bot.services.broker.workers.redis_broker`
-
 ### `discord_bot/services/db/` — 14, reached by db
 
 - `discord_bot.services.db.cli._lib.db`
@@ -125,6 +112,19 @@ own account.
 - `discord_bot.services.search.workers.redis_youtube_music_search_worker`
 - `discord_bot.services.search.workers.search_metrics`
 - `discord_bot.services.search.workers.youtube_music_search_driver`
+
+### `discord_broker/` — 10, reached by broker
+
+- `discord_broker.cli.broker`
+- `discord_broker.clients.http_video_cache_store`
+- `discord_broker.interfaces.broker_protocols`
+- `discord_broker.servers.broker_health_server`
+- `discord_broker.servers.broker_server`
+- `discord_broker.workers.asyncio_queues`
+- `discord_broker.workers.broker_metrics`
+- `discord_broker.workers.broker_registry`
+- `discord_broker.workers.media_bundle`
+- `discord_broker.workers.redis_broker`
 
 ### `discord_core/` — 32, reached by all 6
 

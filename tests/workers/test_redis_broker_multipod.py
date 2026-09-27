@@ -23,9 +23,9 @@ from discord_core.types.download import LifecycleEvent, LifecycleStatusUpdate
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchResult
 
-from discord_bot.services.broker.workers.broker_registry import RedisBrokerRegistry
-from discord_bot.services.broker.workers.media_bundle import BundleRenderer
-from discord_bot.services.broker.workers.redis_broker import RedisBroker
+from discord_broker.workers.broker_registry import RedisBrokerRegistry
+from discord_broker.workers.media_bundle import BundleRenderer
+from discord_broker.workers.redis_broker import RedisBroker
 
 
 class _YieldingRedis:

@@ -6,8 +6,8 @@ import pytest
 
 from discord_core.clients.redis_client import RedisManager
 
-from discord_bot.services.broker.workers import broker_registry
-from discord_bot.services.broker.workers.broker_registry import (
+from discord_broker.workers import broker_registry
+from discord_broker.workers.broker_registry import (
     BUNDLE_LOCK_KEY_PREFIX,
     ENTRY_KEY_PREFIX,
     LOCK_KEY_PREFIX,

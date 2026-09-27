@@ -29,8 +29,8 @@ from discord_seam_dispatch.interfaces.result_queue import SearchResultQueue
 from discord_seam_queue_worker.clients import http_broker_client as http_broker_client_module
 from discord_seam_queue_worker.clients.http_broker_client import HttpBrokerClient
 
-from discord_bot.services.broker.servers.broker_server import BrokerHttpServer
-from discord_bot.services.broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
+from discord_broker.servers.broker_server import BrokerHttpServer
+from discord_broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
 from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
 from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker

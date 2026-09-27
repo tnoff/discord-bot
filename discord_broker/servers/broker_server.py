@@ -23,10 +23,10 @@ from discord_seam_broker.routes import broker as broker_routes
 from discord_seam_broker.types import responses as broker_responses
 from discord_seam_broker.types.player_session import PlayerSession
 
-from discord_bot.services.broker.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
+from discord_broker.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
                                                      MediaBrokerBase)
-from discord_bot.services.broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
-from discord_bot.services.broker.workers.broker_metrics import BrokerMetricNaming
+from discord_broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
+from discord_broker.workers.broker_metrics import BrokerMetricNaming
 
 logger = logging.getLogger(__name__)
 

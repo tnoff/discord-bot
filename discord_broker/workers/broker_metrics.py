@@ -24,7 +24,7 @@ from discord_core.utils.otel import create_observable_gauge, METER_PROVIDER, Att
 
 from discord_seam_dispatch.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 
-from discord_bot.services.broker.workers.broker_registry import RedisBrokerRegistry
+from discord_broker.workers.broker_registry import RedisBrokerRegistry
 
 logger = logging.getLogger(__name__)
 

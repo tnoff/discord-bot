@@ -18,9 +18,9 @@ from discord_seam_broker.types.player_session import PlayerSession
 
 from discord_seam_database.types.video_cache import VideoCacheEntry
 
-from discord_bot.services.broker.interfaces.broker_protocols import BrokerEntry, Zone
-from discord_bot.services.broker.workers.broker_registry import RedisBrokerRegistry
-from discord_bot.services.broker.workers.redis_broker import RedisBroker, _download_from_dict, _download_to_dict, _entry_from_dict
+from discord_broker.interfaces.broker_protocols import BrokerEntry, Zone
+from discord_broker.workers.broker_registry import RedisBrokerRegistry
+from discord_broker.workers.redis_broker import RedisBroker, _download_from_dict, _download_to_dict, _entry_from_dict
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +511,7 @@ async def test_discard_deletes_s3_file_when_no_cache():
     await broker.register_request(req)
     dl = _make_download(req, Path('/s3/key.mp3'))
     await broker.register_download(dl)
-    with patch('discord_bot.services.broker.workers.redis_broker.delete_file') as mock_delete:
+    with patch('discord_broker.workers.redis_broker.delete_file') as mock_delete:
         await broker.discard(str(req.uuid))
     mock_delete.assert_called_once()
 
@@ -526,7 +526,7 @@ async def test_discard_skips_s3_delete_when_video_cache_configured():
     await broker.register_request(req)
     dl = _make_download(req, Path('/s3/key.mp3'))
     await broker.register_download(dl)
-    with patch('discord_bot.services.broker.workers.redis_broker.delete_file') as mock_delete:
+    with patch('discord_broker.workers.redis_broker.delete_file') as mock_delete:
         await broker.discard(str(req.uuid))
     mock_delete.assert_not_called()
 
@@ -702,7 +702,7 @@ async def test_cache_cleanup_evicts_via_batch_fetch():
     video_cache.get_deletable_entries = AsyncMock(return_value=[deletable])
     video_cache.remove_video_cache = AsyncMock()
     broker = _make_broker(video_cache=video_cache, bucket_name='my-bucket')
-    with patch('discord_bot.services.broker.interfaces.broker_protocols.delete_file') as mock_delete:
+    with patch('discord_broker.interfaces.broker_protocols.delete_file') as mock_delete:
         result = await broker.cache_cleanup()
     assert result is True
     mock_delete.assert_called_once_with('my-bucket', '/s3/other.mp3')
