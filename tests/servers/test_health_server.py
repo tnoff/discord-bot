@@ -14,7 +14,7 @@ from discord_core.servers.health_server_base import HealthServerBase, close_writ
 from discord_core.utils.loop_health import LOOP_HEALTH
 
 from discord_bot.services.bot.servers.health_server import HealthServer
-from discord_bot.services.dispatcher.servers.dispatch_health_server import DispatchHealthServer
+from discord_dispatcher.servers.dispatch_health_server import DispatchHealthServer
 
 
 class _FakeClock:

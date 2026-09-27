@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **80 are package
+`services/`. A further **79 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -35,120 +35,20 @@ own account.
 
 | folder | modules | reached by |
 |---|---|---|
-| `discord_bot/core/` | 32 | all 6 |
-| `discord_bot/seams/broker/` | 7 | bot, broker, downloader, search |
-| `discord_bot/seams/database/` | 8 | bot, broker, db |
-| `discord_bot/seams/dispatch/` | 13 | bot, broker, dispatcher |
-| `discord_bot/seams/media_search/` | 6 | bot, search |
-| `discord_bot/seams/queue_worker/` | 10 | bot, downloader, search |
 | `discord_bot/services/bot/` | 27 | bot |
 | `discord_bot/services/broker/` | 10 | broker |
 | `discord_bot/services/db/` | 14 | db |
-| `discord_bot/services/dispatcher/` | 5 | dispatcher |
 | `discord_bot/services/downloader/` | 8 | downloader |
 | `discord_bot/services/search/` | 13 | search |
-
-**`broker` names both a seam and a pod, and they are not the same thing.**
-`discord_bot/seams/<x>/` holds what the other images use to *talk to* that pod —
-client, routes, wire types — and `discord_bot/services/<x>/` holds the pod itself.
-The two prefixes keep the paths distinct, so nothing reading a path can
-confuse them; it is the prose and the review conversation that need the care.
+| `discord_core/` | 32 | all 6 |
+| `discord_dispatcher/` | 5 | dispatcher |
+| `discord_seam_broker/` | 7 | bot, broker, downloader, search |
+| `discord_seam_database/` | 8 | bot, broker, db |
+| `discord_seam_dispatch/` | 13 | bot, broker, dispatcher |
+| `discord_seam_media_search/` | 6 | bot, search |
+| `discord_seam_queue_worker/` | 10 | bot, downloader, search |
 
 ## Homed
-
-### `discord_bot/core/` — 32, reached by all 6
-
-- `discord_core.cli._lib.common`
-- `discord_core.cli._lib.gateway`
-- `discord_core.cli._lib.worker_pod`
-- `discord_core.clients.http_client_base`
-- `discord_core.clients.redis_client`
-- `discord_core.clients.seam_contract`
-- `discord_core.cogs.music_helpers.common`
-- `discord_core.cogs.schema`
-- `discord_core.common`
-- `discord_core.exceptions`
-- `discord_core.routes.contract`
-- `discord_core.routes.route`
-- `discord_core.servers.base`
-- `discord_core.servers.health_server_base`
-- `discord_core.servers.redis_health_server`
-- `discord_core.types.download`
-- `discord_core.types.media_download`
-- `discord_core.types.media_request`
-- `discord_core.types.playlist_add_request`
-- `discord_core.types.search`
-- `discord_core.types.search_resolution`
-- `discord_core.utils.circuit_breaker`
-- `discord_core.utils.common`
-- `discord_core.utils.discord_context`
-- `discord_core.utils.discord_utils`
-- `discord_core.utils.gc_census`
-- `discord_core.utils.loop_health`
-- `discord_core.utils.memory_profiler`
-- `discord_core.utils.otel`
-- `discord_core.utils.process_metrics`
-- `discord_core.utils.retry`
-- `discord_core.workers.queue_metrics`
-
-### `discord_bot/seams/broker/` — 7, reached by bot, broker, downloader, search
-
-- `discord_seam_broker.interfaces.broker_client_protocol`
-- `discord_seam_broker.interfaces.player_session_store`
-- `discord_seam_broker.routes.broker`
-- `discord_seam_broker.types.checkout_result`
-- `discord_seam_broker.types.player_session`
-- `discord_seam_broker.types.responses`
-- `discord_seam_broker.utils.integrations.s3`
-
-### `discord_bot/seams/database/` — 8, reached by bot, broker, db
-
-- `discord_seam_database.clients.http_store_base`
-- `discord_seam_database.interfaces.database_protocols`
-- `discord_seam_database.routes.database`
-- `discord_seam_database.types.database_wire`
-- `discord_seam_database.types.guild_analytics`
-- `discord_seam_database.types.markov`
-- `discord_seam_database.types.playlist`
-- `discord_seam_database.types.video_cache`
-
-### `discord_bot/seams/dispatch/` — 13, reached by bot, broker, dispatcher
-
-- `discord_seam_dispatch.clients.dispatch_client_base`
-- `discord_seam_dispatch.clients.http_dispatch_client`
-- `discord_seam_dispatch.interfaces.dispatch_protocols`
-- `discord_seam_dispatch.interfaces.result_queue`
-- `discord_seam_dispatch.routes.dispatch`
-- `discord_seam_dispatch.types.dispatch_request`
-- `discord_seam_dispatch.types.dispatch_result`
-- `discord_seam_dispatch.types.fetched_message`
-- `discord_seam_dispatch.types.requests`
-- `discord_seam_dispatch.types.responses`
-- `discord_seam_dispatch.types.results`
-- `discord_seam_dispatch.utils.dispatch_queue`
-- `discord_seam_dispatch.workers.redis_queues`
-
-### `discord_bot/seams/media_search/` — 6, reached by bot, search
-
-- `discord_seam_media_search.interfaces.media_search_protocols`
-- `discord_seam_media_search.interfaces.youtube_music_search_protocols`
-- `discord_seam_media_search.routes.media_search`
-- `discord_seam_media_search.types.catalog`
-- `discord_seam_media_search.types.media_search`
-- `discord_seam_media_search.utils.integrations.common`
-
-### `discord_bot/seams/queue_worker/` — 10, reached by bot, downloader, search
-
-- `discord_seam_queue_worker.clients.http_broker_client`
-- `discord_seam_queue_worker.clients.http_player_session`
-- `discord_seam_queue_worker.interfaces.download_client_protocol`
-- `discord_seam_queue_worker.routes.queue_worker`
-- `discord_seam_queue_worker.servers.queue_worker_server`
-- `discord_seam_queue_worker.types.clear_guild_result`
-- `discord_seam_queue_worker.types.queue`
-- `discord_seam_queue_worker.types.responses`
-- `discord_seam_queue_worker.utils.failure_queue`
-- `discord_seam_queue_worker.workers.redis_guild_queue`
 
 ### `discord_bot/services/bot/` — 27, reached by bot
 
@@ -210,14 +110,6 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.services.db.servers.db_probe`
 - `discord_bot.services.db.utils.sql_retry`
 
-### `discord_bot/services/dispatcher/` — 5, reached by dispatcher
-
-- `discord_bot.services.dispatcher.cli.dispatcher`
-- `discord_bot.services.dispatcher.servers.dispatch_health_server`
-- `discord_bot.services.dispatcher.servers.dispatch_server`
-- `discord_bot.services.dispatcher.utils.discord_retry`
-- `discord_bot.services.dispatcher.workers.message_dispatcher`
-
 ### `discord_bot/services/downloader/` — 8, reached by downloader
 
 - `discord_bot.services.downloader.cli.downloader`
@@ -244,6 +136,108 @@ confuse them; it is the prose and the review conversation that need the care.
 - `discord_bot.services.search.workers.redis_youtube_music_search_worker`
 - `discord_bot.services.search.workers.search_metrics`
 - `discord_bot.services.search.workers.youtube_music_search_driver`
+
+### `discord_core/` — 32, reached by all 6
+
+- `discord_core.cli._lib.common`
+- `discord_core.cli._lib.gateway`
+- `discord_core.cli._lib.worker_pod`
+- `discord_core.clients.http_client_base`
+- `discord_core.clients.redis_client`
+- `discord_core.clients.seam_contract`
+- `discord_core.cogs.music_helpers.common`
+- `discord_core.cogs.schema`
+- `discord_core.common`
+- `discord_core.exceptions`
+- `discord_core.routes.contract`
+- `discord_core.routes.route`
+- `discord_core.servers.base`
+- `discord_core.servers.health_server_base`
+- `discord_core.servers.redis_health_server`
+- `discord_core.types.download`
+- `discord_core.types.media_download`
+- `discord_core.types.media_request`
+- `discord_core.types.playlist_add_request`
+- `discord_core.types.search`
+- `discord_core.types.search_resolution`
+- `discord_core.utils.circuit_breaker`
+- `discord_core.utils.common`
+- `discord_core.utils.discord_context`
+- `discord_core.utils.discord_utils`
+- `discord_core.utils.gc_census`
+- `discord_core.utils.loop_health`
+- `discord_core.utils.memory_profiler`
+- `discord_core.utils.otel`
+- `discord_core.utils.process_metrics`
+- `discord_core.utils.retry`
+- `discord_core.workers.queue_metrics`
+
+### `discord_dispatcher/` — 5, reached by dispatcher
+
+- `discord_dispatcher.cli.dispatcher`
+- `discord_dispatcher.servers.dispatch_health_server`
+- `discord_dispatcher.servers.dispatch_server`
+- `discord_dispatcher.utils.discord_retry`
+- `discord_dispatcher.workers.message_dispatcher`
+
+### `discord_seam_broker/` — 7, reached by bot, broker, downloader, search
+
+- `discord_seam_broker.interfaces.broker_client_protocol`
+- `discord_seam_broker.interfaces.player_session_store`
+- `discord_seam_broker.routes.broker`
+- `discord_seam_broker.types.checkout_result`
+- `discord_seam_broker.types.player_session`
+- `discord_seam_broker.types.responses`
+- `discord_seam_broker.utils.integrations.s3`
+
+### `discord_seam_database/` — 8, reached by bot, broker, db
+
+- `discord_seam_database.clients.http_store_base`
+- `discord_seam_database.interfaces.database_protocols`
+- `discord_seam_database.routes.database`
+- `discord_seam_database.types.database_wire`
+- `discord_seam_database.types.guild_analytics`
+- `discord_seam_database.types.markov`
+- `discord_seam_database.types.playlist`
+- `discord_seam_database.types.video_cache`
+
+### `discord_seam_dispatch/` — 13, reached by bot, broker, dispatcher
+
+- `discord_seam_dispatch.clients.dispatch_client_base`
+- `discord_seam_dispatch.clients.http_dispatch_client`
+- `discord_seam_dispatch.interfaces.dispatch_protocols`
+- `discord_seam_dispatch.interfaces.result_queue`
+- `discord_seam_dispatch.routes.dispatch`
+- `discord_seam_dispatch.types.dispatch_request`
+- `discord_seam_dispatch.types.dispatch_result`
+- `discord_seam_dispatch.types.fetched_message`
+- `discord_seam_dispatch.types.requests`
+- `discord_seam_dispatch.types.responses`
+- `discord_seam_dispatch.types.results`
+- `discord_seam_dispatch.utils.dispatch_queue`
+- `discord_seam_dispatch.workers.redis_queues`
+
+### `discord_seam_media_search/` — 6, reached by bot, search
+
+- `discord_seam_media_search.interfaces.media_search_protocols`
+- `discord_seam_media_search.interfaces.youtube_music_search_protocols`
+- `discord_seam_media_search.routes.media_search`
+- `discord_seam_media_search.types.catalog`
+- `discord_seam_media_search.types.media_search`
+- `discord_seam_media_search.utils.integrations.common`
+
+### `discord_seam_queue_worker/` — 10, reached by bot, downloader, search
+
+- `discord_seam_queue_worker.clients.http_broker_client`
+- `discord_seam_queue_worker.clients.http_player_session`
+- `discord_seam_queue_worker.interfaces.download_client_protocol`
+- `discord_seam_queue_worker.routes.queue_worker`
+- `discord_seam_queue_worker.servers.queue_worker_server`
+- `discord_seam_queue_worker.types.clear_guild_result`
+- `discord_seam_queue_worker.types.queue`
+- `discord_seam_queue_worker.types.responses`
+- `discord_seam_queue_worker.utils.failure_queue`
+- `discord_seam_queue_worker.workers.redis_guild_queue`
 
 ## Nothing is unplaced
 

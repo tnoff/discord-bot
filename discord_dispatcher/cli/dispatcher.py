@@ -20,9 +20,9 @@ from discord_core.utils.common import GeneralConfig
 
 from discord_seam_dispatch.workers.redis_queues import RedisBundleStore, RedisWorkQueue
 
-from discord_bot.services.dispatcher.servers.dispatch_health_server import DispatchHealthServer
-from discord_bot.services.dispatcher.servers.dispatch_server import DispatchHttpServer
-from discord_bot.services.dispatcher.workers.message_dispatcher import MessageDispatcher
+from discord_dispatcher.servers.dispatch_health_server import DispatchHealthServer
+from discord_dispatcher.servers.dispatch_server import DispatchHttpServer
+from discord_dispatcher.workers.message_dispatcher import MessageDispatcher
 
 
 @click.command()
