@@ -75,7 +75,7 @@ IMAGE_IMPORTS = {
     # Downloads (yt_dlp) and uploads finished media (boto3).
     'discord_downloader.cli.downloader': frozenset({'yt_dlp', 'boto3'}),
     # Thin HTTP clients, plus the two provider SDKs it now owns outright.
-    'discord_bot.services.search.cli.search': frozenset({'ytmusicapi', 'spotipy', 'googleapiclient'}),
+    'discord_search.cli.search': frozenset({'ytmusicapi', 'spotipy', 'googleapiclient'}),
     # Owns the schema and the engine. dappertable is not a leak and not a
     # copy-paste from the broker: PlaylistClient shortens playlist names with
     # shorten_string, so the pod serving those routes imports it. No boto3 --
@@ -92,7 +92,7 @@ IMAGE_NAMES = {
     'discord_dispatcher.cli.dispatcher': 'discord-dispatcher',
     'discord_broker.cli.broker': 'discord-broker',
     'discord_downloader.cli.downloader': 'discord-downloader',
-    'discord_bot.services.search.cli.search': 'discord-search',
+    'discord_search.cli.search': 'discord-search',
     'discord_bot.services.db.cli.database': 'discord-db',
 }
 
@@ -109,7 +109,7 @@ IMAGE_DOCKERFILES = {
     'discord_dispatcher.cli.dispatcher': 'docker/Dockerfile.dispatcher',
     'discord_broker.cli.broker': 'docker/Dockerfile.broker',
     'discord_downloader.cli.downloader': 'docker/Dockerfile.downloader',
-    'discord_bot.services.search.cli.search': 'docker/Dockerfile.search',
+    'discord_search.cli.search': 'docker/Dockerfile.search',
     'discord_bot.services.db.cli.database': 'docker/Dockerfile.db',
 }
 

@@ -234,7 +234,7 @@ discord-bot = "discord_bot.services.bot.cli.bot:main"
 discord-dispatcher = "discord_dispatcher.cli.dispatcher:main"
 discord-broker = "discord_broker.cli.broker:main"
 discord-downloader = "discord_downloader.cli.downloader:main"
-discord-search = "discord_bot.services.search.cli.search:main"
+discord-search = "discord_search.cli.search:main"
 discord-db = "discord_bot.services.db.cli.database:main"
 
 [tool.setuptools.dynamic]

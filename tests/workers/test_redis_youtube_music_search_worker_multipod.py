@@ -40,7 +40,7 @@ from discord_core.types.search import SearchResult
 
 from discord_seam_queue_worker.utils.failure_queue import FailureQueue
 
-from discord_bot.services.search.workers.redis_youtube_music_search_worker import (
+from discord_search.workers.redis_youtube_music_search_worker import (
     RedisYoutubeMusicSearchWorker, GUILDS_KEY,
 )
 
