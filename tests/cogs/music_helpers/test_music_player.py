@@ -13,7 +13,7 @@ from discord_core.exceptions import ExitEarlyException
 from discord_seam_queue_worker.types.queue import Queue
 
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer, cleanup_source
-from discord_bot.services.broker.interfaces.broker_protocols import CheckoutResult
+from discord_broker.interfaces.broker_protocols import CheckoutResult
 
 from tests.fakes.asyncio_broker import AsyncioBroker
 from tests.helpers import FakeChannel, fake_context, fake_media_download, FakeVoiceClient #pylint:disable=unused-import

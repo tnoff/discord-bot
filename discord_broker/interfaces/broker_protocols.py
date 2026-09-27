@@ -34,7 +34,7 @@ from discord_seam_database.interfaces.database_protocols import VideoCacheStore
 
 from discord_seam_dispatch.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 
-from discord_bot.services.broker.workers.media_bundle import BundleRenderer, BundleState
+from discord_broker.workers.media_bundle import BundleRenderer, BundleState
 
 logger = logging.getLogger(__name__)
 

@@ -21,13 +21,13 @@ from discord_core.types.search_resolution import SearchResolution
 
 from discord_seam_broker.types.player_session import PlayerSession
 
-from discord_bot.services.broker.interfaces.broker_protocols import (
+from discord_broker.interfaces.broker_protocols import (
     CheckoutResult,
     DownloadResultQueue,
     SearchResultQueue,
     MediaBrokerBase,
 )
-from discord_bot.services.broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
+from discord_broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
 logger = logging.getLogger(__name__)
 

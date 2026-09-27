@@ -18,7 +18,7 @@ from discord_seam_dispatch.types.dispatch_request import (
 from discord_seam_dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_seam_dispatch.types.fetched_message import FetchedMessage
 
-from discord_bot.services.broker.workers.asyncio_queues import AsyncioBundleStore, AsyncioWorkQueue
+from discord_broker.workers.asyncio_queues import AsyncioBundleStore, AsyncioWorkQueue
 from discord_dispatcher.workers.message_dispatcher import (
     MessageDispatcher, MessageMutableBundle, MessageContext, DispatchPriority,
     LOOP_MESSAGE_DISPATCHER,

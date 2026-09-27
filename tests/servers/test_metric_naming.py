@@ -12,7 +12,7 @@ import pytest
 from discord_core.utils.otel import AttributeNaming, MetricNaming
 
 from discord_bot.services.bot.utils.bot_metrics import BotMetricNaming
-from discord_bot.services.broker.workers.broker_metrics import BrokerMetricNaming
+from discord_broker.workers.broker_metrics import BrokerMetricNaming
 
 # The scheme applies to every metric this project emits, and they no longer live
 # in one enum: names only one image emits moved to that image's module, so a

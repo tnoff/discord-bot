@@ -7,7 +7,7 @@ from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage, S
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 
-from discord_bot.services.broker.workers.media_bundle import (
+from discord_broker.workers.media_bundle import (
     BundleRenderer,
     BundleState,
     BundledRequestState,

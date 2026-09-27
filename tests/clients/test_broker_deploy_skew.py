@@ -27,8 +27,8 @@ from discord_core.utils.loop_health import LoopHealth
 
 from discord_seam_queue_worker.clients.http_broker_client import HttpBrokerClient
 
-from discord_bot.services.broker.servers.broker_server import BrokerHttpServer
-from discord_bot.services.broker.workers.asyncio_queues import AsyncioSearchResultQueue
+from discord_broker.servers.broker_server import BrokerHttpServer
+from discord_broker.workers.asyncio_queues import AsyncioSearchResultQueue
 
 from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
 from tests.helpers import fake_bot_yielder, fake_source_dict, generate_fake_context
