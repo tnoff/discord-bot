@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **76 are package
+`services/`. A further **75 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -36,9 +36,9 @@ own account.
 | folder | modules | reached by |
 |---|---|---|
 | `discord_bot/services/bot/` | 27 | bot |
-| `discord_bot/services/db/` | 14 | db |
 | `discord_broker/` | 10 | broker |
 | `discord_core/` | 32 | all 6 |
+| `discord_db/` | 14 | db |
 | `discord_dispatcher/` | 5 | dispatcher |
 | `discord_downloader/` | 8 | downloader |
 | `discord_seam_broker/` | 7 | bot, broker, downloader, search |
@@ -79,23 +79,6 @@ own account.
 - `discord_bot.services.bot.types.playlist_add_result`
 - `discord_bot.services.bot.utils.bot_metrics`
 - `discord_bot.services.bot.utils.otel_command`
-
-### `discord_bot/services/db/` — 14, reached by db
-
-- `discord_bot.services.db.cli._lib.db`
-- `discord_bot.services.db.cli._lib.migrations`
-- `discord_bot.services.db.cli.database`
-- `discord_bot.services.db.clients.guild_analytics_client`
-- `discord_bot.services.db.clients.markov_client`
-- `discord_bot.services.db.clients.playlist_client`
-- `discord_bot.services.db.clients.session_store`
-- `discord_bot.services.db.cogs.music_helpers.database_functions`
-- `discord_bot.services.db.cogs.music_helpers.video_cache_client`
-- `discord_bot.services.db.database`
-- `discord_bot.services.db.servers.database_health_server`
-- `discord_bot.services.db.servers.database_server`
-- `discord_bot.services.db.servers.db_probe`
-- `discord_bot.services.db.utils.sql_retry`
 
 ### `discord_broker/` — 10, reached by broker
 
@@ -144,6 +127,23 @@ own account.
 - `discord_core.utils.process_metrics`
 - `discord_core.utils.retry`
 - `discord_core.workers.queue_metrics`
+
+### `discord_db/` — 14, reached by db
+
+- `discord_db.cli._lib.db`
+- `discord_db.cli._lib.migrations`
+- `discord_db.cli.database`
+- `discord_db.clients.guild_analytics_client`
+- `discord_db.clients.markov_client`
+- `discord_db.clients.playlist_client`
+- `discord_db.clients.session_store`
+- `discord_db.cogs.music_helpers.database_functions`
+- `discord_db.cogs.music_helpers.video_cache_client`
+- `discord_db.database`
+- `discord_db.servers.database_health_server`
+- `discord_db.servers.database_server`
+- `discord_db.servers.db_probe`
+- `discord_db.utils.sql_retry`
 
 ### `discord_dispatcher/` — 5, reached by dispatcher
 

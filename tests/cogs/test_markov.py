@@ -18,7 +18,7 @@ from discord_seam_dispatch.types.fetched_message import FetchedMessage
 
 from discord_bot.services.bot.clients.database_stores import DatabaseStores
 from discord_bot.services.bot.cogs.markov import clean_message, Markov, LOOP_MARKOV_CHECK, LOOP_MARKOV_RESULT, MARKOV_HISTORY_RETENTION_DAYS_DEFAULT
-from discord_bot.services.db.database import MarkovChannel, MarkovRelation
+from discord_db.database import MarkovChannel, MarkovRelation
 
 from tests.helpers import fake_context, fake_engine, fake_stores #pylint:disable=unused-import
 from tests.helpers import async_mock_session

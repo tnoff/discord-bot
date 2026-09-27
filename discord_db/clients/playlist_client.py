@@ -44,9 +44,9 @@ from discord_seam_database.types.playlist import (
     PlaylistItemWrite,
 )
 
-from discord_bot.services.db.clients.session_store import SessionStoreBase
-from discord_bot.services.db.database import Playlist, PlaylistItem, utcnow
-from discord_bot.services.db.utils.sql_retry import async_retry_database_commands
+from discord_db.clients.session_store import SessionStoreBase
+from discord_db.database import Playlist, PlaylistItem, utcnow
+from discord_db.utils.sql_retry import async_retry_database_commands
 
 OTEL_SPAN_PREFIX = 'music.playlist_store'
 

@@ -36,12 +36,13 @@ from discord_seam_dispatch.types.fetched_message import FetchedMessage
 from discord_seam_queue_worker.utils.failure_queue import FailureQueue
 
 from discord_bot.services.bot.clients.database_stores import DatabaseStores
-from discord_bot.services.db.clients.guild_analytics_client import GuildAnalyticsClient
-from discord_bot.services.db.clients.markov_client import MarkovClient
-from discord_bot.services.db.clients.playlist_client import PlaylistClient
-from discord_bot.services.db.cogs.music_helpers.video_cache_client import VideoCacheClient
-from discord_bot.services.db.database import BASE
 from discord_search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
+
+from discord_db.clients.guild_analytics_client import GuildAnalyticsClient
+from discord_db.clients.markov_client import MarkovClient
+from discord_db.clients.playlist_client import PlaylistClient
+from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_db.database import BASE
 
 from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
 from tests.fakes.in_memory_download_client import InMemoryDownloadClient

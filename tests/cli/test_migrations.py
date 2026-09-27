@@ -13,7 +13,7 @@ import pytest
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig
 
-from discord_bot.services.db.cli._lib import migrations
+from discord_db.cli._lib import migrations
 
 DSN = 'postgresql://user:pass@postgres.example:5432/discord'
 

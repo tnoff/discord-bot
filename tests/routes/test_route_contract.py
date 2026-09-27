@@ -18,7 +18,7 @@ from discord_core.routes import contract
 from discord_core.servers.base import AiohttpServerBase
 
 from discord_broker.servers.broker_server import BrokerHttpServer
-from discord_bot.services.db.servers.database_server import DatabaseHttpServer
+from discord_db.servers.database_server import DatabaseHttpServer
 from discord_search.servers.composite_server import CompositeHttpServer
 
 from tests.fakes.asyncio_broker import AsyncioBroker

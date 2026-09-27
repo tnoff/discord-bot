@@ -28,10 +28,11 @@ from discord_bot.services.bot.clients.http_download_client import HttpDownloadCl
 from discord_bot.services.bot.clients.http_markov_store import HttpMarkovStore
 from discord_bot.services.bot.clients.http_playlist_store import HttpPlaylistStore
 from discord_bot.services.bot.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
-from discord_bot.services.db.servers.database_server import DatabaseHttpServer
 from discord_search.servers.composite_server import CompositeHttpServer
 from discord_search.servers.media_search_server import MediaSearchHttpServer
 from discord_search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
+
+from discord_db.servers.database_server import DatabaseHttpServer
 
 from tests.routes._seam_servers import SEAMS, served as _served
 

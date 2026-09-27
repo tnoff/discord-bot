@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.152] - 2026-09-27
+
+### Changed
+
+- The db pod's code moved out of `discord_bot/` into its own top-level `discord_db/` package (per-image-code-split criterion 8, step 4). The deployed image and console script are unchanged; only the import root moved. `alembic/env.py`, which sits outside the package tree, is updated to match.
+
 ## [2.5.151] - 2026-09-27
 
 ### Changed
