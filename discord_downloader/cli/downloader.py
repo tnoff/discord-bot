@@ -47,12 +47,12 @@ from discord_core.utils.loop_health import LoopHealth
 
 from discord_seam_queue_worker.clients.http_broker_client import HttpBrokerClient
 
-from discord_bot.services.downloader.interfaces.download_protocols import RETRY_BACKOFF_SECONDS_MINIMUM
-from discord_bot.services.downloader.servers.download_server import DownloadHttpServer
-from discord_bot.services.downloader.utils.integrations.egress_pool import EGRESS_MODE_HTTP_PROXY
-from discord_bot.services.downloader.utils.integrations.egress_probe import build_exit_probe, ExitProbe
-from discord_bot.services.downloader.workers.download_metrics import DownloadMetrics
-from discord_bot.services.downloader.workers.redis_download_worker import RedisDownloadWorker
+from discord_downloader.interfaces.download_protocols import RETRY_BACKOFF_SECONDS_MINIMUM
+from discord_downloader.servers.download_server import DownloadHttpServer
+from discord_downloader.utils.integrations.egress_pool import EGRESS_MODE_HTTP_PROXY
+from discord_downloader.utils.integrations.egress_probe import build_exit_probe, ExitProbe
+from discord_downloader.workers.download_metrics import DownloadMetrics
+from discord_downloader.workers.redis_download_worker import RedisDownloadWorker
 
 logger = logging.getLogger(__name__)
 

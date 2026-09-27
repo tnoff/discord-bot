@@ -71,10 +71,13 @@ RUN apt-get update && \
 # the real install, not before it -- deleting the directory in the dependency
 # layer would leave this one with nothing to install from.
 # discord_core/ is its own top-level package as of criterion 8 step 2, so it
-# needs its own COPY -- `COPY discord_bot/` no longer brings the core along.
+# needs its own line -- copying the legacy root no longer brings the core along.
 # One COPY per root rather than `COPY . ${APPDIR}` on purpose: the whole point
 # of the split is that an image carries the roots it reaches and no others.
-COPY discord_bot/ "${APPDIR}/discord_bot/"
+# discord_downloader/ replaces the legacy root as of criterion 8 step 4: the
+# pod's own code no longer lives there at all, so this image drops that line
+# entirely rather than keeping it alongside the new one.
+COPY discord_downloader/ "${APPDIR}/discord_downloader/"
 COPY discord_core/ "${APPDIR}/discord_core/"
 COPY discord_seam_queue_worker/ "${APPDIR}/discord_seam_queue_worker/"
 COPY discord_seam_broker/ "${APPDIR}/discord_seam_broker/"

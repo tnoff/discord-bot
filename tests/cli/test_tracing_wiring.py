@@ -23,7 +23,7 @@ from discord_core.utils.common import GeneralConfig
 
 from discord_bot.services.bot.cogs.music import Music
 from discord_bot.services.db.cli import database as database_cli
-from discord_bot.services.downloader.cli import downloader as downloader_cli
+from discord_downloader.cli import downloader as downloader_cli
 
 from tests.helpers import fake_context, fake_engine, fake_stores  # pylint: disable=unused-import
 

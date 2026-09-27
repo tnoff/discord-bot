@@ -26,7 +26,7 @@ from discord_seam_queue_worker.types.queue import PutsBlocked, SUBMIT_REJECTION_
 
 from discord_bot.services.bot.clients.http_download_client import HttpDownloadClient
 from discord_bot.services.bot.clients.http_queue_worker_client import _exception_detail
-from discord_bot.services.downloader.servers.download_server import DownloadHttpServer
+from discord_downloader.servers.download_server import DownloadHttpServer
 
 
 def _media_request(guild_id: int = 1) -> MediaRequest:

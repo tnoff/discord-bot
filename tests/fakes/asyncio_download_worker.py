@@ -17,7 +17,7 @@ from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.exceptions import ExitEarlyException
 from discord_core.types.media_request import MediaRequest
 
-from discord_bot.services.downloader.interfaces.download_protocols import (
+from discord_downloader.interfaces.download_protocols import (
     DownloadWorkerBase, DirectItemAvailableException,
 )
 from tests.fakes.distributed_queue import DistributedQueue
