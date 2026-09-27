@@ -47,7 +47,7 @@ from discord_seam_queue_worker.workers.redis_guild_queue import (
     build_status_snapshot, collect_queue_sizes, drain_guild_zset, redis_pop_lock,
 )
 
-from discord_bot.services.downloader.interfaces.download_protocols import (
+from discord_downloader.interfaces.download_protocols import (
     DownloadWorkerBase, DirectItemAvailableException,
 )
 

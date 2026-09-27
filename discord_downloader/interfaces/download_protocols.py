@@ -59,12 +59,12 @@ from discord_seam_queue_worker.interfaces.download_client_protocol import (
 from discord_seam_queue_worker.types.clear_guild_result import ClearGuildResult
 from discord_seam_queue_worker.utils.failure_queue import FailureQueue, FailureStatus
 
-from discord_bot.services.downloader.utils.audio import edit_audio_file, AudioProcessingError
-from discord_bot.services.downloader.utils.integrations.egress_pool import (
+from discord_downloader.utils.audio import edit_audio_file, AudioProcessingError
+from discord_downloader.utils.integrations.egress_pool import (
     EGRESS_MODE_HTTP_PROXY, build_exit_resolver, DownloadEgress, Egress,
     ExitClients, ExitPool, HttpProxyEgress, PoolEgress,
 )
-from discord_bot.services.downloader.utils.integrations.egress_probe import (
+from discord_downloader.utils.integrations.egress_probe import (
     cached_exit_attributes, cached_exit_hostname, PoolExitIpProbe, UNKNOWN_EXIT,
 )
 

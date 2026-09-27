@@ -13,7 +13,7 @@ from discord_core.exceptions import DiscordBotException, ExitEarlyException
 from discord_core.utils.common import SeamContractConfig
 from discord_core.utils.loop_health import LOOP_HEALTH, LoopHealth, LoopStatus
 
-from discord_bot.services.downloader.cli import downloader as downloader_cli
+from discord_downloader.cli import downloader as downloader_cli
 
 
 def _pod_worker(mocker):

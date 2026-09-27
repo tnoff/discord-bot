@@ -7,7 +7,7 @@ from opentelemetry.instrumentation.utils import is_instrumentation_enabled
 
 from discord_core.exceptions import DiscordBotException
 
-from discord_bot.services.downloader.utils.integrations.egress_probe import (
+from discord_downloader.utils.integrations.egress_probe import (
     EXIT_PROBE_TYPES, MULLVAD_JSON_URL, MullvadExitProbe, UNKNOWN_EXIT,
     PoolExitIpProbe, _default_session_factory, build_exit_probe, cached_exit_attributes,
     cached_exit_hostname,

@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **79 are package
+`services/`. A further **78 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -38,10 +38,10 @@ own account.
 | `discord_bot/services/bot/` | 27 | bot |
 | `discord_bot/services/broker/` | 10 | broker |
 | `discord_bot/services/db/` | 14 | db |
-| `discord_bot/services/downloader/` | 8 | downloader |
 | `discord_bot/services/search/` | 13 | search |
 | `discord_core/` | 32 | all 6 |
 | `discord_dispatcher/` | 5 | dispatcher |
+| `discord_downloader/` | 8 | downloader |
 | `discord_seam_broker/` | 7 | bot, broker, downloader, search |
 | `discord_seam_database/` | 8 | bot, broker, db |
 | `discord_seam_dispatch/` | 13 | bot, broker, dispatcher |
@@ -110,17 +110,6 @@ own account.
 - `discord_bot.services.db.servers.db_probe`
 - `discord_bot.services.db.utils.sql_retry`
 
-### `discord_bot/services/downloader/` — 8, reached by downloader
-
-- `discord_bot.services.downloader.cli.downloader`
-- `discord_bot.services.downloader.interfaces.download_protocols`
-- `discord_bot.services.downloader.servers.download_server`
-- `discord_bot.services.downloader.utils.audio`
-- `discord_bot.services.downloader.utils.integrations.egress_pool`
-- `discord_bot.services.downloader.utils.integrations.egress_probe`
-- `discord_bot.services.downloader.workers.download_metrics`
-- `discord_bot.services.downloader.workers.redis_download_worker`
-
 ### `discord_bot/services/search/` — 13, reached by search
 
 - `discord_bot.services.search.cli.search`
@@ -179,6 +168,17 @@ own account.
 - `discord_dispatcher.servers.dispatch_server`
 - `discord_dispatcher.utils.discord_retry`
 - `discord_dispatcher.workers.message_dispatcher`
+
+### `discord_downloader/` — 8, reached by downloader
+
+- `discord_downloader.cli.downloader`
+- `discord_downloader.interfaces.download_protocols`
+- `discord_downloader.servers.download_server`
+- `discord_downloader.utils.audio`
+- `discord_downloader.utils.integrations.egress_pool`
+- `discord_downloader.utils.integrations.egress_probe`
+- `discord_downloader.workers.download_metrics`
+- `discord_downloader.workers.redis_download_worker`
 
 ### `discord_seam_broker/` — 7, reached by bot, broker, downloader, search
 
