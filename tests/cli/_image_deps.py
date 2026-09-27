@@ -66,7 +66,7 @@ IMAGE_IMPORTS = {
     }),
     # The strictest image. discord is here on its own merits, not by accident:
     # workers/message_dispatcher sends and edits real messages.
-    'discord_bot.services.dispatcher.cli.dispatcher': frozenset({'discord'}),
+    'discord_dispatcher.cli.dispatcher': frozenset({'discord'}),
     # The S3 checkout (boto3); dappertable renders bundles. sqlalchemy left with
     # the MR 4a cutover: the video-cache CATALOG moved to the db pod and is
     # reached over HTTP, while the OBJECTS stayed here, which is why boto3 did
@@ -89,7 +89,7 @@ IMAGE_IMPORTS = {
 
 IMAGE_NAMES = {
     'discord_bot.services.bot.cli.bot': 'discord-bot',
-    'discord_bot.services.dispatcher.cli.dispatcher': 'discord-dispatcher',
+    'discord_dispatcher.cli.dispatcher': 'discord-dispatcher',
     'discord_bot.services.broker.cli.broker': 'discord-broker',
     'discord_bot.services.downloader.cli.downloader': 'discord-downloader',
     'discord_bot.services.search.cli.search': 'discord-search',
@@ -106,7 +106,7 @@ IMAGE_NAMES = {
 # test_every_dockerfile_exists keeps these honest against the filesystem.
 IMAGE_DOCKERFILES = {
     'discord_bot.services.bot.cli.bot': 'docker/Dockerfile',
-    'discord_bot.services.dispatcher.cli.dispatcher': 'docker/Dockerfile.dispatcher',
+    'discord_dispatcher.cli.dispatcher': 'docker/Dockerfile.dispatcher',
     'discord_bot.services.broker.cli.broker': 'docker/Dockerfile.broker',
     'discord_bot.services.downloader.cli.downloader': 'docker/Dockerfile.downloader',
     'discord_bot.services.search.cli.search': 'docker/Dockerfile.search',
@@ -554,8 +554,13 @@ def render_layout() -> str:
         if home is None:
             unsplit.setdefault(frozenset(images), []).append(module)
             continue
-        kind, name = home
-        folder = f'{PACKAGE}/{kind}' if name is None else f'{PACKAGE}/{kind}/{name}'
+        # Not `f'{PACKAGE}/{kind}/{name}'`: that rendered the criterion 7 path
+        # unconditionally, which was silently correct only while every pod's
+        # code still lived under the legacy root. `folder_of` reads the
+        # module's OWN dotted path, so a hoisted root (`discord_dispatcher`)
+        # renders as itself rather than as a `discord_bot/services/` folder
+        # that no longer holds it.
+        folder = folder_of(module)
         homes.setdefault(folder, []).append(module)
 
     homed_count = sum(len(v) for v in homes.values())

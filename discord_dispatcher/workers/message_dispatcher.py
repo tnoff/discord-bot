@@ -28,7 +28,7 @@ from discord_seam_dispatch.types.results import (
     ChannelHistoryResultBody, DispatchErrorResultBody, GuildEmojisResultBody,
 )
 
-from discord_bot.services.dispatcher.utils.discord_retry import async_retry_discord_message_command
+from discord_dispatcher.utils.discord_retry import async_retry_discord_message_command
 
 
 _DRAIN_TIMEOUT_SECONDS = 30

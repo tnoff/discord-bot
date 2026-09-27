@@ -253,7 +253,15 @@ def test_generated_closure_covers_every_image_the_matrix_needs():
         assert image['image'], image
         assert image['dockerfile'], image
         assert image['modules'], f'{image["image"]} claims no modules'
-        assert 'discord_bot' in image['modules']
+        # Not `LEGACY_ROOT in image['modules']`: that held while every pod's code
+        # still lived under it, and criterion 8 step 4 is what makes it stop
+        # holding for the first image (dispatcher moved out entirely). The
+        # invariant that survives the hoist is that every claimed module sits
+        # under SOME declared root.
+        assert all(module.split('.')[0] in ROOTS for module in image['modules']), (
+            f'{image["image"]} claims a module under an undeclared root: '
+            f'{[m for m in image["modules"] if m.split(".")[0] not in ROOTS]}'
+        )
 
 
 def test_every_declared_root_matches_release_yml_glob():

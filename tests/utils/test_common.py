@@ -18,8 +18,8 @@ from discord_core.utils.common import rm_tree
 from discord_core.utils.discord_utils import discord_format_string_embed
 from discord_core.utils.loop_health import LoopHealth
 
-from discord_bot.services.dispatcher.utils.discord_retry import async_retry_command
-from discord_bot.services.dispatcher.utils.discord_retry import async_retry_discord_message_command
+from discord_dispatcher.utils.discord_retry import async_retry_command
+from discord_dispatcher.utils.discord_retry import async_retry_discord_message_command
 
 from tests.helpers import fake_bot_yielder
 

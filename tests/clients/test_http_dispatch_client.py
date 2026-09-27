@@ -21,7 +21,7 @@ from discord_seam_dispatch.types.dispatch_request import (
 from discord_seam_dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_seam_dispatch.types.responses import FetchHistoryResponse
 
-from discord_bot.services.dispatcher.servers.dispatch_server import DispatchHttpServer
+from discord_dispatcher.servers.dispatch_server import DispatchHttpServer
 from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue
 
 # The two label keys the request counter sets. Spelled through the enum rather
