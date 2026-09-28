@@ -33,7 +33,7 @@ from sqlalchemy import select
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.otel import async_otel_span_wrapper
 
-from discord_seam_database.types.guild_analytics import GuildAnalyticsEntry
+from discord_core.types.guild_analytics import GuildAnalyticsEntry
 
 from discord_db.clients.session_store import SessionStoreBase
 from discord_db.database import Guild, GuildVideoAnalytics

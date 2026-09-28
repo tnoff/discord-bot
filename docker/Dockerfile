@@ -72,7 +72,6 @@ COPY discord_gateway/ "${APPDIR}/discord_gateway/"
 COPY discord_core/ "${APPDIR}/discord_core/"
 COPY discord_seam_dispatch/ "${APPDIR}/discord_seam_dispatch/"
 COPY discord_seam_queue_worker/ "${APPDIR}/discord_seam_queue_worker/"
-COPY discord_seam_database/ "${APPDIR}/discord_seam_database/"
 # No alembic/ or alembic.ini. Both were COPYd here until the MR 4 cutover
 # (#928) took [database] -- and with it the alembic CLI -- out of [bot]. They
 # only ever landed in this builder stage, since the final stage copies the two

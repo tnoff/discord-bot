@@ -18,8 +18,8 @@ from sqlalchemy.exc import OperationalError
 
 from discord_core.exceptions import DatabaseUnavailable
 
-from discord_seam_database.interfaces.database_protocols import MarkovStore
-from discord_seam_database.types.markov import MarkovChannelEntry, MarkovMessageWrite
+from discord_core.interfaces.database_protocols import MarkovStore
+from discord_core.types.markov import MarkovChannelEntry, MarkovMessageWrite
 
 from discord_gateway.clients.http_markov_store import HttpMarkovStore
 from discord_db.clients.markov_client import MarkovClient

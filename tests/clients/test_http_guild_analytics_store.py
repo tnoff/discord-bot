@@ -23,8 +23,8 @@ from sqlalchemy.exc import OperationalError
 
 from discord_core.exceptions import DatabaseUnavailable
 
-from discord_seam_database.interfaces.database_protocols import GuildAnalyticsStore
-from discord_seam_database.types.guild_analytics import GuildAnalyticsEntry
+from discord_core.interfaces.database_protocols import GuildAnalyticsStore
+from discord_core.types.guild_analytics import GuildAnalyticsEntry
 
 from discord_gateway.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
 from discord_db.clients.guild_analytics_client import GuildAnalyticsClient

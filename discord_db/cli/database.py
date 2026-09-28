@@ -51,7 +51,7 @@ from discord_core.cli._lib.common import (parse_and_validate_config, run_loop,
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig, resolve_tracing_config
 
-from discord_seam_database.types.video_cache import MusicCacheConfig
+from discord_core.types.video_cache import MusicCacheConfig
 
 from discord_db.cli._lib.db import instrument_sqlalchemy, managed_db
 from discord_db.cli._lib.migrations import run_pending_migrations

@@ -89,16 +89,16 @@ from discord_core.types.media_download import (media_download_from_dict,
 from discord_core.types.media_request import MediaRequest
 from discord_core.utils.otel import otel_span_wrapper
 
-from discord_seam_database.interfaces.database_protocols import (
+from discord_core.interfaces.database_protocols import (
     GuildAnalyticsStore,
     MarkovStore,
     PlaylistStore,
     VideoCacheStore,
 )
-from discord_seam_database.routes import database as database_routes
-from discord_seam_database.types.database_wire import DatabaseErrorBody, DatabaseResponse
-from discord_seam_database.types.markov import MarkovMessageWrite
-from discord_seam_database.types.playlist import PlaylistItemWrite
+from discord_core.routes import database as database_routes
+from discord_core.types.database_wire import DatabaseErrorBody, DatabaseResponse
+from discord_core.types.markov import MarkovMessageWrite
+from discord_core.types.playlist import PlaylistItemWrite
 
 logger = logging.getLogger(__name__)
 
