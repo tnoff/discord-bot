@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **54 are package
+`services/`. A further **48 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -36,12 +36,11 @@ own account.
 | folder | modules | reached by |
 |---|---|---|
 | `discord_broker/` | 10 | broker |
-| `discord_core/` | 63 | all 6 |
+| `discord_core/` | 76 | all 6 |
 | `discord_db/` | 14 | db |
 | `discord_dispatcher/` | 5 | dispatcher |
 | `discord_downloader/` | 8 | downloader |
 | `discord_gateway/` | 27 | bot |
-| `discord_seam_dispatch/` | 13 | bot, broker, dispatcher |
 | `discord_search/` | 13 | search |
 
 ## Homed
@@ -59,13 +58,15 @@ own account.
 - `discord_broker.workers.media_bundle`
 - `discord_broker.workers.redis_broker`
 
-### `discord_core/` — 63, reached by all 6
+### `discord_core/` — 76, reached by all 6
 
 - `discord_core.cli._lib.common`
 - `discord_core.cli._lib.gateway`
 - `discord_core.cli._lib.worker_pod`
+- `discord_core.clients.dispatch_client_base`
 - `discord_core.clients.http_broker_client`
 - `discord_core.clients.http_client_base`
+- `discord_core.clients.http_dispatch_client`
 - `discord_core.clients.http_player_session`
 - `discord_core.clients.http_store_base`
 - `discord_core.clients.redis_client`
@@ -76,13 +77,16 @@ own account.
 - `discord_core.exceptions`
 - `discord_core.interfaces.broker_client_protocol`
 - `discord_core.interfaces.database_protocols`
+- `discord_core.interfaces.dispatch_protocols`
 - `discord_core.interfaces.download_client_protocol`
 - `discord_core.interfaces.media_search_protocols`
 - `discord_core.interfaces.player_session_store`
+- `discord_core.interfaces.result_queue`
 - `discord_core.interfaces.youtube_music_search_protocols`
 - `discord_core.routes.broker`
 - `discord_core.routes.contract`
 - `discord_core.routes.database`
+- `discord_core.routes.dispatch`
 - `discord_core.routes.media_search`
 - `discord_core.routes.queue_worker`
 - `discord_core.routes.route`
@@ -95,7 +99,11 @@ own account.
 - `discord_core.types.checkout_result`
 - `discord_core.types.clear_guild_result`
 - `discord_core.types.database_wire`
+- `discord_core.types.dispatch_request`
+- `discord_core.types.dispatch_responses`
+- `discord_core.types.dispatch_result`
 - `discord_core.types.download`
+- `discord_core.types.fetched_message`
 - `discord_core.types.guild_analytics`
 - `discord_core.types.markov`
 - `discord_core.types.media_download`
@@ -106,6 +114,8 @@ own account.
 - `discord_core.types.playlist_add_request`
 - `discord_core.types.queue`
 - `discord_core.types.queue_worker_responses`
+- `discord_core.types.requests`
+- `discord_core.types.results`
 - `discord_core.types.search`
 - `discord_core.types.search_resolution`
 - `discord_core.types.video_cache`
@@ -113,6 +123,7 @@ own account.
 - `discord_core.utils.common`
 - `discord_core.utils.discord_context`
 - `discord_core.utils.discord_utils`
+- `discord_core.utils.dispatch_queue`
 - `discord_core.utils.failure_queue`
 - `discord_core.utils.gc_census`
 - `discord_core.utils.integrations.common`
@@ -124,6 +135,7 @@ own account.
 - `discord_core.utils.retry`
 - `discord_core.workers.queue_metrics`
 - `discord_core.workers.redis_guild_queue`
+- `discord_core.workers.redis_queues`
 
 ### `discord_db/` — 14, reached by db
 
@@ -190,22 +202,6 @@ own account.
 - `discord_gateway.types.playlist_add_result`
 - `discord_gateway.utils.bot_metrics`
 - `discord_gateway.utils.otel_command`
-
-### `discord_seam_dispatch/` — 13, reached by bot, broker, dispatcher
-
-- `discord_seam_dispatch.clients.dispatch_client_base`
-- `discord_seam_dispatch.clients.http_dispatch_client`
-- `discord_seam_dispatch.interfaces.dispatch_protocols`
-- `discord_seam_dispatch.interfaces.result_queue`
-- `discord_seam_dispatch.routes.dispatch`
-- `discord_seam_dispatch.types.dispatch_request`
-- `discord_seam_dispatch.types.dispatch_result`
-- `discord_seam_dispatch.types.fetched_message`
-- `discord_seam_dispatch.types.requests`
-- `discord_seam_dispatch.types.responses`
-- `discord_seam_dispatch.types.results`
-- `discord_seam_dispatch.utils.dispatch_queue`
-- `discord_seam_dispatch.workers.redis_queues`
 
 ### `discord_search/` — 13, reached by search
 

@@ -48,8 +48,7 @@ from discord_core.types.queue import PutsBlocked
 from discord_core.types.queue import Queue
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.types.player_session import PlayerSession
-
-from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase
+from discord_core.clients.dispatch_client_base import DispatchClientBase
 
 from discord_gateway.clients.http_download_client import HttpDownloadClient
 from discord_gateway.clients.http_media_search_client import HttpMediaSearchClient

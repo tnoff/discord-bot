@@ -25,13 +25,12 @@ from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequest
 from discord_core.utils.otel import async_otel_span_wrapper
 from discord_core.interfaces.database_protocols import VideoCacheStore
+from discord_core.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.interfaces.player_session_store import PlayerSessionStore
 from discord_core.types.checkout_result import CheckoutResult
 from discord_core.utils.integrations.s3 import delete_file
-
-from discord_seam_dispatch.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
 
 from discord_broker.workers.media_bundle import BundleRenderer, BundleState
 

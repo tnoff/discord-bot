@@ -1,6 +1,6 @@
 import pytest
 
-from discord_seam_dispatch.utils.dispatch_queue import RedisDispatchQueue
+from discord_core.utils.dispatch_queue import RedisDispatchQueue
 
 
 @pytest.fixture

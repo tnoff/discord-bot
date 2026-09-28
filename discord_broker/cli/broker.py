@@ -41,11 +41,10 @@ from discord_core.cli._lib.common import parse_and_validate_config, run_loop, se
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.clients.redis_client import RedisManager
 from discord_core.utils.common import GeneralConfig
+from discord_core.clients.http_dispatch_client import HttpDispatchClient
+from discord_core.workers.redis_queues import RedisDownloadResultQueue, RedisSearchResultQueue
 
 from discord_core.types.video_cache import MusicCacheConfig
-
-from discord_seam_dispatch.clients.http_dispatch_client import HttpDispatchClient
-from discord_seam_dispatch.workers.redis_queues import RedisDownloadResultQueue, RedisSearchResultQueue
 
 from discord_broker.clients.http_video_cache_store import HttpVideoCacheStore
 from discord_broker.servers.broker_health_server import BrokerHealthServer

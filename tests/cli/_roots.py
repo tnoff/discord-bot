@@ -50,34 +50,33 @@ SERVICES_DIR = 'services'
 CORE_ROOT = 'discord_core'
 
 #: Seam folder -> distribution import root. `discord-seam-<name>` rather than
-#: `discord-<name>` because `broker` names both a seam and a pod and they are
-#: not the same thing -- `seams/broker/` is what the other images use to TALK
-#: to the broker, `services/broker/` is the pod. A shared `discord_broker`
-#: would merge a contract with its implementation, which is the one distinction
-#: the whole packaging split exists to make visible.
+#: `discord-<name>` was chosen because `broker` names both a seam and a pod
+#: and they are not the same thing -- `seams/broker/` is what the other
+#: images use to TALK to the broker, `services/broker/` is the pod. A shared
+#: `discord_broker` would merge a contract with its implementation, which was
+#: the one distinction the packaging split existed to make visible.
 #:
-#: THERE IS NO AGGREGATING SEAM PACKAGE, AND THAT IS NOW STRUCTURAL.
-#: `discord_bot/seams/__init__.py` carried a long note arguing it had to stay
-#: EMPTY: the package was fanout 6, since every image imports some seam, and
-#: importing the registries into it would have made it churn on every route
-#: addition at fanout 6 -- the shape `utils/otel.py` had before criterion 5 took
-#: it apart -- while dragging every seam onto every pod. The note was right and
-#: it depended on nobody ever adding an import to one file.
+#: THAT DISTINCTION STOPPED BEING WHY THIS TABLE EXISTS, DECIDED 2026-09-28:
+#: every seam is folding into `discord_core` instead of staying a separate
+#: distribution, trading the per-distribution dependency-list precision this
+#: paragraph used to defend for a two-tier pods/core model rather than
+#: pods/core/seams. See per-image-code-split.md criterion 8 for the tradeoff
+#: record, including the measured cost -- one seam (broker) pulls a tier
+#: package (boto3) that one pod (search) does not otherwise install, free
+#: today because extras are still measured per-pod, and a real cost once
+#: criterion 8 step 5 gives `discord-core` a single static dependency list.
 #:
-#: Under this table the hazard cannot be reintroduced: there is no file above the
-#: seams to add an import to. Each seam is its own distribution, imported by the
-#: pods on it, and `pip install discord-gateway` resolves exactly the seams the
-#: gateway speaks. What was a convention defended by a docstring is now a fact
-#: about the dependency graph, which is the strongest form of the argument the
-#: retired file was making.
-#: `media_search`, `broker`, `database` and `queue_worker` folded into
-#: `discord_core` -- DECIDED to simplify pods/core to a two-tier concept
-#: rather than pods/core/seams, trading the per-seam dependency-list
-#: precision this table's docstring above was written to defend. See
-#: per-image-code-split.md criterion 8 for the tradeoff record.
-SEAM_ROOTS = {
-    'dispatch': 'discord_seam_dispatch',
-}
+#: `dispatch` was the fifth and last seam to fold, mirroring the original
+#: extraction order in reverse (media_search, broker, database,
+#: queue_worker, dispatch -- discord-bot #1000 through #1004). SEAM_ROOTS is
+#: EMPTY as of this fold, and it stays declared rather than deleted:
+#: `canonical()`, `home_of()` and `folder_of()` all key off it, and the
+#: right answer to "which seams are still separate packages" is whatever
+#: this dict says, including none. Retiring the dict itself -- along with
+#: the rest of this dual-spelling machinery and the now-pointless
+#: `seams`/`SEAMS_DIR` scaffolding it supports -- is a separate decision
+#: from folding the code, and has not been made.
+SEAM_ROOTS = {}
 
 #: Service folder -> distribution import root. `bot` becomes `discord_gateway`:
 #: the pod is the Discord gateway connection, the whole cog surface and the HTTP

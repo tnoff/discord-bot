@@ -24,15 +24,15 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchResult
 from discord_core.utils.failure_queue import FailureQueue
 
-from discord_seam_dispatch.clients.dispatch_client_base import DispatchRemoteError
-from discord_seam_dispatch.types.dispatch_request import (
+from discord_core.clients.dispatch_client_base import DispatchRemoteError
+from discord_core.types.dispatch_request import (
     FetchChannelHistoryRequest,
     FetchGuildEmojisRequest,
     SendRequest,
     DeleteRequest,
 )
-from discord_seam_dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, encode_error
-from discord_seam_dispatch.types.fetched_message import FetchedMessage
+from discord_core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, encode_error
+from discord_core.types.fetched_message import FetchedMessage
 
 from discord_gateway.clients.database_stores import DatabaseStores
 from discord_search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
