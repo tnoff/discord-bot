@@ -16,7 +16,7 @@ from discord_core.types.download import LifecycleEvent
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchResult
 
-from discord_seam_media_search.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
+from discord_core.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 
 from discord_search.utils.integrations.youtube_music import YoutubeMusicRetryException
 from discord_search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver

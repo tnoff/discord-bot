@@ -63,18 +63,11 @@ RUN mkdir -p "${APPDIR}/discord_bot" && \
 # of the split is that an image carries the roots it reaches and no others.
 # discord_search/ replaces the legacy root as of criterion 8 step 4: the pod's
 # own code no longer lives there at all, so this image drops that line
-# entirely rather than keeping it alongside the new one. Not to be confused
-# with discord_seam_media_search/ below -- distinct root, distinct line.
+# entirely rather than keeping it alongside the new one.
 COPY discord_search/ "${APPDIR}/discord_search/"
 COPY discord_core/ "${APPDIR}/discord_core/"
 COPY discord_seam_queue_worker/ "${APPDIR}/discord_seam_queue_worker/"
 COPY discord_seam_broker/ "${APPDIR}/discord_seam_broker/"
-# discord_seam_media_search/ is the FIRST root not copied by all six: only the
-# bot and search images reach that seam, so the other four Dockerfiles do not
-# name it. That is criterion 4's property -- an image carries what it reaches --
-# arriving as a consequence of the packaging split rather than as a generated
-# COPY block.
-COPY discord_seam_media_search/ "${APPDIR}/discord_seam_media_search/"
 COPY VERSION "${APPDIR}/"
 RUN pip install --no-cache-dir --no-deps "${APPDIR}[search]" && \
     chown -R discord:discord "${WORKDIR}" "${LOGFILE}" && \

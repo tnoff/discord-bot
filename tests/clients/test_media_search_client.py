@@ -13,7 +13,7 @@ from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_core.exceptions import MediaSearchError
 
-from discord_seam_media_search.types.catalog import CatalogResponse, CatalogItem
+from discord_core.types.catalog import CatalogResponse, CatalogItem
 
 from discord_search.clients.media_search_client import (
     InMemoryMediaSearchClient, build_media_search_client,

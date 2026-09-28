@@ -31,7 +31,7 @@ see MediaSearchError's docstring for why the Discord copy stays in the cog.
 '''
 from typing import Protocol, runtime_checkable
 
-from discord_seam_media_search.types.catalog import CatalogResponse
+from discord_core.types.catalog import CatalogResponse
 
 
 @runtime_checkable

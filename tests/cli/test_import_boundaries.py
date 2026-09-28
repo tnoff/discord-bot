@@ -536,15 +536,38 @@ def test_the_core_does_not_import_a_seam():
     seam. Six were, after the last 25 modules were placed on owner-set
     arithmetic rather than on meaning.
 
-    It matters most under the packaging split this is heading for: `core` is the
-    distribution every pod depends on, so a core-to-seam import makes
-    `discord-core` depend on `discord-seam-dispatch`, and every pod installing
-    core drags in a seam it may have no route to. That inverts what the split is
-    for.
+    It mattered most under the packaging split criterion 8 originally shaped
+    this around: `core` was to become the distribution every pod depends on, so
+    a core-to-seam import would make `discord-core` depend on
+    `discord-seam-dispatch`, and every pod installing core would drag in a
+    seam it may have no route to. That premise is what the seam-fold reversal
+    (criterion 8, DECIDED 2026-09-28: fold every seam into `discord_core`
+    rather than publish them separately) removes for a seam once it has
+    actually folded -- there is no longer a separate distribution to invert
+    into. Until every seam has folded, though, the remaining ones are still
+    real separately-shaped code, and a NEW core-to-seam reference into one of
+    them is exactly what this test still exists to catch.
 
     Asserted in BOTH directions, because a rule about a direction proves nothing
     if traffic has quietly stopped flowing the other way too.
     '''
+    # KNOWN, TEMPORARY, and NARROW: media_search folded into core first
+    # (smallest seam, first PR of the reversal) and brought
+    # `YoutubeMusicSearchWorkerBase` with it, which genuinely depends on
+    # queue_worker's `FailureQueue`/`FailureStatus` (used at runtime, not just
+    # for typing) and `ClearGuildResult`. That is a real pre-existing coupling
+    # between two seams' contracts, not an accident introduced by the fold.
+    # queue_worker is the fourth seam scheduled to fold in the same reversal,
+    # at which point this becomes a core-to-core reference and stops needing
+    # an exception. Listed by exact module, not seam, so nothing else earns a
+    # free pass by resembling it.
+    known_transitional_downward = {
+        'discord_core/interfaces/youtube_music_search_protocols.py': {
+            'discord_seam_queue_worker.types.clear_guild_result',
+            'discord_seam_queue_worker.utils.failure_queue',
+        },
+    }
+
     core_dirs = dirs_for(REPO_ROOT, CORE_DIR)
     seam_dirs = dirs_for(REPO_ROOT, SEAMS_DIR)
     assert core_dirs and seam_dirs, 'core/ or seams/ is missing'
@@ -560,15 +583,26 @@ def test_the_core_does_not_import_a_seam():
         'changed shape so completely that this rule needs rewriting rather than '
         'passing quietly'
     )
-    downward = {str(p.relative_to(REPO_ROOT)): _runtime_imports(p, seam_prefixes)
+    downward = {str(p.relative_to(REPO_ROOT)): set(_runtime_imports(p, seam_prefixes))
                 for p in core_files
                 if _runtime_imports(p, seam_prefixes)}
-    assert not downward, (
+    unexpected = {path: imports - known_transitional_downward.get(path, set())
+                  for path, imports in downward.items()
+                  if imports - known_transitional_downward.get(path, set())}
+    assert not unexpected, (
         f'these core modules import a seam at runtime, which inverts the '
-        f'dependency: {downward}. A core module that needs a seam is contract '
+        f'dependency: {unexpected}. A core module that needs a seam is contract '
         f'code in the wrong folder -- move it to the seam. If it is genuinely '
         f'generic, the thing it imports is what is misplaced: that is how '
         f'`http_client_base` and `seam_contract` came to sit in seams/broker/.'
+    )
+    stale_allowlist = {path: allowed - downward.get(path, set())
+                        for path, allowed in known_transitional_downward.items()
+                        if allowed - downward.get(path, set())}
+    assert not stale_allowlist, (
+        f'known_transitional_downward lists imports that no longer exist: '
+        f'{stale_allowlist}. Remove the entry -- this is what happens when the '
+        f'seam it names finishes folding into core.'
     )
 
 
@@ -658,11 +692,12 @@ def test_every_dockerfile_copies_the_roots_its_image_reaches():
     """An image's Dockerfile must COPY every import root that image reaches.
 
     This gap opens with the first root that is not universal.
-    `discord_seam_media_search` is reached by the bot and search only, so the
-    other four Dockerfiles correctly do not name it -- and the failure mode of
-    getting that wrong is the worst available: `packages.find` simply does not
-    find the absent package, `pip install` succeeds, the image builds green, and
-    the container dies on import in production. CI never sees it.
+    `discord_seam_broker` is reached by the bot, broker, downloader and search
+    only, so the dispatcher and db Dockerfiles correctly do not name it -- and
+    the failure mode of getting that wrong is the worst available:
+    `packages.find` simply does not find the absent package, `pip install`
+    succeeds, the image builds green, and the container dies on import in
+    production. CI never sees it.
 
     Derived from the measured closure rather than a hand-written map of which
     image needs which root, because that map is exactly what goes stale when a
