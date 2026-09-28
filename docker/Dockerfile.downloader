@@ -80,7 +80,6 @@ RUN apt-get update && \
 COPY discord_downloader/ "${APPDIR}/discord_downloader/"
 COPY discord_core/ "${APPDIR}/discord_core/"
 COPY discord_seam_queue_worker/ "${APPDIR}/discord_seam_queue_worker/"
-COPY discord_seam_broker/ "${APPDIR}/discord_seam_broker/"
 COPY VERSION "${APPDIR}/"
 RUN pip install --no-cache-dir --no-deps "${APPDIR}[downloader]" && \
     rm -rf "${APPDIR}" /root/.cache

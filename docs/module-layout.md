@@ -36,14 +36,14 @@ own account.
 | folder | modules | reached by |
 |---|---|---|
 | `discord_broker/` | 10 | broker |
-| `discord_core/` | 38 | all 6 |
+| `discord_core/` | 39 | all 6 |
 | `discord_db/` | 14 | db |
 | `discord_dispatcher/` | 5 | dispatcher |
 | `discord_downloader/` | 8 | downloader |
 | `discord_gateway/` | 27 | bot |
-| `discord_seam_broker/` | 7 | bot, broker, downloader, search |
 | `discord_seam_database/` | 8 | bot, broker, db |
 | `discord_seam_dispatch/` | 13 | bot, broker, dispatcher |
+| `discord_seam_media_search/` | 6 | bot, search |
 | `discord_seam_queue_worker/` | 10 | bot, downloader, search |
 | `discord_search/` | 13 | search |
 
@@ -62,7 +62,7 @@ own account.
 - `discord_broker.workers.media_bundle`
 - `discord_broker.workers.redis_broker`
 
-### `discord_core/` — 38, reached by all 6
+### `discord_core/` — 39, reached by all 6
 
 - `discord_core.cli._lib.common`
 - `discord_core.cli._lib.gateway`
@@ -74,20 +74,21 @@ own account.
 - `discord_core.cogs.schema`
 - `discord_core.common`
 - `discord_core.exceptions`
-- `discord_core.interfaces.media_search_protocols`
-- `discord_core.interfaces.youtube_music_search_protocols`
+- `discord_core.interfaces.broker_client_protocol`
+- `discord_core.interfaces.player_session_store`
+- `discord_core.routes.broker`
 - `discord_core.routes.contract`
-- `discord_core.routes.media_search`
 - `discord_core.routes.route`
 - `discord_core.servers.base`
 - `discord_core.servers.health_server_base`
 - `discord_core.servers.redis_health_server`
-- `discord_core.types.catalog`
+- `discord_core.types.checkout_result`
 - `discord_core.types.download`
 - `discord_core.types.media_download`
 - `discord_core.types.media_request`
-- `discord_core.types.media_search`
+- `discord_core.types.player_session`
 - `discord_core.types.playlist_add_request`
+- `discord_core.types.responses`
 - `discord_core.types.search`
 - `discord_core.types.search_resolution`
 - `discord_core.utils.circuit_breaker`
@@ -95,7 +96,7 @@ own account.
 - `discord_core.utils.discord_context`
 - `discord_core.utils.discord_utils`
 - `discord_core.utils.gc_census`
-- `discord_core.utils.integrations.common`
+- `discord_core.utils.integrations.s3`
 - `discord_core.utils.loop_health`
 - `discord_core.utils.memory_profiler`
 - `discord_core.utils.otel`
@@ -169,16 +170,6 @@ own account.
 - `discord_gateway.utils.bot_metrics`
 - `discord_gateway.utils.otel_command`
 
-### `discord_seam_broker/` — 7, reached by bot, broker, downloader, search
-
-- `discord_seam_broker.interfaces.broker_client_protocol`
-- `discord_seam_broker.interfaces.player_session_store`
-- `discord_seam_broker.routes.broker`
-- `discord_seam_broker.types.checkout_result`
-- `discord_seam_broker.types.player_session`
-- `discord_seam_broker.types.responses`
-- `discord_seam_broker.utils.integrations.s3`
-
 ### `discord_seam_database/` — 8, reached by bot, broker, db
 
 - `discord_seam_database.clients.http_store_base`
@@ -205,6 +196,15 @@ own account.
 - `discord_seam_dispatch.types.results`
 - `discord_seam_dispatch.utils.dispatch_queue`
 - `discord_seam_dispatch.workers.redis_queues`
+
+### `discord_seam_media_search/` — 6, reached by bot, search
+
+- `discord_seam_media_search.interfaces.media_search_protocols`
+- `discord_seam_media_search.interfaces.youtube_music_search_protocols`
+- `discord_seam_media_search.routes.media_search`
+- `discord_seam_media_search.types.catalog`
+- `discord_seam_media_search.types.media_search`
+- `discord_seam_media_search.utils.integrations.common`
 
 ### `discord_seam_queue_worker/` — 10, reached by bot, downloader, search
 

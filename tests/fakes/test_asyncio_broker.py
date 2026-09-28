@@ -17,7 +17,7 @@ from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_core.types.download import LifecycleEvent, LifecycleStatusUpdate
 from discord_core.types.playlist_add_request import parse_media_request
 
-from discord_seam_broker.types.player_session import PlayerSession
+from discord_core.types.player_session import PlayerSession
 
 from discord_broker.interfaces.broker_protocols import BrokerEntry, CheckoutResult, Zone
 

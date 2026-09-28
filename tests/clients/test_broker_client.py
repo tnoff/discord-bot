@@ -16,8 +16,8 @@ from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_core.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
 from discord_core.types.search_resolution import SearchResolution
 
-from discord_seam_broker.types.checkout_result import CheckoutResult
-from discord_seam_broker.types.player_session import PlayerSession
+from discord_core.types.checkout_result import CheckoutResult
+from discord_core.types.player_session import PlayerSession
 
 from discord_seam_dispatch.interfaces.result_queue import SearchResultQueue
 

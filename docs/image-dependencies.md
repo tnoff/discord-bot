@@ -25,9 +25,9 @@ stack), which is why the numbers below are smaller than an image manifest.
 |---|---|---|
 | `discord-bot` | 129 | 35 |
 | `discord-dispatcher` | 60 | 9 |
-| `discord-broker` | 95 | 15 |
-| `discord-downloader` | 81 | 14 |
-| `discord-search` | 86 | 19 |
+| `discord-broker` | 92 | 15 |
+| `discord-downloader` | 78 | 14 |
+| `discord-search` | 87 | 19 |
 | `discord-db` | 58 | 21 |
 
 ## How shared the tree is
@@ -37,9 +37,9 @@ Modules by how many of the 6 entrypoints import them:
 | imported by | modules |
 |---|---|
 | 1 of 6 | 113 |
-| 2 of 6 | 30 |
-| 3 of 6 | 39 |
-| 4 of 6 | 10 |
+| 2 of 6 | 33 |
+| 3 of 6 | 38 |
+| 4 of 6 | 8 |
 | 5 of 6 | 7 |
 | 6 of 6 | 24 |
 

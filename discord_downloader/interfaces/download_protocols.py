@@ -50,8 +50,8 @@ from discord_core.utils.otel import (
     otel_span_wrapper, span_links_from_context,
 )
 
-from discord_seam_broker.interfaces.broker_client_protocol import BrokerClient
-from discord_seam_broker.utils.integrations.s3 import upload_file
+from discord_core.interfaces.broker_client_protocol import BrokerClient
+from discord_core.utils.integrations.s3 import upload_file
 
 from discord_seam_queue_worker.interfaces.download_client_protocol import (
     DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,

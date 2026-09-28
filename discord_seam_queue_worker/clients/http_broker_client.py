@@ -28,9 +28,9 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.search_resolution import SearchResolution
 from discord_core.utils.otel import async_otel_span_wrapper
 
-from discord_seam_broker.routes import broker as broker_routes
-from discord_seam_broker.types.checkout_result import CheckoutResult
-from discord_seam_broker.types.responses import (
+from discord_core.routes import broker as broker_routes
+from discord_core.types.checkout_result import CheckoutResult
+from discord_core.types.responses import (
     CacheCleanupResponse, CheckCacheHitResponse, CheckoutS3Response,
     CheckoutStagedResponse, CreateBundleResponse, GetCacheCountResponse,
 )
