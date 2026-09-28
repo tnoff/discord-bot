@@ -34,7 +34,6 @@ import argparse
 import json
 import subprocess  # nosec B404 - fixed argv, no shell, reads git metadata only
 import sys
-import tomllib
 from pathlib import Path
 
 from tests.cli._roots import root_of
@@ -42,14 +41,19 @@ from tests.cli._roots import root_of
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLOSURE_PATH = 'docs/image-closure.json'
 
-# Inputs that are not python modules. Every image COPYs pyproject.toml, VERSION
-# and docker/entrypoint.sh, so those three are genuinely all-six; alembic/ is
-# COPYd by Dockerfile.db alone.
+# Inputs that are not python modules. VERSION and docker/entrypoint.sh are
+# genuinely all-six -- every image COPYs both. alembic/ is COPYd by
+# Dockerfile.db alone. The bare, repo-root pyproject.toml is deliberately
+# ABSENT from this list: since criterion 8 step 5 gave each package its own
+# pyproject.toml, the root one holds only the `test` extra and shared tool
+# config, and installs no production package at all -- a change there reaches
+# no deployed image, which `images_for_pyproject` below derives rather than
+# this list declaring.
 #
 # Everything else under docker/ -- the .cnf.example files, the compose file --
 # matches the old `docker/*` filter but is copied by no Dockerfile, so it
 # rebuilt six images and changed none of them.
-ALWAYS_ALL = ('pyproject.toml', 'VERSION', 'docker/entrypoint.sh')
+ALWAYS_ALL = ('VERSION', 'docker/entrypoint.sh')
 DB_ONLY_PREFIXES = ('alembic/',)
 DB_ONLY_FILES = ('alembic.ini',)
 
@@ -75,55 +79,34 @@ def module_for(path: str) -> str | None:
     return module
 
 
-def extra_closure(extras: dict, name: str, seen: set | None = None) -> set:
-    '''Every extra `name` pulls in, following `discord_bot[...]` self-references.
-
-    `discord_bot[` here is the DISTRIBUTION name in pyproject, not an import
-    root, which is why criterion 8 step 1 leaves it alone: the extras stop being
-    extras at step 5, when each service package gets its own pyproject and its
-    own `dependencies`. Changing it now would key this on a distribution that
-    does not exist yet.
+def images_for_pyproject(path: str, claims: dict) -> set:
     '''
-    seen = set() if seen is None else seen
-    if name in seen or name not in extras:
-        return seen
-    seen.add(name)
-    for spec in extras[name]:
-        spec = spec.strip()
-        if spec.startswith('discord_bot[') and spec.endswith(']'):
-            for referenced in spec[len('discord_bot['):-1].split(','):
-                extra_closure(extras, referenced.strip(), seen)
-    return seen
+    Which images a pyproject.toml edit actually reaches.
 
+    The whole file used to count as an all-six input, which is how a pylint
+    bump rebuilt and rescanned six images that do not install pylint. That
+    changed once already, when per-image extras made it possible to resolve
+    each image's own extra through its `discord_bot[...]` self-references and
+    check whether a changed extra was inside it -- but criterion 8 step 5
+    retired the extras themselves, so that graph no longer exists to read.
 
-def images_for_pyproject(head_text: str, base_text: str, image_extras: dict) -> set:
+    The bare, repo-root pyproject.toml (this function is never called for it --
+    see the `ALWAYS_ALL` comment) reaches no image at all now. Every OTHER
+    pyproject.toml lives inside one of the seven package roots and changes
+    that root's real `dependencies`, so the answer is the same one a .py
+    module change under that root already gets: whichever images' MEASURED
+    closure claims a module under it. A discord_core/pyproject.toml edit
+    reaches all six, the same as any other discord_core change; a pod's own
+    reaches only that pod's image.
     '''
-    Which images a pyproject edit actually reaches.
-
-    The whole file used to count as an all-six input, which is how a pylint bump
-    rebuilt and rescanned six images that do not install pylint. Extras are
-    per-image and their graph is already written down here, so the answer is
-    derived rather than declared: resolve each image extra through its
-    `discord_bot[...]` self-references and see whether any extra that changed is
-    inside it.
-
-    An unparseable or missing base falls back to every image. Being unable to
-    tell what changed is not evidence that nothing did.
-    '''
-    try:
-        head = tomllib.loads(head_text)['project']['optional-dependencies']
-        base = tomllib.loads(base_text)['project']['optional-dependencies']
-    except (tomllib.TOMLDecodeError, KeyError, TypeError):
-        return set(image_extras)
-    changed = {name for name in set(head) | set(base) if head.get(name) != base.get(name)}
-    if not changed:
+    root = root_of(path)
+    if root is None:
         return set()
-    return {image for image, extra in image_extras.items()
-            if extra_closure(head, extra) & changed}
+    return {image for image, mods in claims.items()
+            if any(m.startswith(f'{root}.') for m in mods)}
 
 
-def affected(changed_files, deleted_files, head_closure, base_closure,
-             head_pyproject, base_pyproject):
+def affected(changed_files, deleted_files, head_closure, base_closure):
     '''
     Return (images_to_build, orphan_paths).
 
@@ -141,7 +124,6 @@ def affected(changed_files, deleted_files, head_closure, base_closure,
     claims = {i['image']: set(i['modules']) for i in head_closure['images']}
     base_claims = {i['image']: set(i['modules']) for i in base_closure['images']} if base_closure else {}
     dockerfiles = {i['dockerfile']: i['image'] for i in head_closure['images']}
-    image_extras = {i['image']: i['extra'] for i in head_closure['images']}
     every = set(claims)
     db_image = next((i['image'] for i in head_closure['images']
                      if i['entrypoint'].endswith('.database')), None)
@@ -162,8 +144,9 @@ def affected(changed_files, deleted_files, head_closure, base_closure,
             else:
                 orphans.append(path)
         elif path in ALWAYS_ALL:
-            images |= images_for_pyproject(head_pyproject, base_pyproject, image_extras) \
-                if path == 'pyproject.toml' else every
+            images |= every
+        elif path.endswith('pyproject.toml'):
+            images |= images_for_pyproject(path, claims)
         elif path in dockerfiles:
             images.add(dockerfiles[path])
         elif path.startswith(DB_ONLY_PREFIXES) or path in DB_ONLY_FILES:
@@ -199,10 +182,7 @@ def main(argv=None) -> int:
     base_raw = _git_show(args.base, CLOSURE_PATH)
     base_closure = json.loads(base_raw) if base_raw else None
 
-    images, orphans = affected(
-        changed, deleted, head_closure, base_closure,
-        (REPO_ROOT / 'pyproject.toml').read_text(encoding='utf-8'),
-        _git_show(args.base, 'pyproject.toml'))
+    images, orphans = affected(changed, deleted, head_closure, base_closure)
 
     print('changed files:', file=sys.stderr)
     for path in changed:

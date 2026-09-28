@@ -284,6 +284,13 @@ def render_closure() -> str:
     an image that needed building. The one dynamic import in the tree
     (utils/integrations/youtube_music.py) is exactly the case a walk would miss.
     '''
+    # No `extra` field any more: criterion 8 step 5 gave each package its own
+    # `dependencies` instead of a per-image extra on one pyproject.toml, so the
+    # field held nothing but a second copy of `image` (`extra: "broker"` next
+    # to `image: "broker"`) and _affected_images.py's `pyproject.toml` handling
+    # is what actually read it. That handling now derives the same answer from
+    # `modules` instead -- see `root_of()` there -- so the duplicate is gone
+    # rather than carried forward unread.
     measured = {ep: measure(ep) for ep in IMAGE_IMPORTS}
     images = []
     for ep in IMAGE_IMPORTS:
@@ -291,7 +298,6 @@ def render_closure() -> str:
             'image': short_name(ep),
             'entrypoint': ep,
             'dockerfile': IMAGE_DOCKERFILES[ep],
-            'extra': short_name(ep),
             'modules': sorted(set(measured[ep]['modules']) | _roots_reached(measured[ep])),
         })
     images.sort(key=lambda i: i['image'])
