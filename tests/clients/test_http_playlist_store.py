@@ -21,8 +21,8 @@ from sqlalchemy.exc import OperationalError
 
 from discord_core.exceptions import DatabaseUnavailable
 
-from discord_seam_database.interfaces.database_protocols import PlaylistStore
-from discord_seam_database.types.playlist import (
+from discord_core.interfaces.database_protocols import PlaylistStore
+from discord_core.types.playlist import (
     PlaylistEntry,
     PlaylistItemAddOutcome,
     PlaylistItemAddStatus,

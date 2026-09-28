@@ -5,8 +5,8 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_seam_database.interfaces.database_protocols import PlaylistStore
-from discord_seam_database.types.playlist import (
+from discord_core.interfaces.database_protocols import PlaylistStore
+from discord_core.types.playlist import (
     PlaylistEntry,
     PlaylistItemAddStatus,
     PlaylistItemEntry,

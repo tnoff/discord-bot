@@ -34,9 +34,9 @@ from typing import List
 
 from discord_core.utils.discord_context import DiscordContextNaming
 
-from discord_seam_database.clients.http_store_base import HttpStoreBase
-from discord_seam_database.routes import database as database_routes
-from discord_seam_database.types.playlist import (
+from discord_core.clients.http_store_base import HttpStoreBase
+from discord_core.routes import database as database_routes
+from discord_core.types.playlist import (
     PlaylistEntry,
     PlaylistItemAddOutcome,
     PlaylistItemEntry,

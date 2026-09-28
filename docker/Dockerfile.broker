@@ -74,7 +74,6 @@ RUN apt-get update && \
 COPY discord_broker/ "${APPDIR}/discord_broker/"
 COPY discord_core/ "${APPDIR}/discord_core/"
 COPY discord_seam_dispatch/ "${APPDIR}/discord_seam_dispatch/"
-COPY discord_seam_database/ "${APPDIR}/discord_seam_database/"
 COPY VERSION "${APPDIR}/"
 RUN pip install --no-deps "${APPDIR}[broker]"
 

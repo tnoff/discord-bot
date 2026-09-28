@@ -5,8 +5,8 @@ import pytest
 from sqlalchemy import asc, select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_seam_database.interfaces.database_protocols import VideoCacheStore
-from discord_seam_database.types.video_cache import VideoCacheEntry
+from discord_core.interfaces.database_protocols import VideoCacheStore
+from discord_core.types.video_cache import VideoCacheEntry
 
 from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_db.database import VideoCache

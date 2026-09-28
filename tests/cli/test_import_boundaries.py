@@ -668,8 +668,8 @@ def test_the_layout_rules_fail_the_same_way_under_the_criterion_8_spelling():
     cases = {
         f'{CORE_ROOT}.thing': {'bot'},
         f'{SERVICE_ROOTS["bot"]}.thing': {'bot', 'downloader'},
-        f'{SEAM_ROOTS["database"]}.thing': all_six,
-        f'{SEAM_ROOTS["database"]}.other': {'bot'},
+        f'{SEAM_ROOTS["dispatch"]}.thing': all_six,
+        f'{SEAM_ROOTS["dispatch"]}.other': {'bot'},
     }
     for module, reached in cases.items():
         found = layout_violations({module: reached})
@@ -683,7 +683,7 @@ def test_the_layout_rules_fail_the_same_way_under_the_criterion_8_spelling():
         f'{CORE_ROOT}.thing': all_six,
         f'{CORE_ROOT}.subset_shared': set(images[:4]),
         f'{SERVICE_ROOTS["bot"]}.thing': {'bot'},
-        f'{SEAM_ROOTS["database"]}.thing': {'bot', 'db'},
+        f'{SEAM_ROOTS["dispatch"]}.thing': {'bot', 'db'},
     }
     assert not layout_violations(clean), 'the respelled rules report a clean map as broken'
 

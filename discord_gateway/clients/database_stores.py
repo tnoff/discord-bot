@@ -19,7 +19,7 @@ never fills would invite somebody to fill it.
 '''
 from dataclasses import dataclass
 
-from discord_seam_database.interfaces.database_protocols import (GuildAnalyticsStore, MarkovStore,
+from discord_core.interfaces.database_protocols import (GuildAnalyticsStore, MarkovStore,
                                                        PlaylistStore)
 
 from discord_gateway.clients.http_guild_analytics_store import HttpGuildAnalyticsStore

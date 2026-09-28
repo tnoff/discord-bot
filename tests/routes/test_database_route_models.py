@@ -28,8 +28,8 @@ import typing
 
 import pytest
 
-from discord_seam_database.interfaces import database_protocols as protocols
-from discord_seam_database.routes import database as db_routes
+from discord_core.interfaces import database_protocols as protocols
+from discord_core.routes import database as db_routes
 
 
 def store_protocol(group_name: str):

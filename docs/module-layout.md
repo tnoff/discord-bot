@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **65 are package
+`services/`. A further **61 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -36,12 +36,11 @@ own account.
 | folder | modules | reached by |
 |---|---|---|
 | `discord_broker/` | 10 | broker |
-| `discord_core/` | 45 | all 6 |
+| `discord_core/` | 53 | all 6 |
 | `discord_db/` | 14 | db |
 | `discord_dispatcher/` | 5 | dispatcher |
 | `discord_downloader/` | 8 | downloader |
 | `discord_gateway/` | 27 | bot |
-| `discord_seam_database/` | 8 | bot, broker, db |
 | `discord_seam_dispatch/` | 13 | bot, broker, dispatcher |
 | `discord_seam_queue_worker/` | 10 | bot, downloader, search |
 | `discord_search/` | 13 | search |
@@ -61,12 +60,13 @@ own account.
 - `discord_broker.workers.media_bundle`
 - `discord_broker.workers.redis_broker`
 
-### `discord_core/` — 45, reached by all 6
+### `discord_core/` — 53, reached by all 6
 
 - `discord_core.cli._lib.common`
 - `discord_core.cli._lib.gateway`
 - `discord_core.cli._lib.worker_pod`
 - `discord_core.clients.http_client_base`
+- `discord_core.clients.http_store_base`
 - `discord_core.clients.redis_client`
 - `discord_core.clients.seam_contract`
 - `discord_core.cogs.music_helpers.common`
@@ -74,11 +74,13 @@ own account.
 - `discord_core.common`
 - `discord_core.exceptions`
 - `discord_core.interfaces.broker_client_protocol`
+- `discord_core.interfaces.database_protocols`
 - `discord_core.interfaces.media_search_protocols`
 - `discord_core.interfaces.player_session_store`
 - `discord_core.interfaces.youtube_music_search_protocols`
 - `discord_core.routes.broker`
 - `discord_core.routes.contract`
+- `discord_core.routes.database`
 - `discord_core.routes.media_search`
 - `discord_core.routes.route`
 - `discord_core.servers.base`
@@ -87,14 +89,19 @@ own account.
 - `discord_core.types.broker_responses`
 - `discord_core.types.catalog`
 - `discord_core.types.checkout_result`
+- `discord_core.types.database_wire`
 - `discord_core.types.download`
+- `discord_core.types.guild_analytics`
+- `discord_core.types.markov`
 - `discord_core.types.media_download`
 - `discord_core.types.media_request`
 - `discord_core.types.media_search`
 - `discord_core.types.player_session`
+- `discord_core.types.playlist`
 - `discord_core.types.playlist_add_request`
 - `discord_core.types.search`
 - `discord_core.types.search_resolution`
+- `discord_core.types.video_cache`
 - `discord_core.utils.circuit_breaker`
 - `discord_core.utils.common`
 - `discord_core.utils.discord_context`
@@ -174,17 +181,6 @@ own account.
 - `discord_gateway.types.playlist_add_result`
 - `discord_gateway.utils.bot_metrics`
 - `discord_gateway.utils.otel_command`
-
-### `discord_seam_database/` — 8, reached by bot, broker, db
-
-- `discord_seam_database.clients.http_store_base`
-- `discord_seam_database.interfaces.database_protocols`
-- `discord_seam_database.routes.database`
-- `discord_seam_database.types.database_wire`
-- `discord_seam_database.types.guild_analytics`
-- `discord_seam_database.types.markov`
-- `discord_seam_database.types.playlist`
-- `discord_seam_database.types.video_cache`
 
 ### `discord_seam_dispatch/` — 13, reached by bot, broker, dispatcher
 

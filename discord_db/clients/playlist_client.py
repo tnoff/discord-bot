@@ -36,7 +36,7 @@ from discord_core.cogs.music_helpers.common import PLAYHISTORY_PREFIX
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.otel import async_otel_span_wrapper
 
-from discord_seam_database.types.playlist import (
+from discord_core.types.playlist import (
     PlaylistEntry,
     PlaylistItemAddOutcome,
     PlaylistItemAddStatus,

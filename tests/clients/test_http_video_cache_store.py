@@ -29,8 +29,8 @@ from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchResult
 
-from discord_seam_database.interfaces.database_protocols import VideoCacheStore
-from discord_seam_database.types.video_cache import VideoCacheEntry
+from discord_core.interfaces.database_protocols import VideoCacheStore
+from discord_core.types.video_cache import VideoCacheEntry
 
 from discord_broker.clients.http_video_cache_store import HttpVideoCacheStore
 from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
