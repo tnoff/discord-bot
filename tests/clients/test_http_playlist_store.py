@@ -31,8 +31,8 @@ from discord_seam_database.types.playlist import (
 )
 
 from discord_bot.services.bot.clients.http_playlist_store import HttpPlaylistStore
-from discord_bot.services.db.clients.playlist_client import PlaylistClient
-from discord_bot.services.db.servers.database_server import DatabaseHttpServer
+from discord_db.clients.playlist_client import PlaylistClient
+from discord_db.servers.database_server import DatabaseHttpServer
 
 from tests.helpers import fake_engine #pylint:disable=unused-import
 from tests.helpers import async_mock_session

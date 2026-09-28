@@ -10,9 +10,9 @@ from discord_core.utils.otel import async_otel_span_wrapper
 
 from discord_seam_database.types.video_cache import VideoCacheEntry
 
-from discord_bot.services.db.cogs.music_helpers import database_functions
-from discord_bot.services.db.database import VideoCache
-from discord_bot.services.db.utils.sql_retry import async_retry_database_commands
+from discord_db.cogs.music_helpers import database_functions
+from discord_db.database import VideoCache
+from discord_db.utils.sql_retry import async_retry_database_commands
 
 OTEL_SPAN_PREFIX = 'music.video_cache'
 

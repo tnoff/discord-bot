@@ -8,8 +8,8 @@ from sqlalchemy import select
 from discord_seam_database.interfaces.database_protocols import GuildAnalyticsStore
 from discord_seam_database.types.guild_analytics import GuildAnalyticsEntry
 
-from discord_bot.services.db.clients.guild_analytics_client import GuildAnalyticsClient
-from discord_bot.services.db.database import Guild, GuildVideoAnalytics
+from discord_db.clients.guild_analytics_client import GuildAnalyticsClient
+from discord_db.database import Guild, GuildVideoAnalytics
 
 from tests.helpers import fake_engine #pylint:disable=unused-import
 from tests.helpers import async_mock_session

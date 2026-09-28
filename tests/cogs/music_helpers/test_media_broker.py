@@ -12,8 +12,8 @@ from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequestLifecycleStage
 
 from discord_broker.interfaces.broker_protocols import Zone
-from discord_bot.services.db.cogs.music_helpers.video_cache_client import VideoCacheClient
-from discord_bot.services.db.database import VideoCache
+from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_db.database import VideoCache
 
 from tests.fakes.asyncio_broker import AsyncioBroker
 from tests.helpers import (

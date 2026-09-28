@@ -30,7 +30,7 @@ from discord_seam_media_search.routes import media_search as media_search_routes
 from discord_seam_queue_worker.routes import queue_worker as queue_worker_routes
 
 from discord_broker.servers.broker_server import BrokerHttpServer
-from discord_bot.services.db.servers.database_server import DatabaseHttpServer
+from discord_db.servers.database_server import DatabaseHttpServer
 from discord_search.servers.media_search_server import MediaSearchHttpServer
 from discord_search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
 

@@ -32,7 +32,7 @@ from sqlalchemy.pool import NullPool
 from discord_core.clients.http_client_base import SEAM_CLIENTS
 from discord_core.utils.loop_health import LOOP_HEALTH
 
-from discord_bot.services.db.database import BASE
+from discord_db.database import BASE
 
 _TEST_DB_NAME = 'discord_bot_test'
 

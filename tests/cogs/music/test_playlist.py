@@ -19,7 +19,7 @@ from discord_bot.services.bot.cogs.music import Music
 from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
 from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem
 from discord_bot.services.bot.types.playlist_add_result import PlaylistAddResult
-from discord_bot.services.db.database import Playlist, PlaylistItem
+from discord_db.database import Playlist, PlaylistItem
 
 from tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG, yield_fake_download_worker, yield_fake_search_client, yield_download_worker_download_exception
 from tests.helpers import async_mock_session, fake_source_dict, fake_media_download

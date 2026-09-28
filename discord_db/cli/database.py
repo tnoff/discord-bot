@@ -53,14 +53,14 @@ from discord_core.utils.common import GeneralConfig, resolve_tracing_config
 
 from discord_seam_database.types.video_cache import MusicCacheConfig
 
-from discord_bot.services.db.cli._lib.db import instrument_sqlalchemy, managed_db
-from discord_bot.services.db.cli._lib.migrations import run_pending_migrations
-from discord_bot.services.db.clients.guild_analytics_client import GuildAnalyticsClient
-from discord_bot.services.db.clients.markov_client import MarkovClient
-from discord_bot.services.db.clients.playlist_client import PlaylistClient
-from discord_bot.services.db.cogs.music_helpers.video_cache_client import VideoCacheClient
-from discord_bot.services.db.servers.database_health_server import DatabasePingHealthServer
-from discord_bot.services.db.servers.database_server import DEFAULT_PORT, DatabaseHttpServer
+from discord_db.cli._lib.db import instrument_sqlalchemy, managed_db
+from discord_db.cli._lib.migrations import run_pending_migrations
+from discord_db.clients.guild_analytics_client import GuildAnalyticsClient
+from discord_db.clients.markov_client import MarkovClient
+from discord_db.clients.playlist_client import PlaylistClient
+from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
+from discord_db.servers.database_health_server import DatabasePingHealthServer
+from discord_db.servers.database_server import DEFAULT_PORT, DatabaseHttpServer
 
 logger = logging.getLogger(__name__)
 

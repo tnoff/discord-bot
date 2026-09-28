@@ -13,8 +13,8 @@ from discord_seam_database.types.playlist import (
     PlaylistItemWrite,
 )
 
-from discord_bot.services.db.clients.playlist_client import PlaylistClient
-from discord_bot.services.db.database import Playlist, PlaylistItem
+from discord_db.clients.playlist_client import PlaylistClient
+from discord_db.database import Playlist, PlaylistItem
 
 from tests.helpers import fake_engine #pylint:disable=unused-import
 from tests.helpers import async_mock_session

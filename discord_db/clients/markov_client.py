@@ -32,9 +32,9 @@ from discord_core.utils.otel import async_otel_span_wrapper
 
 from discord_seam_database.types.markov import MarkovChannelEntry, MarkovMessageWrite
 
-from discord_bot.services.db.clients.session_store import SessionStoreBase
-from discord_bot.services.db.database import MarkovChannel, MarkovRelation
-from discord_bot.services.db.utils.sql_retry import async_retry_database_commands
+from discord_db.clients.session_store import SessionStoreBase
+from discord_db.database import MarkovChannel, MarkovRelation
+from discord_db.utils.sql_retry import async_retry_database_commands
 
 OTEL_SPAN_PREFIX = 'markov.store'
 
