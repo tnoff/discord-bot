@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from discord_seam_broker.types.player_session import PlayerSession
+from discord_core.types.player_session import PlayerSession
 
 from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer

@@ -20,7 +20,7 @@ depends on runtime state.
 from discord_core.routes import contract
 from discord_core.routes import media_search as media_search_routes
 
-from discord_seam_broker.routes import broker as broker_routes
+from discord_core.routes import broker as broker_routes
 
 from discord_seam_database.routes import database as database_routes
 

@@ -14,7 +14,7 @@ into the BrokerClient Protocol).
 from abc import ABC, abstractmethod
 from typing import List, Protocol
 
-from discord_seam_broker.types.player_session import PlayerSession
+from discord_core.types.player_session import PlayerSession
 
 
 class PlayerSessionStore(ABC):

@@ -15,8 +15,8 @@ from discord_core.types.media_download import MediaDownload, media_download_attr
 from discord_core.types.media_request import MediaRequest
 from discord_core.utils.otel import async_otel_span_wrapper, otel_span_wrapper
 
-from discord_seam_broker.types.player_session import PlayerSession
-from discord_seam_broker.utils.integrations.s3 import delete_file, get_file
+from discord_core.types.player_session import PlayerSession
+from discord_core.utils.integrations.s3 import delete_file, get_file
 
 from discord_broker.interfaces.broker_protocols import BrokerEntry, CheckoutResult, MediaBrokerBase, Zone
 from discord_broker.workers.media_bundle import BundleRenderer, BundleState

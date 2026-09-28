@@ -692,12 +692,11 @@ def test_every_dockerfile_copies_the_roots_its_image_reaches():
     """An image's Dockerfile must COPY every import root that image reaches.
 
     This gap opens with the first root that is not universal.
-    `discord_seam_broker` is reached by the bot, broker, downloader and search
-    only, so the dispatcher and db Dockerfiles correctly do not name it -- and
-    the failure mode of getting that wrong is the worst available:
-    `packages.find` simply does not find the absent package, `pip install`
-    succeeds, the image builds green, and the container dies on import in
-    production. CI never sees it.
+    `discord_dispatcher` is reached by the dispatcher image only, so the other
+    five Dockerfiles correctly do not name it -- and the failure mode of
+    getting that wrong is the worst available: `packages.find` simply does not
+    find the absent package, `pip install` succeeds, the image builds green, and
+    the container dies on import in production. CI never sees it.
 
     Derived from the measured closure rather than a hand-written map of which
     image needs which root, because that map is exactly what goes stale when a

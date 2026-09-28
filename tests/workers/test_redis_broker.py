@@ -14,7 +14,7 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 
-from discord_seam_broker.types.player_session import PlayerSession
+from discord_core.types.player_session import PlayerSession
 
 from discord_seam_database.types.video_cache import VideoCacheEntry
 

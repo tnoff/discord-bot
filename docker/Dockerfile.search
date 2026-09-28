@@ -67,7 +67,6 @@ RUN mkdir -p "${APPDIR}/discord_bot" && \
 COPY discord_search/ "${APPDIR}/discord_search/"
 COPY discord_core/ "${APPDIR}/discord_core/"
 COPY discord_seam_queue_worker/ "${APPDIR}/discord_seam_queue_worker/"
-COPY discord_seam_broker/ "${APPDIR}/discord_seam_broker/"
 COPY VERSION "${APPDIR}/"
 RUN pip install --no-cache-dir --no-deps "${APPDIR}[search]" && \
     chown -R discord:discord "${WORKDIR}" "${LOGFILE}" && \

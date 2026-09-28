@@ -67,15 +67,14 @@ RUN apt-get update && \
 # of the split is that an image carries the roots it reaches and no others.
 # discord_broker/ replaces the legacy root as of criterion 8 step 4: the pod's
 # own code no longer lives there at all, so this image drops that line
-# entirely rather than keeping it alongside the new one. Not to be confused
-# with discord_seam_broker/ below -- that is the contract broker's own server
-# implements, not the pod, and it is copied separately because broker's code
-# genuinely imports it.
+# entirely rather than keeping it alongside the new one. The broker SEAM
+# (the contract broker's own server implements) folded into discord_core/
+# as of criterion 8's seam-fold reversal, so there is no longer a separate
+# line for it here -- discord_core/ above already carries it.
 COPY discord_broker/ "${APPDIR}/discord_broker/"
 COPY discord_core/ "${APPDIR}/discord_core/"
 COPY discord_seam_dispatch/ "${APPDIR}/discord_seam_dispatch/"
 COPY discord_seam_database/ "${APPDIR}/discord_seam_database/"
-COPY discord_seam_broker/ "${APPDIR}/discord_seam_broker/"
 COPY VERSION "${APPDIR}/"
 RUN pip install --no-deps "${APPDIR}[broker]"
 
