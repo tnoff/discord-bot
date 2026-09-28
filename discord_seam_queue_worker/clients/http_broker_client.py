@@ -30,7 +30,7 @@ from discord_core.utils.otel import async_otel_span_wrapper
 
 from discord_core.routes import broker as broker_routes
 from discord_core.types.checkout_result import CheckoutResult
-from discord_core.types.responses import (
+from discord_core.types.broker_responses import (
     CacheCleanupResponse, CheckCacheHitResponse, CheckoutS3Response,
     CheckoutStagedResponse, CreateBundleResponse, GetCacheCountResponse,
 )

@@ -20,7 +20,7 @@ from discord_core.utils.otel import (otel_span_wrapper, create_observable_gauge,
                                      MetricNaming, AttributeNaming)
 
 from discord_core.routes import broker as broker_routes
-from discord_core.types import responses as broker_responses
+from discord_core.types import broker_responses
 from discord_core.types.player_session import PlayerSession
 
 from discord_broker.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
