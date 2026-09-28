@@ -49,35 +49,18 @@ SERVICES_DIR = 'services'
 
 CORE_ROOT = 'discord_core'
 
-#: Seam folder -> distribution import root. `discord-seam-<name>` rather than
-#: `discord-<name>` was chosen because `broker` names both a seam and a pod
-#: and they are not the same thing -- `seams/broker/` is what the other
-#: images use to TALK to the broker, `services/broker/` is the pod. A shared
-#: `discord_broker` would merge a contract with its implementation, which was
-#: the one distinction the packaging split existed to make visible.
-#:
-#: THAT DISTINCTION STOPPED BEING WHY THIS TABLE EXISTS, DECIDED 2026-09-28:
-#: every seam is folding into `discord_core` instead of staying a separate
-#: distribution, trading the per-distribution dependency-list precision this
-#: paragraph used to defend for a two-tier pods/core model rather than
+#: There is no seam-root table any more. `discord-seam-<name>` distributions
+#: existed while every seam was its own top-level package; all five folded
+#: into `discord_core` (discord-bot #1000 through #1004, dispatch last), and
+#: criterion 8's DECIDED shape is now two tiers -- pods and core -- not
 #: pods/core/seams. See per-image-code-split.md criterion 8 for the tradeoff
-#: record, including the measured cost -- one seam (broker) pulls a tier
-#: package (boto3) that one pod (search) does not otherwise install, free
-#: today because extras are still measured per-pod, and a real cost once
-#: criterion 8 step 5 gives `discord-core` a single static dependency list.
+#: record. `SEAMS_DIR` stays declared below: `discord_bot/seams/<name>/` is
+#: still a legacy-spelling SHAPE `home_of()` recognises, a distinct fact from
+#: whether any seam is currently a separate package. Whether that legacy
+#: recognition itself is still worth keeping -- `discord_bot/` has not
+#: existed on disk since #997 -- is a separate, not-yet-made decision; see
+#: per-image-code-split.md.
 #:
-#: `dispatch` was the fifth and last seam to fold, mirroring the original
-#: extraction order in reverse (media_search, broker, database,
-#: queue_worker, dispatch -- discord-bot #1000 through #1004). SEAM_ROOTS is
-#: EMPTY as of this fold, and it stays declared rather than deleted:
-#: `canonical()`, `home_of()` and `folder_of()` all key off it, and the
-#: right answer to "which seams are still separate packages" is whatever
-#: this dict says, including none. Retiring the dict itself -- along with
-#: the rest of this dual-spelling machinery and the now-pointless
-#: `seams`/`SEAMS_DIR` scaffolding it supports -- is a separate decision
-#: from folding the code, and has not been made.
-SEAM_ROOTS = {}
-
 #: Service folder -> distribution import root. `bot` becomes `discord_gateway`:
 #: the pod is the Discord gateway connection, the whole cog surface and the HTTP
 #: client hub that fans out to the other five. Renaming the PACKAGE is internal.
@@ -100,13 +83,12 @@ SERVICE_ROOTS = {
 #: shut: a root that appears in the tree without being declared here is not
 #: recognised by `module_for`, so files under it would contribute no images --
 #: and the test fails instead.
-ROOTS = frozenset({LEGACY_ROOT, CORE_ROOT, *SEAM_ROOTS.values(), *SERVICE_ROOTS.values()})
+ROOTS = frozenset({LEGACY_ROOT, CORE_ROOT, *SERVICE_ROOTS.values()})
 
 #: Target root -> the (kind, name) home it stands for. The legacy spellings are
 #: handled by reading the folder out of the dotted path instead; see `home_of`.
 _TARGET_HOMES = {
     CORE_ROOT: (CORE_DIR, None),
-    **{root: (SEAMS_DIR, name) for name, root in SEAM_ROOTS.items()},
     **{root: (SERVICES_DIR, name) for name, root in SERVICE_ROOTS.items()},
 }
 
@@ -128,8 +110,6 @@ def canonical(module: str) -> str:
         return module
     if parts[1] == CORE_DIR:
         return '.'.join([CORE_ROOT, *parts[2:]])
-    if len(parts) >= 3 and parts[1] == SEAMS_DIR and parts[2] in SEAM_ROOTS:
-        return '.'.join([SEAM_ROOTS[parts[2]], *parts[3:]])
     if len(parts) >= 3 and parts[1] == SERVICES_DIR and parts[2] in SERVICE_ROOTS:
         return '.'.join([SERVICE_ROOTS[parts[2]], *parts[3:]])
     return module
@@ -216,10 +196,9 @@ def dirs_for(repo_root: Path, kind: str, name: str | None = None) -> list:
     the moment the thing it guards moved, and both times it passed rather than
     failed.
     """
-    targets = {CORE_DIR: [CORE_ROOT], SEAMS_DIR: sorted(SEAM_ROOTS.values()),
-               SERVICES_DIR: sorted(SERVICE_ROOTS.values())}
+    targets = {CORE_DIR: [CORE_ROOT], SERVICES_DIR: sorted(SERVICE_ROOTS.values())}
     if name is not None:
-        lookup = {SEAMS_DIR: SEAM_ROOTS, SERVICES_DIR: SERVICE_ROOTS}.get(kind, {})
+        lookup = {SERVICES_DIR: SERVICE_ROOTS}.get(kind, {})
         targets = {kind: [lookup[name]]} if name in lookup else {kind: []}
     found = [repo_root / root for root in targets.get(kind, [])
              if (repo_root / root / '__init__.py').is_file()]
@@ -237,10 +216,10 @@ def module_prefixes_for(kind: str, name: str | None = None) -> tuple:
     The companion to `dirs_for`: a rule that finds files by folder usually also
     has to recognise an IMPORT of that folder, and the two spellings differ.
     """
-    roots = {CORE_DIR: [CORE_ROOT], SEAMS_DIR: sorted(SEAM_ROOTS.values()),
+    roots = {CORE_DIR: [CORE_ROOT],
              SERVICES_DIR: sorted(SERVICE_ROOTS.values())}.get(kind, [])
     if name is not None:
-        lookup = {SEAMS_DIR: SEAM_ROOTS, SERVICES_DIR: SERVICE_ROOTS}.get(kind, {})
+        lookup = {SERVICES_DIR: SERVICE_ROOTS}.get(kind, {})
         roots = [lookup[name]] if name in lookup else []
     legacy = f'{LEGACY_ROOT}.{kind}' + (f'.{name}' if name else '')
     return tuple(sorted(roots + [legacy]))
