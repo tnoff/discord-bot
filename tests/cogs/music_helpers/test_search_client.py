@@ -6,8 +6,8 @@ from spotipy.exceptions import SpotifyException, SpotifyOauthError
 from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.types.search import SearchResult, SearchCollection
 
-from discord_seam_media_search.types.catalog import CatalogResponse, CatalogItem
-from discord_seam_media_search.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
+from discord_core.types.catalog import CatalogResponse, CatalogItem
+from discord_core.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 
 from discord_gateway.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, check_youtube_video
 from discord_search.clients.media_search_client import InMemoryMediaSearchClient

@@ -21,7 +21,7 @@ from spotipy.exceptions import SpotifyException, SpotifyOauthError
 
 from discord_core.exceptions import MediaSearchError
 
-from discord_seam_media_search.types.catalog import CatalogResponse
+from discord_core.types.catalog import CatalogResponse
 
 from discord_search.utils.integrations.spotify import SpotifyClient
 from discord_search.utils.integrations.youtube import YoutubeClient

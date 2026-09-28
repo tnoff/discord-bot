@@ -9,7 +9,7 @@ from spotipy.oauth2 import SpotifyClientCredentials
 
 from discord_core.utils.otel import otel_span_wrapper
 
-from discord_seam_media_search.types.catalog import CatalogResponse, CatalogItem
+from discord_core.types.catalog import CatalogResponse, CatalogItem
 
 from discord_search.utils.integrations.third_party_naming import ThirdPartyNaming
 

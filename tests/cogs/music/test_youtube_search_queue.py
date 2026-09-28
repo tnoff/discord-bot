@@ -968,7 +968,7 @@ async def test_search_youtube_music_429_requeues_item(mocker, fake_context):  #p
     config = BASE_MUSIC_CONFIG
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_seam_media_search.interfaces.youtube_music_search_protocols.randint', return_value=5000)
+    mocker.patch('discord_core.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -1000,7 +1000,7 @@ async def test_search_youtube_music_429_sets_backoff_timestamp(freezer, mocker, 
     config = BASE_MUSIC_CONFIG
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_seam_media_search.interfaces.youtube_music_search_protocols.randint', return_value=5000)
+    mocker.patch('discord_core.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -1031,7 +1031,7 @@ async def test_search_youtube_music_429_exponential_backoff_growth(freezer, mock
     config = BASE_MUSIC_CONFIG
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_seam_media_search.interfaces.youtube_music_search_protocols.randint', return_value=5000)
+    mocker.patch('discord_core.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -1066,7 +1066,7 @@ async def test_search_youtube_music_429_retry_limit_exceeded(mocker, fake_contex
     })
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_seam_media_search.interfaces.youtube_music_search_protocols.randint', return_value=5000)
+    mocker.patch('discord_core.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
     attach_in_process_broker(cog)

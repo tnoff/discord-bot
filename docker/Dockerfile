@@ -74,12 +74,6 @@ COPY discord_seam_dispatch/ "${APPDIR}/discord_seam_dispatch/"
 COPY discord_seam_queue_worker/ "${APPDIR}/discord_seam_queue_worker/"
 COPY discord_seam_database/ "${APPDIR}/discord_seam_database/"
 COPY discord_seam_broker/ "${APPDIR}/discord_seam_broker/"
-# discord_seam_media_search/ is the FIRST root not copied by all six: only the
-# bot and search images reach that seam, so the other four Dockerfiles do not
-# name it. That is criterion 4's property -- an image carries what it reaches --
-# arriving as a consequence of the packaging split rather than as a generated
-# COPY block.
-COPY discord_seam_media_search/ "${APPDIR}/discord_seam_media_search/"
 # No alembic/ or alembic.ini. Both were COPYd here until the MR 4 cutover
 # (#928) took [database] -- and with it the alembic CLI -- out of [bot]. They
 # only ever landed in this builder stage, since the final stage copies the two

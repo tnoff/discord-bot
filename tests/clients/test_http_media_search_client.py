@@ -17,7 +17,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from discord_core.exceptions import MediaSearchError
 
-from discord_seam_media_search.types.catalog import CatalogResponse, CatalogItem
+from discord_core.types.catalog import CatalogResponse, CatalogItem
 
 from discord_gateway.clients.http_media_search_client import HttpMediaSearchClient
 from discord_search.servers.media_search_server import MediaSearchHttpServer
@@ -219,6 +219,6 @@ def test_http_client_pulls_in_no_provider_sdk():
 
 def test_wire_types_pull_in_no_provider_sdk():
     '''Same guarantee for the types both sides serialise through.'''
-    imported = set(measure('discord_seam_media_search.types.media_search')['packages'])
+    imported = set(measure('discord_core.types.media_search')['packages'])
     assert 'spotipy' not in imported
     assert 'googleapiclient' not in imported

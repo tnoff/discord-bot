@@ -14,7 +14,7 @@ while every one of its importers was dead.
 '''
 from typing import ClassVar
 
-from discord_seam_media_search.interfaces.youtube_music_search_protocols import (
+from discord_core.interfaces.youtube_music_search_protocols import (
     YoutubeMusicSearchClient, YoutubeMusicSearchWorkerBase,
 )
 

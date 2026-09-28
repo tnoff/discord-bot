@@ -41,7 +41,7 @@ from discord_core.exceptions import YoutubeMusicRetryException
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist_add_request import parse_media_request
 
-from discord_seam_media_search.interfaces.youtube_music_search_protocols import YoutubeMusicSearchWorkerBase
+from discord_core.interfaces.youtube_music_search_protocols import YoutubeMusicSearchWorkerBase
 
 from discord_seam_queue_worker.workers.redis_guild_queue import (
     RedisGuildBlockMixin,
