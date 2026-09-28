@@ -17,9 +17,9 @@ RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" \
 RUN groupadd -g 1000 discord && \
     useradd -r -u 1000 -g discord -s /bin/bash -d /opt/discord discord
 
-# No alembic/ or alembic.ini, unlike the bot and broker images. [dispatcher]
-# is discord_bot[gateway] -- the core set plus discord.py, with neither alembic
-# nor sqlalchemy -- so this image could never have run a migration. It carried
+# No alembic/ or alembic.ini, unlike the bot and broker images. The
+# dispatcher's own dependencies (discord.py only) have neither alembic nor
+# sqlalchemy -- so this image could never have run a migration. It carried
 # the files anyway, and because they were also installed into site-packages as
 # a namespace package, `import alembic` SUCCEEDED here while the library was
 # absent. That is a worse failure than not shipping them: it answers "is
@@ -32,10 +32,14 @@ RUN groupadd -g 1000 discord && \
 # the broker and 146.5s on the downloader, while the bot image -- which already
 # did this -- cost 10s.
 #
-# setuptools resolves the version via `[tool.setuptools.dynamic]` and will not
-# build without the file, so a STUB package and a placeholder VERSION satisfy
-# the dependency resolve. The real ones arrive in the source layer below.
-COPY pyproject.toml "${APPDIR}/"
+# Two packages now, not one: criterion 8 step 5 gave discord_core and each pod
+# its own pyproject.toml. setuptools resolves each one's version via
+# `[tool.setuptools.dynamic]` and will not build without a VERSION file present
+# in ITS OWN directory (setuptools refuses to read outside a package's own
+# root), so a STUB package plus a placeholder VERSION satisfies each. The real
+# ones arrive in the source layer below.
+COPY discord_core/pyproject.toml "${APPDIR}/discord_core/pyproject.toml"
+COPY discord_dispatcher/pyproject.toml "${APPDIR}/discord_dispatcher/pyproject.toml"
 
 # INSTALL_HEAPTRACK bakes the native heap profiler in for a diagnostic build
 # (default off) — see docker/entrypoint.sh + the :heaptrack CI job.
@@ -46,21 +50,23 @@ RUN if [ "$INSTALL_HEAPTRACK" = "true" ]; then \
         rm -rf /var/lib/apt/lists/*; \
     fi
 
-# No git needed: the dispatcher installs base deps only (no `[bot]`), and the
-# base dependency set has no `git+https` VCS dep (that's `[bot]`'s dappertable).
-# Installs [dispatcher] -- the core set plus discord.py. It used to install no
-# extra at all, so "base deps only" was a habit rather than a declaration; now
-# the image names what it needs, like the other four.
-RUN mkdir -p "${APPDIR}/discord_bot" && \
-    : > "${APPDIR}/discord_bot/__init__.py" && \
-    echo "0.0.0" > "${APPDIR}/VERSION" && \
-    pip install "${APPDIR}[dispatcher]" && \
-    pip uninstall -y discord_bot
+# No git needed: the dispatcher's own package has no `git+https` VCS dep
+# (that's discord_gateway's dappertable). Installs discord_core (the shared
+# set) plus discord_dispatcher's own (discord.py only) -- both path installs,
+# not extras: there is no longer one pyproject.toml with a [dispatcher] extra
+# to name.
+RUN mkdir -p "${APPDIR}/discord_core" "${APPDIR}/discord_dispatcher" && \
+    : > "${APPDIR}/discord_core/__init__.py" && \
+    : > "${APPDIR}/discord_dispatcher/__init__.py" && \
+    echo "0.0.0" > "${APPDIR}/discord_core/VERSION" && \
+    echo "0.0.0" > "${APPDIR}/discord_dispatcher/VERSION" && \
+    pip install "${APPDIR}/discord_core" "${APPDIR}/discord_dispatcher" && \
+    pip uninstall -y discord-core discord-dispatcher
 
-# ---- source layer: the actual package ----
+# ---- source layer: the actual packages ----
 # --no-deps because the layer above already resolved every third-party
-# requirement. The stub is UNINSTALLED up there rather than overwritten here:
-# leaving it produced both a discord_bot-0.0.0.dist-info and the real one, and
+# requirement. The stubs are UNINSTALLED up there rather than overwritten here:
+# leaving them produced both a 0.0.0 dist-info and the real one, and
 # `importlib.metadata.version()` resolved to the 0.0.0. Nothing reads the
 # version at runtime today, but the image would have reported the wrong one.
 # discord_core/ is its own top-level package as of criterion 8 step 2, so it
@@ -69,11 +75,14 @@ RUN mkdir -p "${APPDIR}/discord_bot" && \
 # of the split is that an image carries the roots it reaches and no others.
 # discord_dispatcher/ replaces the legacy root as of criterion 8 step 4: the
 # pod's own code no longer lives there at all, so this image drops that line
-# entirely rather than keeping it alongside the new one.
+# entirely rather than keeping it alongside the new one. Each COPY brings its
+# own real VERSION symlink (-> ../VERSION), which is why the plain `COPY
+# VERSION` below has to land before the install, not after: the symlink target
+# does not exist until it does.
 COPY discord_dispatcher/ "${APPDIR}/discord_dispatcher/"
 COPY discord_core/ "${APPDIR}/discord_core/"
 COPY VERSION "${APPDIR}/"
-RUN pip install --no-deps "${APPDIR}[dispatcher]"
+RUN pip install --no-deps "${APPDIR}/discord_core" "${APPDIR}/discord_dispatcher"
 
 # Set ownership of directories that need to be writable by the discord user
 # Must be done BEFORE switching to discord user

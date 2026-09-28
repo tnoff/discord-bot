@@ -42,10 +42,14 @@ RUN groupadd -g 1000 discord && \
 # and the expensive install re-runs for a version string. Measured on the
 # dispatcher before and after this split: 24.4s -> 9.6s on a VERSION-only bump.
 #
-# setuptools resolves the version via `[tool.setuptools.dynamic]` and will not
-# build without the file, so a STUB package and a placeholder VERSION satisfy
-# the dependency resolve. The real ones arrive in the source layer below.
-COPY pyproject.toml "${APPDIR}/"
+# Two packages now, not one: criterion 8 step 5 gave discord_core and each pod
+# its own pyproject.toml. setuptools resolves each one's version via
+# `[tool.setuptools.dynamic]` and will not build without a VERSION file present
+# in ITS OWN directory (setuptools refuses to read outside a package's own
+# root), so a STUB package plus a placeholder VERSION satisfies each. The real
+# ones arrive in the source layer below.
+COPY discord_core/pyproject.toml "${APPDIR}/discord_core/pyproject.toml"
+COPY discord_db/pyproject.toml "${APPDIR}/discord_db/pyproject.toml"
 
 # INSTALL_HEAPTRACK bakes the native heap profiler in for a diagnostic build
 # (default off) — see docker/entrypoint.sh + the :heaptrack CI jobs.
@@ -56,16 +60,18 @@ RUN if [ "$INSTALL_HEAPTRACK" = "true" ]; then \
         rm -rf /var/lib/apt/lists/*; \
     fi
 
-RUN mkdir -p "${APPDIR}/discord_bot" && \
-    : > "${APPDIR}/discord_bot/__init__.py" && \
-    echo "0.0.0" > "${APPDIR}/VERSION" && \
-    pip install --no-cache-dir "${APPDIR}[db]" && \
-    pip uninstall -y discord_bot
+RUN mkdir -p "${APPDIR}/discord_core" "${APPDIR}/discord_db" && \
+    : > "${APPDIR}/discord_core/__init__.py" && \
+    : > "${APPDIR}/discord_db/__init__.py" && \
+    echo "0.0.0" > "${APPDIR}/discord_core/VERSION" && \
+    echo "0.0.0" > "${APPDIR}/discord_db/VERSION" && \
+    pip install --no-cache-dir "${APPDIR}/discord_core" "${APPDIR}/discord_db" && \
+    pip uninstall -y discord-core discord-db
 
-# ---- source layer: the actual package ----
+# ---- source layer: the actual packages ----
 # --no-deps because the layer above already resolved every third-party
-# requirement. The stub is UNINSTALLED up there rather than overwritten here:
-# leaving it produced both a discord_bot-0.0.0.dist-info and the real one, and
+# requirement. The stubs are UNINSTALLED up there rather than overwritten here:
+# leaving them produced both a 0.0.0 dist-info and the real one, and
 # `importlib.metadata.version()` resolved to the 0.0.0.
 # discord_core/ is its own top-level package as of criterion 8 step 2, so it
 # needs its own line -- copying the legacy root no longer brings the core along.
@@ -73,11 +79,14 @@ RUN mkdir -p "${APPDIR}/discord_bot" && \
 # of the split is that an image carries the roots it reaches and no others.
 # discord_db/ replaces the legacy root as of criterion 8 step 4: the pod's own
 # code no longer lives there at all, so this image drops that line entirely
-# rather than keeping it alongside the new one.
+# rather than keeping it alongside the new one. Each COPY brings its own real
+# VERSION symlink (-> ../VERSION), which is why the plain `COPY VERSION` below
+# has to land before the install, not after: the symlink target does not exist
+# until it does.
 COPY discord_db/ "${APPDIR}/discord_db/"
 COPY discord_core/ "${APPDIR}/discord_core/"
 COPY VERSION "${APPDIR}/"
-RUN pip install --no-cache-dir --no-deps "${APPDIR}[db]" && \
+RUN pip install --no-cache-dir --no-deps "${APPDIR}/discord_core" "${APPDIR}/discord_db" && \
     chown -R discord:discord "${WORKDIR}" "${LOGFILE}" && \
     rm -rf "${APPDIR}" /root/.cache
 
