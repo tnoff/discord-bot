@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discord-downloader"
+dynamic = ["version"]
+description = "discord-bot: downloads media with yt-dlp and uploads the result"
+authors = [
+    {name = "Tyler D. North", email = "me@tyler-north.com"},
+]
+requires-python = ">=3.11"
+# No boto3 here either -- the upload after a download reaches S3 through
+# discord_core the same way the broker's checkout does.
+dependencies = [
+    "yt-dlp==2026.8.19",
+    # Dont pin, let yt-dlp install
+    "yt-dlp-ejs",
+]
+
+[project.scripts]
+discord-downloader = "discord_downloader.cli.downloader:main"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["discord_downloader", "discord_downloader.*"]

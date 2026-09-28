@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discord-search"
+dynamic = ["version"]
+description = "discord-bot: thin HTTP clients plus the metadata provider and YouTube Music SDKs"
+authors = [
+    {name = "Tyler D. North", email = "me@tyler-north.com"},
+]
+requires-python = ">=3.11"
+dependencies = [
+    "spotipy==2.26.0",
+    "google-api-python-client==2.199.0",
+    "ytmusicapi==1.12.2",
+]
+
+[project.scripts]
+discord-search = "discord_search.cli.search:main"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["discord_search", "discord_search.*"]

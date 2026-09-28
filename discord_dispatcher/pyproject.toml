@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discord-dispatcher"
+dynamic = ["version"]
+description = "discord-bot: sends and edits real Discord messages on the other five pods' behalf"
+authors = [
+    {name = "Tyler D. North", email = "me@tyler-north.com"},
+]
+requires-python = ">=3.11"
+# discord.py is here on its own merits, not by accident: workers/message_dispatcher
+# imports Message, Bot and NotFound at runtime. No voice -- the dispatcher
+# never joins a voice channel, which is why it does not also carry PyNaCl/davey.
+dependencies = [
+    "discord.py==2.7.1",
+]
+
+[project.scripts]
+discord-dispatcher = "discord_dispatcher.cli.dispatcher:main"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["discord_dispatcher", "discord_dispatcher.*"]

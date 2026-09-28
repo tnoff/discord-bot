@@ -10,7 +10,7 @@ config/
 
 .tox
 discord_bot/.tox
-discord_bot.egg-info/
+*.egg-info/
 .vs/
 build/
 docker/.env
