@@ -89,7 +89,7 @@ def test_no_shared_metric_name_is_emitted_by_one_image(claims):
 
 
 @pytest.mark.parametrize('module, class_name, image', [
-    ('discord_bot/services/bot/utils/bot_metrics.py', 'BotMetricNaming', 'bot'),
+    ('discord_gateway/utils/bot_metrics.py', 'BotMetricNaming', 'bot'),
     ('discord_broker/workers/broker_metrics.py', 'BrokerMetricNaming', 'broker'),
 ])
 def test_tier_enums_hold_only_their_own_tiers_names(module, class_name, image, claims):
@@ -118,7 +118,7 @@ def test_the_tier_modules_are_reached_by_their_own_image_alone(claims):
     A tier enum that some shared module imports is fanout-6 again, and the
     rebuild it was meant to avoid comes straight back with the file renamed.
     '''
-    for module, image in (('discord_bot.services.bot.utils.bot_metrics', 'bot'),
+    for module, image in (('discord_gateway.utils.bot_metrics', 'bot'),
                           ('discord_broker.workers.broker_metrics', 'broker')):
         reached = sorted(i for i, modules in claims.items() if module in modules)
         assert reached == [image], f'{module} is reached by {reached}, not just {image}'

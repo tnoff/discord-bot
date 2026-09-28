@@ -30,7 +30,7 @@ from discord_seam_database.types.playlist import (
     PlaylistItemWrite,
 )
 
-from discord_bot.services.bot.clients.http_playlist_store import HttpPlaylistStore
+from discord_gateway.clients.http_playlist_store import HttpPlaylistStore
 from discord_db.clients.playlist_client import PlaylistClient
 from discord_db.servers.database_server import DatabaseHttpServer
 

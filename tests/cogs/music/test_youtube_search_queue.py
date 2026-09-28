@@ -19,8 +19,8 @@ from discord_core.types.search import SearchResult
 from discord_seam_queue_worker.types.queue import PutsBlocked
 from discord_seam_queue_worker.utils.failure_queue import FailureStatus
 
-from discord_bot.services.bot.cogs.music import Music
-from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_gateway.cogs.music import Music
+from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_search.utils.integrations.youtube_music import YoutubeMusicRetryException
 from discord_search.workers.youtube_music_search_driver import SEARCH_BACKOFF_SLICE_SECONDS
 
@@ -132,7 +132,7 @@ async def test_search_youtube_music_empty_queue(mocker, fake_context):  #pylint:
     """Test search_youtube_music when queue is empty"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -146,7 +146,7 @@ async def test_search_youtube_music_empty_queue(mocker, fake_context):  #pylint:
 @pytest.mark.asyncio()
 async def test_process_search_results_empty_idles(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """process_search_results sleeps (idles) when the broker has no resolution."""
-    mock_sleep = mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mock_sleep = mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
@@ -161,7 +161,7 @@ async def test_process_search_results_empty_idles(mocker, fake_context):  #pylin
 @pytest.mark.asyncio()
 async def test_process_search_results_bot_shutdown(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """process_search_results exits early once the bot is shutting down."""
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
@@ -177,7 +177,7 @@ async def test_search_youtube_music_successful_search_no_cache(mocker, fake_cont
     """Test successful YouTube Music search with no cache hit"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -220,7 +220,7 @@ async def test_search_youtube_music_successful_search_cache_hit(mocker, fake_con
     """Test successful YouTube Music search with cache hit"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -269,7 +269,7 @@ async def test_search_youtube_music_cache_hit_marks_request_completed(mocker, fa
     """
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, None)
@@ -310,7 +310,7 @@ async def test_search_youtube_music_no_result(mocker, fake_context):  #pylint:di
     """Test YouTube Music search returns no results"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -341,7 +341,7 @@ async def test_search_youtube_music_download_queue_full(mocker, fake_context):  
     """Test YouTube Music search when download queue is full"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -376,7 +376,7 @@ async def test_search_youtube_music_download_queue_blocked(mocker, fake_context)
     """Test YouTube Music search when download queue puts are blocked"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -411,7 +411,7 @@ async def test_search_youtube_music_playlist_item(mocker, fake_context):  #pylin
     """Test YouTube Music search for playlist addition"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -455,7 +455,7 @@ async def test_enqueue_media_download_from_cache_cache_miss(mocker, fake_context
     """Test _enqueue_media_download_from_cache with cache miss"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -479,7 +479,7 @@ async def test_enqueue_media_download_from_cache_cache_hit_player(mocker, fake_c
     """Test _enqueue_media_download_from_cache with cache hit and player"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -512,7 +512,7 @@ async def test_enqueue_media_download_from_cache_playlist_addition(mocker, fake_
     """Test _enqueue_media_download_from_cache with playlist addition"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -548,7 +548,7 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
     """Test integration of YouTube search queue with enqueue_media_requests"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -601,7 +601,7 @@ async def test_search_youtube_music_search_client_exception(mocker, fake_context
     """Test YouTube Music search when search client raises exception"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Create YouTube Music client that raises exception
@@ -638,7 +638,7 @@ async def test_search_youtube_music_search_client_timeout(mocker, fake_context):
     """Test YouTube Music search timeout scenario"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Create YouTube Music client that times out
@@ -672,7 +672,7 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
     """Test routing with mixed SearchTypes in same batch"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -742,7 +742,7 @@ async def test_search_queue_priority_handling(mocker, fake_context):  #pylint:di
     """Test server-specific priority handling in search queue"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -786,7 +786,7 @@ async def test_bundle_expiration_during_search_processing(mocker, fake_context):
     """Test handling when bundle expires while item is being processed in search queue"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -829,7 +829,7 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
         }
     })
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -873,7 +873,7 @@ async def test_message_queue_update_failure_during_search(mocker, fake_context):
     """Test handling when message queue update fails during search processing"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # The broker captures the dispatcher at construction; we arm update_mutable
@@ -916,7 +916,7 @@ async def test_concurrent_bundle_operations_during_search(mocker, fake_context):
     """Test concurrent bundle operations while search queue is processing"""
     config = BASE_MUSIC_CONFIG
 
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -966,7 +966,7 @@ class RateLimitedYoutubeMusicClient:
 async def test_search_youtube_music_429_requeues_item(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test that a 429 re-enqueues the item and sets RETRY_SEARCH lifecycle stage"""
     config = BASE_MUSIC_CONFIG
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_seam_media_search.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
@@ -998,7 +998,7 @@ async def test_search_youtube_music_429_requeues_item(mocker, fake_context):  #p
 async def test_search_youtube_music_429_sets_backoff_timestamp(freezer, mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test that a 429 sets the youtube_music_wait_timestamp with exponential backoff"""
     config = BASE_MUSIC_CONFIG
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_seam_media_search.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
@@ -1029,7 +1029,7 @@ async def test_search_youtube_music_429_sets_backoff_timestamp(freezer, mocker, 
 async def test_search_youtube_music_429_exponential_backoff_growth(freezer, mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test that repeated 429s grow the backoff exponentially"""
     config = BASE_MUSIC_CONFIG
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_seam_media_search.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
@@ -1064,7 +1064,7 @@ async def test_search_youtube_music_429_retry_limit_exceeded(mocker, fake_contex
     config = music_config({
         'music': {'download': {'max_youtube_music_search_retries': 3}}
     })
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     mocker.patch('discord_seam_media_search.interfaces.youtube_music_search_protocols.randint', return_value=5000)
 
@@ -1093,7 +1093,7 @@ async def test_search_youtube_music_429_retry_limit_exceeded(mocker, fake_contex
 async def test_search_youtube_music_429_resets_lifecycle_on_retry(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test that a re-queued item resets from RETRY_SEARCH back to SEARCHING on next attempt"""
     config = BASE_MUSIC_CONFIG
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     call_count = 0
@@ -1137,7 +1137,7 @@ async def test_search_youtube_music_429_resets_lifecycle_on_retry(mocker, fake_c
 async def test_search_youtube_music_success_clears_failure_queue(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """Test that a successful search adds a success to the failure queue"""
     config = BASE_MUSIC_CONFIG
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
@@ -1222,7 +1222,7 @@ async def test_youtube_backoff_time_raises_when_event_set_during_wait(fake_conte
 @pytest.mark.asyncio()
 async def test_enqueue_media_requests_download_queue_blocked_deletes_bundle(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """A blocked download queue (shutdown) tears the bundle down and returns False."""
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -1243,7 +1243,7 @@ async def test_enqueue_media_requests_download_queue_blocked_deletes_bundle(mock
 @pytest.mark.asyncio()
 async def test_enqueue_media_requests_download_queue_full_discards_request(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """A full download queue discards the request and stops enqueuing (bundle survives)."""
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -1265,7 +1265,7 @@ async def test_enqueue_media_requests_download_queue_full_discards_request(mocke
 @pytest.mark.asyncio()
 async def test_enqueue_media_requests_search_queue_blocked_deletes_bundle(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """A blocked search queue (shutdown) tears the bundle down and returns False."""
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -1287,7 +1287,7 @@ async def test_enqueue_media_requests_search_queue_blocked_deletes_bundle(mocker
 async def test_generate_media_requests_collection_creates_multitrack_bundle(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """A named collection drops the single-search bundle and opens a multi-track banner bundle."""
     from types import SimpleNamespace  # pylint: disable=import-outside-toplevel
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -1315,7 +1315,7 @@ async def test_search_youtube_music_waits_in_slices_before_popping(mocker, fake_
     single uninterrupted sleep past the loop-health staleness window would read
     as a wedge and get the pod restarted over a rate limit.
     """
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
@@ -1343,7 +1343,7 @@ async def test_search_youtube_music_waits_in_slices_before_popping(mocker, fake_
 @pytest.mark.asyncio()
 async def test_search_youtube_music_pops_once_backoff_window_clears(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """With the window elapsed the same iteration pops and resolves as usual."""
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)

@@ -16,8 +16,8 @@ from discord_seam_dispatch.types.dispatch_request import FetchChannelHistoryRequ
 from discord_seam_dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, UNKNOWN_MESSAGE_CODE
 from discord_seam_dispatch.types.fetched_message import FetchedMessage
 
-from discord_bot.services.bot.clients.database_stores import DatabaseStores
-from discord_bot.services.bot.cogs.markov import clean_message, Markov, LOOP_MARKOV_CHECK, LOOP_MARKOV_RESULT, MARKOV_HISTORY_RETENTION_DAYS_DEFAULT
+from discord_gateway.clients.database_stores import DatabaseStores
+from discord_gateway.cogs.markov import clean_message, Markov, LOOP_MARKOV_CHECK, LOOP_MARKOV_RESULT, MARKOV_HISTORY_RETENTION_DAYS_DEFAULT
 from discord_db.database import MarkovChannel, MarkovRelation
 
 from tests.helpers import fake_context, fake_engine, fake_stores #pylint:disable=unused-import
@@ -163,7 +163,7 @@ async def test_turn_on_and_off(fake_context, fake_stores):  #pylint:disable=rede
 
 async def _run_markov_request_and_result(cog, mocker):
     '''Helper: run the request loop once, then drain all queued results.'''
-    mocker.patch('discord_bot.services.bot.cogs.markov.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.markov.sleep', return_value=True)
     await cog._markov_request_loop()  #pylint:disable=protected-access
     # Drain all items from the result queue
     while not cog._result_queue.empty():  #pylint:disable=protected-access

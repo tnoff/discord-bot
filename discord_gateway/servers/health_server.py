@@ -10,7 +10,7 @@ from urllib.parse import urlsplit
 from discord_core.servers.health_server_base import HealthServerBase, close_writer
 from discord_core.utils.otel import AttributeNaming, METER_PROVIDER
 
-from discord_bot.services.bot.utils.bot_metrics import BotMetricNaming
+from discord_gateway.utils.bot_metrics import BotMetricNaming
 
 
 _DISPATCH_PROBE_TIMEOUT_SECONDS = 1.0

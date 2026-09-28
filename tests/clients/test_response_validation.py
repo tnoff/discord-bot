@@ -22,7 +22,7 @@ from tests.cli._roots import package_dirs
 from discord_core.clients.http_client_base import HttpClientMixin
 from discord_core.exceptions import SeamResponseInvalid
 
-from discord_bot.services.bot.clients.http_markov_store import HttpMarkovStore
+from discord_gateway.clients.http_markov_store import HttpMarkovStore
 
 #: Every `clients` package in the tree, not one hard-coded directory. The
 #: per-image-code-split moved the helper and two more clients into

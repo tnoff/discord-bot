@@ -7,9 +7,9 @@ import pytest
 
 from discord_seam_broker.types.player_session import PlayerSession
 
-from discord_bot.services.bot.cogs.music import Music
-from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
-from discord_bot.services.bot.types.cleanup_reason import CleanupReason
+from discord_gateway.cogs.music import Music
+from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
+from discord_gateway.types.cleanup_reason import CleanupReason
 
 from tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import (attach_in_process_broker, attach_in_process_download,  #pylint:disable=unused-import
@@ -50,7 +50,7 @@ async def test_shutdown_saves_session_with_queue(mocker, fake_context):  #pylint
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     voice_channel = _voice_channel([_FakeMember()])
     player = await _player_in_voice(cog, fake_context, mocker, voice_channel)
 
@@ -74,7 +74,7 @@ async def test_shutdown_records_was_playing_false_when_idle(mocker, fake_context
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     await _player_in_voice(cog, fake_context, mocker, _voice_channel([_FakeMember()]))
 
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
@@ -89,7 +89,7 @@ async def test_shutdown_records_was_playing_true_mid_track(mocker, fake_context)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     player = await _player_in_voice(cog, fake_context, mocker, _voice_channel([_FakeMember()]))
 
     with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
@@ -109,7 +109,7 @@ async def test_shutdown_without_voice_client_saves_nothing(mocker, fake_context)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     fake_context['guild'].voice_client = None
@@ -128,7 +128,7 @@ async def test_non_shutdown_cleanup_saves_nothing(mocker, fake_context):  #pylin
     attach_in_process_download(cog)
     attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     await _player_in_voice(cog, fake_context, mocker, _voice_channel([_FakeMember()]))
 
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
@@ -151,7 +151,7 @@ def _resumable_cog(fake_context, mocker, voice_members):  #pylint:disable=redefi
     attach_in_process_search(cog)
     attach_in_process_download(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     return cog, voice_channel
 

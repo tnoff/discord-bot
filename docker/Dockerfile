@@ -60,10 +60,15 @@ RUN mkdir -p "${APPDIR}/discord_bot" && \
 # rewrites on every commit, and buildkit would recompress and re-upload all of
 # it per build (measured: `exporting layers` 270.9s of a 283.3s export step).
 # discord_core/ is its own top-level package as of criterion 8 step 2, so it
-# needs its own COPY -- `COPY discord_bot/` no longer brings the core along.
+# needs its own line -- copying the legacy root no longer brings the core along.
 # One COPY per root rather than `COPY . ${APPDIR}` on purpose: the whole point
 # of the split is that an image carries the roots it reaches and no others.
-COPY discord_bot/ "${APPDIR}/discord_bot/"
+# discord_gateway/ replaces the legacy root as of criterion 8 step 4: the
+# pod's own code no longer lives there at all, so this image drops that line
+# entirely rather than keeping it alongside the new one. This is the internal
+# package rename -- the image, the console script and the deployed contract
+# all stay `discord-bot`; only the import root the source lives under changed.
+COPY discord_gateway/ "${APPDIR}/discord_gateway/"
 COPY discord_core/ "${APPDIR}/discord_core/"
 COPY discord_seam_dispatch/ "${APPDIR}/discord_seam_dispatch/"
 COPY discord_seam_queue_worker/ "${APPDIR}/discord_seam_queue_worker/"

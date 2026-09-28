@@ -5,6 +5,11 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.153] - 2026-09-27
+
+### Changed
+
+- The bot pod's code moved out of `discord_bot/` into its own top-level `discord_gateway/` package (per-image-code-split criterion 8, step 4 — the last of six pod moves). The deployed image, OCI repo path and console script all stay `discord-bot`; only the internal import root changed. `discord_bot/` is now empty of code and has been deleted entirely.
 ## [2.5.152] - 2026-09-27
 
 ### Changed

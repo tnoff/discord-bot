@@ -25,8 +25,8 @@ from discord_seam_database.types.markov import MarkovMessageWrite
 from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase
 from discord_seam_dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, is_not_found_error
 
-from discord_bot.services.bot.cogs.common import CogHelperBase
-from discord_bot.services.bot.utils.otel_command import command_wrapper
+from discord_gateway.cogs.common import CogHelperBase
+from discord_gateway.utils.otel_command import command_wrapper
 
 # Default for how many days to keep messages around
 MARKOV_HISTORY_RETENTION_DAYS_DEFAULT = 365

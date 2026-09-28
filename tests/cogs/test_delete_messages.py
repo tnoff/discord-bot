@@ -12,7 +12,7 @@ from discord_core.utils.otel import loop_heartbeat_observations
 from discord_seam_dispatch.types.dispatch_result import ChannelHistoryResult
 from discord_seam_dispatch.types.fetched_message import FetchedMessage
 
-from discord_bot.services.bot.cogs.delete_messages import (DeleteMessages, DELETE_AFTER_DEFAULT,
+from discord_gateway.cogs.delete_messages import (DeleteMessages, DELETE_AFTER_DEFAULT,
                                                LOOP_DELETE_MESSAGE_CHECK, LOOP_DELETE_MESSAGE_RESULT)
 
 from tests.helpers import fake_context #pylint:disable=unused-import
@@ -250,7 +250,7 @@ async def test_delete_request_loop_submits_history_request(mocker, fake_context)
             ]
         }
     } | BASE_CONFIG
-    mocker.patch('discord_bot.services.bot.cogs.delete_messages.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.delete_messages.sleep', return_value=True)
     cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
     cog.register_result_queue()
     await cog._delete_request_loop()  #pylint:disable=protected-access

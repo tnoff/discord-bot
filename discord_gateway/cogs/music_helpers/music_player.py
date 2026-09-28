@@ -28,8 +28,8 @@ from discord_seam_broker.utils.integrations.s3 import get_file
 
 from discord_seam_queue_worker.types.queue import Queue
 
-from discord_bot.services.bot.types.cleanup_reason import CleanupReason
-from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem
+from discord_gateway.types.cleanup_reason import CleanupReason
+from discord_gateway.types.history_playlist_item import HistoryPlaylistItem
 
 
 # Staging a track for playback (broker checkout + S3 fetch) happens between a

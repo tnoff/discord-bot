@@ -22,9 +22,9 @@ from dataclasses import dataclass
 from discord_seam_database.interfaces.database_protocols import (GuildAnalyticsStore, MarkovStore,
                                                        PlaylistStore)
 
-from discord_bot.services.bot.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
-from discord_bot.services.bot.clients.http_markov_store import HttpMarkovStore
-from discord_bot.services.bot.clients.http_playlist_store import HttpPlaylistStore
+from discord_gateway.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
+from discord_gateway.clients.http_markov_store import HttpMarkovStore
+from discord_gateway.clients.http_playlist_store import HttpPlaylistStore
 
 
 @dataclass(frozen=True)

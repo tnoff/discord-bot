@@ -25,10 +25,10 @@ from discord_core.utils.common import GeneralConfig
 
 from discord_seam_dispatch.clients.http_dispatch_client import HttpDispatchClient
 
-from discord_bot.services.bot.cli._lib.cog_registry import POSSIBLE_COGS
-from discord_bot.services.bot.cli.health import setup_health_server
-from discord_bot.services.bot.clients.database_stores import build_http_stores
-from discord_bot.services.bot.cogs.error import CommandErrorHandler
+from discord_gateway.cli._lib.cog_registry import POSSIBLE_COGS
+from discord_gateway.cli.health import setup_health_server
+from discord_gateway.clients.database_stores import build_http_stores
+from discord_gateway.cogs.error import CommandErrorHandler
 
 
 @click.command()

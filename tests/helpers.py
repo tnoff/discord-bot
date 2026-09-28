@@ -35,7 +35,7 @@ from discord_seam_dispatch.types.fetched_message import FetchedMessage
 
 from discord_seam_queue_worker.utils.failure_queue import FailureQueue
 
-from discord_bot.services.bot.clients.database_stores import DatabaseStores
+from discord_gateway.clients.database_stores import DatabaseStores
 from discord_search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
 from discord_db.clients.guild_analytics_client import GuildAnalyticsClient
@@ -279,7 +279,7 @@ def attach_in_process_download(cog: Any, worker_cls: Optional[type] = None) -> I
     downloader pod.
 
     worker_cls swaps in a fake worker subclass — what the tests used to get by
-    patching discord_bot.services.bot.cogs.music.AsyncioDownloadWorker, which no longer exists
+    patching discord_gateway.cogs.music.AsyncioDownloadWorker, which no longer exists
     to patch.
     '''
     bucket_name = cog.config.download.storage.bucket_name if cog.config.download.storage else None

@@ -302,9 +302,19 @@ def test_the_declared_roots_are_exactly_the_packages_on_disk():
     and build nothing. Equality in the on-disk direction is the check that
     cannot be satisfied by the migration quietly not happening.
 
-    The other direction is deliberately NOT equality while the migration runs:
-    twelve of the thirteen roots do not exist yet, which is the point of
-    declaring them a step early.
+    The other direction was deliberately NOT equality while the migration ran:
+    most of the thirteen roots did not exist yet, which was the point of
+    declaring them a step early. Criterion 8 step 4 finished the last pod move
+    (the gateway, formerly `discord_bot/services/bot/`) and `LEGACY_ROOT`
+    vanished from disk with it -- this test used to assert it was still there,
+    specifically so this exact moment would be caught rather than pass
+    quietly. It was caught. `LEGACY_ROOT` stays declared in `ROOTS` for now: it
+    costs nothing (`package_dirs()` already skips a root with no
+    `__init__.py`), and retiring the dual-spelling machinery in `canonical()`,
+    `home_of()` and `folder_of()` is a real but separate decision -- nothing in
+    the current tree needs the legacy spelling recognised any more, but
+    removing the recognition itself is not required by any move, only by a
+    choice to stop supporting it.
     """
     on_disk = {entry.name for entry in REPO_ROOT.iterdir()
                if entry.is_dir() and (entry / '__init__.py').is_file()
@@ -316,7 +326,10 @@ def test_the_declared_roots_are_exactly_the_packages_on_disk():
         'module_for() does not recognise them, so a change to a file inside one '
         'builds no images and reports nothing. Add them to ROOTS.'
     )
-    assert LEGACY_ROOT in on_disk, 'the legacy root vanished -- this test stopped checking anything'
+    assert LEGACY_ROOT not in on_disk, (
+        'the legacy root is back on disk -- something reintroduced '
+        'discord_bot/, which criterion 8 step 4 retired'
+    )
 
 
 def test_the_tox_gates_cover_every_root_on_disk():

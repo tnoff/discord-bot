@@ -26,7 +26,7 @@ setuptools' `packages.find` — keeps working unchanged.
 **153 modules are homed and checked**, and as of 2026-09-22
 every module in the tree has a home — the seven flat top-level packages
 are retired and `discord_bot/` holds only `core/`, `seams/` and
-`services/`. A further **75 are package
+`services/`. A further **73 are package
 `__init__.py` files that declare no code**; they are exempt, because an init's
 fanout is its children's rather than its own, and every child is checked on its
 own account.
@@ -35,12 +35,12 @@ own account.
 
 | folder | modules | reached by |
 |---|---|---|
-| `discord_bot/services/bot/` | 27 | bot |
 | `discord_broker/` | 10 | broker |
 | `discord_core/` | 32 | all 6 |
 | `discord_db/` | 14 | db |
 | `discord_dispatcher/` | 5 | dispatcher |
 | `discord_downloader/` | 8 | downloader |
+| `discord_gateway/` | 27 | bot |
 | `discord_seam_broker/` | 7 | bot, broker, downloader, search |
 | `discord_seam_database/` | 8 | bot, broker, db |
 | `discord_seam_dispatch/` | 13 | bot, broker, dispatcher |
@@ -49,36 +49,6 @@ own account.
 | `discord_search/` | 13 | search |
 
 ## Homed
-
-### `discord_bot/services/bot/` — 27, reached by bot
-
-- `discord_bot.services.bot.cli._lib.cog_registry`
-- `discord_bot.services.bot.cli.bot`
-- `discord_bot.services.bot.cli.health`
-- `discord_bot.services.bot.clients.database_stores`
-- `discord_bot.services.bot.clients.http_download_client`
-- `discord_bot.services.bot.clients.http_guild_analytics_store`
-- `discord_bot.services.bot.clients.http_markov_store`
-- `discord_bot.services.bot.clients.http_media_search_client`
-- `discord_bot.services.bot.clients.http_playlist_store`
-- `discord_bot.services.bot.clients.http_queue_worker_client`
-- `discord_bot.services.bot.clients.youtube_music_search_client`
-- `discord_bot.services.bot.cogs.common`
-- `discord_bot.services.bot.cogs.delete_messages`
-- `discord_bot.services.bot.cogs.error`
-- `discord_bot.services.bot.cogs.general`
-- `discord_bot.services.bot.cogs.markov`
-- `discord_bot.services.bot.cogs.music`
-- `discord_bot.services.bot.cogs.music_helpers.music_player`
-- `discord_bot.services.bot.cogs.music_helpers.search_client`
-- `discord_bot.services.bot.cogs.role`
-- `discord_bot.services.bot.cogs.urban`
-- `discord_bot.services.bot.servers.health_server`
-- `discord_bot.services.bot.types.cleanup_reason`
-- `discord_bot.services.bot.types.history_playlist_item`
-- `discord_bot.services.bot.types.playlist_add_result`
-- `discord_bot.services.bot.utils.bot_metrics`
-- `discord_bot.services.bot.utils.otel_command`
 
 ### `discord_broker/` — 10, reached by broker
 
@@ -163,6 +133,36 @@ own account.
 - `discord_downloader.utils.integrations.egress_probe`
 - `discord_downloader.workers.download_metrics`
 - `discord_downloader.workers.redis_download_worker`
+
+### `discord_gateway/` — 27, reached by bot
+
+- `discord_gateway.cli._lib.cog_registry`
+- `discord_gateway.cli.bot`
+- `discord_gateway.cli.health`
+- `discord_gateway.clients.database_stores`
+- `discord_gateway.clients.http_download_client`
+- `discord_gateway.clients.http_guild_analytics_store`
+- `discord_gateway.clients.http_markov_store`
+- `discord_gateway.clients.http_media_search_client`
+- `discord_gateway.clients.http_playlist_store`
+- `discord_gateway.clients.http_queue_worker_client`
+- `discord_gateway.clients.youtube_music_search_client`
+- `discord_gateway.cogs.common`
+- `discord_gateway.cogs.delete_messages`
+- `discord_gateway.cogs.error`
+- `discord_gateway.cogs.general`
+- `discord_gateway.cogs.markov`
+- `discord_gateway.cogs.music`
+- `discord_gateway.cogs.music_helpers.music_player`
+- `discord_gateway.cogs.music_helpers.search_client`
+- `discord_gateway.cogs.role`
+- `discord_gateway.cogs.urban`
+- `discord_gateway.servers.health_server`
+- `discord_gateway.types.cleanup_reason`
+- `discord_gateway.types.history_playlist_item`
+- `discord_gateway.types.playlist_add_result`
+- `discord_gateway.utils.bot_metrics`
+- `discord_gateway.utils.otel_command`
 
 ### `discord_seam_broker/` — 7, reached by bot, broker, downloader, search
 

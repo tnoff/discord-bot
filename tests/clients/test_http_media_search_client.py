@@ -19,7 +19,7 @@ from discord_core.exceptions import MediaSearchError
 
 from discord_seam_media_search.types.catalog import CatalogResponse, CatalogItem
 
-from discord_bot.services.bot.clients.http_media_search_client import HttpMediaSearchClient
+from discord_gateway.clients.http_media_search_client import HttpMediaSearchClient
 from discord_search.servers.media_search_server import MediaSearchHttpServer
 
 from tests.cli._image_deps import measure
@@ -212,7 +212,7 @@ def test_http_client_pulls_in_no_provider_sdk():
     boundaries are, because an import chain is not something to verify by reading:
     the ytmusicapi leak that CrashLooped a pod was invisible in the source too.
     '''
-    imported = set(measure('discord_bot.services.bot.clients.http_media_search_client')['packages'])
+    imported = set(measure('discord_gateway.clients.http_media_search_client')['packages'])
     assert 'spotipy' not in imported
     assert 'googleapiclient' not in imported
 
