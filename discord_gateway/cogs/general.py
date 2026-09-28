@@ -6,7 +6,7 @@ from discord.ext.commands import Bot, command, Context
 
 from discord_core.exceptions import CogMissingRequiredArg
 
-from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase
+from discord_core.clients.dispatch_client_base import DispatchClientBase
 
 from discord_gateway.cogs.common import CogHelperBase
 from discord_gateway.utils.otel_command import command_wrapper

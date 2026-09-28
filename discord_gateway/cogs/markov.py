@@ -18,12 +18,11 @@ from discord_core.utils.common import return_loop_runner
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.loop_health import LOOP_HEALTH, health_aware_queue_get
 from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
+from discord_core.clients.dispatch_client_base import DispatchClientBase
+from discord_core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, is_not_found_error
 
 from discord_core.interfaces.database_protocols import MarkovStore
 from discord_core.types.markov import MarkovMessageWrite
-
-from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase
-from discord_seam_dispatch.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, is_not_found_error
 
 from discord_gateway.cogs.common import CogHelperBase
 from discord_gateway.utils.otel_command import command_wrapper

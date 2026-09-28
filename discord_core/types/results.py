@@ -22,7 +22,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from discord_seam_dispatch.types.fetched_message import FetchedMessage
+from discord_core.types.fetched_message import FetchedMessage
 
 
 class GuildEmojiBody(BaseModel):

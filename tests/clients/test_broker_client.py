@@ -17,11 +17,10 @@ from discord_core.types.download import LifecycleEvent, DownloadResult, Download
 from discord_core.types.search_resolution import SearchResolution
 from discord_core.clients import http_broker_client as http_broker_client_module
 from discord_core.clients.http_broker_client import HttpBrokerClient
+from discord_core.interfaces.result_queue import SearchResultQueue
 
 from discord_core.types.checkout_result import CheckoutResult
 from discord_core.types.player_session import PlayerSession
-
-from discord_seam_dispatch.interfaces.result_queue import SearchResultQueue
 
 # The span-churn assertions patch the span wrapper where HttpBrokerClient uses
 # it, which is its own module now (clients/http_broker_client.py) — the split

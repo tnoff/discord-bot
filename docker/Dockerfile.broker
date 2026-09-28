@@ -73,7 +73,6 @@ RUN apt-get update && \
 # line for it here -- discord_core/ above already carries it.
 COPY discord_broker/ "${APPDIR}/discord_broker/"
 COPY discord_core/ "${APPDIR}/discord_core/"
-COPY discord_seam_dispatch/ "${APPDIR}/discord_seam_dispatch/"
 COPY VERSION "${APPDIR}/"
 RUN pip install --no-deps "${APPDIR}[broker]"
 

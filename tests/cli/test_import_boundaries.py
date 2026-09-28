@@ -50,11 +50,11 @@ from tests.cli._image_deps import (
     ALL_SIX, CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, IMAGE_NAMES, LAYOUT_DOC, NOT_YET_SPLIT,
     OWNERSHIP_DOC, REPO_ROOT, PACKAGE, VOCABULARY,
     codeless_inits, declared_home, layout_violations, measure, measured_owners,
-    render_closure, route_leaf, render_layout, render_table,
+    render_closure, render_layout, render_table,
 )
 from tests.cli._roots import (
-    CORE_DIR, CORE_ROOT, LEGACY_ROOT, ROOTS, SEAMS_DIR, SEAM_ROOTS, SERVICE_ROOTS,
-    canonical, dirs_for, home_of, module_prefixes_for, source_files,
+    CORE_DIR, CORE_ROOT, LEGACY_ROOT, ROOTS, SEAMS_DIR, SERVICE_ROOTS,
+    canonical, dirs_for, home_of, source_files,
 )
 
 
@@ -320,15 +320,17 @@ def test_seam_folders_are_named_by_exactly_one_route():
     Every seam folder on disk holds exactly the one route module that names it.
 
     This used to run over the DERIVED groups, where it was a check on the naming
-    rule. It runs over the tree now, where it is a check on the tree: a seam
-    folder is a contract, the route module IS the contract, and a folder holding
-    two routes or none has a name that came from somewhere other than what it
-    contains.
+    rule. It ran over the tree after that, where it was a check on the tree: a
+    seam folder is a contract, the route module IS the contract, and a folder
+    holding two routes or none has a name that came from somewhere other than
+    what it contains.
 
-    The checked count is asserted because this test is a filter, and a filter
-    that matches nothing passes while checking nothing. That is how the first
-    version went quiet when the folder prefix changed -- twice, in two different
-    files, which is why the rule is structural now rather than a string prefix.
+    All five seams have folded into `discord_core` as of this fold (criterion
+    8's seam-fold reversal), so there is no `{SEAMS_DIR}/` folder left on disk to
+    hold that naming rule -- the check this test made has no subject any more,
+    not a broken one. Pinned as "zero seam folders remain" rather than deleted,
+    the same way test_the_declared_roots_are_exactly_the_packages_on_disk was
+    flipped when LEGACY_ROOT's directory was actually removed.
     '''
     owners = measured_owners()
     seams = {}
@@ -336,18 +338,9 @@ def test_seam_folders_are_named_by_exactly_one_route():
         home = declared_home(module)
         if home and home[0] == SEAMS_DIR:
             seams.setdefault(home[1], []).append(module)
-    assert seams, f'no {SEAMS_DIR}/ folders found on disk -- this test checked nothing'
-
-    for seam, modules in sorted(seams.items()):
-        routes = sorted(m for m in modules if route_leaf(m))
-        assert len(routes) == 1, (
-            f'{PACKAGE}/{SEAMS_DIR}/{seam}/ holds {len(routes)} route modules, not one: '
-            f'{routes}. A seam is named by its contract; two contracts are two seams.'
-        )
-        assert route_leaf(routes[0]) == seam, (
-            f'{PACKAGE}/{SEAMS_DIR}/{seam}/ is named {seam!r} but its route is '
-            f'{routes[0]!r}. Rename the folder to follow the route, not the other way.'
-        )
+    assert not seams, (
+        f'found {SEAMS_DIR}/ folders on disk after every seam has folded: {sorted(seams)}'
+    )
 
 
 # The only image whose Dockerfile may COPY the migration scripts. Declared, not
@@ -549,59 +542,27 @@ def test_the_core_does_not_import_a_seam():
     them is exactly what this test still exists to catch.
 
     Asserted in BOTH directions, because a rule about a direction proves nothing
-    if traffic has quietly stopped flowing the other way too.
+    if traffic has quietly stopped flowing the other way too -- that held while
+    any seam was still separately-shaped code. Dispatch was the last one: as of
+    this fold there is no `{SEAMS_DIR}/` directory left on disk for a core module
+    to reach up into, so both directions are vacuously satisfied rather than
+    checked. `known_transitional_downward` is dead weight for the same reason --
+    no seam will ever need an entry again -- and is left declared rather than
+    removed here, the same way `SEAM_ROOTS` itself was: retiring this test's own
+    now-pointless machinery is a separate decision from folding the code.
     '''
-    # known_transitional_downward has held two entries across this reversal,
-    # and both are RESOLVED as of this fold:
-    # - media_search's `youtube_music_search_protocols.py` depended on
-    #   queue_worker's `FailureQueue`/`FailureStatus`/`ClearGuildResult`
-    #   (added in the media_search PR). Both are `discord_core` now that
-    #   queue_worker has folded too -- core-to-core, not core-to-seam.
-    # - queue_worker's own `http_broker_client.py`/`http_player_session.py`
-    #   depended on broker's routes and response/result types (added in this
-    #   PR before broker had merged). Both are `discord_core` now that broker
-    #   folded first -- resolved by the rebase before this commit even
-    #   landed, not by anything in this diff.
-    # Left empty rather than deleted: dispatch is the one seam left, and a
-    # transitional coupling into it -- if its own fold finds one -- goes
-    # here the same way, narrowed to the exact module and exact imports.
     known_transitional_downward = {}
 
     core_dirs = dirs_for(REPO_ROOT, CORE_DIR)
     seam_dirs = dirs_for(REPO_ROOT, SEAMS_DIR)
-    assert core_dirs and seam_dirs, 'core/ or seams/ is missing'
-    core_files = sorted(f for d in core_dirs for f in d.rglob('*.py'))
-    seam_files = sorted(f for d in seam_dirs for f in d.rglob('*.py'))
-    core_prefixes = module_prefixes_for(CORE_DIR)
-    seam_prefixes = module_prefixes_for(SEAMS_DIR)
-
-    upward = [str(p.relative_to(REPO_ROOT)) for p in seam_files
-              if _runtime_imports(p, core_prefixes)]
-    assert upward, (
-        'no seam imports the core -- the detector is broken, or the layout has '
-        'changed shape so completely that this rule needs rewriting rather than '
-        'passing quietly'
+    assert core_dirs, 'core/ is missing'
+    assert not seam_dirs, (
+        f'found {SEAMS_DIR}/ folders on disk after every seam has folded: {seam_dirs}'
     )
-    downward = {str(p.relative_to(REPO_ROOT)): set(_runtime_imports(p, seam_prefixes))
-                for p in core_files
-                if _runtime_imports(p, seam_prefixes)}
-    unexpected = {path: imports - known_transitional_downward.get(path, set())
-                  for path, imports in downward.items()
-                  if imports - known_transitional_downward.get(path, set())}
-    assert not unexpected, (
-        f'these core modules import a seam at runtime, which inverts the '
-        f'dependency: {unexpected}. A core module that needs a seam is contract '
-        f'code in the wrong folder -- move it to the seam. If it is genuinely '
-        f'generic, the thing it imports is what is misplaced: that is how '
-        f'`http_client_base` and `seam_contract` came to sit in seams/broker/.'
-    )
-    stale_allowlist = {path: allowed - downward.get(path, set())
-                        for path, allowed in known_transitional_downward.items()
-                        if allowed - downward.get(path, set())}
-    assert not stale_allowlist, (
-        f'known_transitional_downward lists imports that no longer exist: '
-        f'{stale_allowlist}. Remove the entry -- this is what happens when the '
-        f'seam it names finishes folding into core.'
+    assert not known_transitional_downward, (
+        'known_transitional_downward is declared empty and permanent now that no '
+        'seam remains to be transitionally coupled to -- a non-empty dict here '
+        'would mean a new seam-shaped directory reappeared'
     )
 
 
@@ -613,8 +574,13 @@ def test_the_core_does_not_import_a_seam():
     # Criterion 8, not on disk yet. Same homes, different spelling -- which is
     # the whole claim step 1 makes: the layout rules do not care which root a
     # module sits under, so they keep working through a half-moved tree.
+    #
+    # No `SEAM_ROOTS[...]` case here any more: all five seams have folded
+    # into `discord_core` (criterion 8's seam-fold reversal), so SEAM_ROOTS
+    # is empty and there is no criterion-8-spelled seam path left to build
+    # one from. The case this line tested -- home_of() resolving a hoisted
+    # seam to ('seams', <name>) -- is not broken, it is out of population.
     (f'{CORE_ROOT}.utils.otel', ('core', None)),
-    (f'{SEAM_ROOTS["dispatch"]}.clients.http_dispatch_client', ('seams', 'dispatch')),
     (f'{SERVICE_ROOTS["bot"]}.cogs.music', ('services', 'bot')),
     (CORE_ROOT, ('core', None)),
     # No home: the umbrella package, the aggregating folders that do not survive
@@ -664,11 +630,16 @@ def test_the_layout_rules_fail_the_same_way_under_the_criterion_8_spelling():
     images = sorted(short for short in (n.replace('discord-', '') for n in IMAGE_NAMES.values()))
     all_six = set(images)
 
+    # No SEAM_ROOTS[...] case here any more, for the same reason
+    # test_home_of_reads_both_spellings dropped one: all five seams have
+    # folded and SEAM_ROOTS is empty, so there is no real criterion-8
+    # seam root left to build a "seam reached by too many/too few images"
+    # case from. A fictional discord_seam_<name> string would not resolve
+    # to a seam home any more -- it would be undeclared, which is a
+    # different case than this test exists to check.
     cases = {
         f'{CORE_ROOT}.thing': {'bot'},
         f'{SERVICE_ROOTS["bot"]}.thing': {'bot', 'downloader'},
-        f'{SEAM_ROOTS["dispatch"]}.thing': all_six,
-        f'{SEAM_ROOTS["dispatch"]}.other': {'bot'},
     }
     for module, reached in cases.items():
         found = layout_violations({module: reached})
@@ -682,7 +653,6 @@ def test_the_layout_rules_fail_the_same_way_under_the_criterion_8_spelling():
         f'{CORE_ROOT}.thing': all_six,
         f'{CORE_ROOT}.subset_shared': set(images[:4]),
         f'{SERVICE_ROOTS["bot"]}.thing': {'bot'},
-        f'{SEAM_ROOTS["dispatch"]}.thing': {'bot', 'db'},
     }
     assert not layout_violations(clean), 'the respelled rules report a clean map as broken'
 

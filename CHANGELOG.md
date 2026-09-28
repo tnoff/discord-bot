@@ -5,6 +5,12 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.5.158] - 2026-09-28
+
+### Changed
+
+- The `dispatch` seam's code moved from its own `discord_seam_dispatch/` package into `discord_core/` (per-image-code-split criterion 8, reversal of the seam-packaging decision) — the fifth and last seam to fold. `types/responses.py` was renamed to `types/dispatch_responses.py`, matching the same disambiguation already applied to the broker and queue_worker seams' own `types/responses.py` files. No pod's installed dependencies or entrypoint behaviour changed.
+
 ## [2.5.157] - 2026-09-28
 
 ### Changed
