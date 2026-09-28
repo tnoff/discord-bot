@@ -45,7 +45,7 @@ from discord_core.clients.redis_client import RedisManager
 from discord_core.utils.common import GeneralConfig, resolve_tracing_config
 from discord_core.utils.loop_health import LoopHealth
 
-from discord_seam_queue_worker.clients.http_broker_client import HttpBrokerClient
+from discord_core.clients.http_broker_client import HttpBrokerClient
 
 from discord_downloader.interfaces.download_protocols import RETRY_BACKOFF_SECONDS_MINIMUM
 from discord_downloader.servers.download_server import DownloadHttpServer

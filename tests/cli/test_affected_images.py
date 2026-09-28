@@ -69,8 +69,6 @@ def _affected(files, head=PYPROJECT, base=PYPROJECT, base_closure=None, deleted=
     ('discord_core/__init__.py', 'discord_core'),
     ('discord_seam_dispatch/clients/http_dispatch_client.py',
      'discord_seam_dispatch.clients.http_dispatch_client'),
-    ('discord_seam_queue_worker/workers/redis_guild_queue.py',
-     'discord_seam_queue_worker.workers.redis_guild_queue'),
     ('discord_gateway/cogs/music.py', 'discord_gateway.cogs.music'),
     ('discord_db/database.py', 'discord_db.database'),
     ('discord_downloader/__init__.py', 'discord_downloader'),
@@ -78,6 +76,11 @@ def _affected(files, head=PYPROJECT, base=PYPROJECT, base_closure=None, deleted=
     # make scripts/foo.py an orphan and fail CI on a file that builds nothing.
     ('discord_notathing/x.py', None),
     ('discord_bot.py', None),
+    # `discord_seam_queue_worker` folded into `discord_core` (criterion 8's
+    # seam-fold reversal) and, unlike LEGACY_ROOT, was fully retired from
+    # ROOTS rather than kept for dual-spelling -- a path under it is now
+    # exactly as undeclared as discord_notathing above.
+    ('discord_seam_queue_worker/workers/redis_guild_queue.py', None),
 ])
 def test_module_for(path, expected):
     '''Paths map to module names, and non-modules map to nothing.'''

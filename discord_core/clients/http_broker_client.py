@@ -27,6 +27,7 @@ from discord_core.types.media_download import (MediaDownload, media_download_fro
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search_resolution import SearchResolution
 from discord_core.utils.otel import async_otel_span_wrapper
+from discord_core.clients.http_player_session import HttpPlayerSessionMixin
 
 from discord_core.routes import broker as broker_routes
 from discord_core.types.checkout_result import CheckoutResult
@@ -34,8 +35,6 @@ from discord_core.types.broker_responses import (
     CacheCleanupResponse, CheckCacheHitResponse, CheckoutS3Response,
     CheckoutStagedResponse, CreateBundleResponse, GetCacheCountResponse,
 )
-
-from discord_seam_queue_worker.clients.http_player_session import HttpPlayerSessionMixin
 
 logger = logging.getLogger(__name__)
 

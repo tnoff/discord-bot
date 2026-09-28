@@ -15,6 +15,8 @@ from aiohttp import web
 from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_core.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
 from discord_core.types.search_resolution import SearchResolution
+from discord_core.clients import http_broker_client as http_broker_client_module
+from discord_core.clients.http_broker_client import HttpBrokerClient
 
 from discord_core.types.checkout_result import CheckoutResult
 from discord_core.types.player_session import PlayerSession
@@ -24,10 +26,8 @@ from discord_seam_dispatch.interfaces.result_queue import SearchResultQueue
 # The span-churn assertions patch the span wrapper where HttpBrokerClient uses
 # it, which is its own module now (clients/http_broker_client.py) — the split
 # that keeps the search pod's import chain free of sqlalchemy/boto3.  The class
-# itself is still re-exported from clients/broker_client.py, so the import below
-# and every other test here are unchanged.
-from discord_seam_queue_worker.clients import http_broker_client as http_broker_client_module
-from discord_seam_queue_worker.clients.http_broker_client import HttpBrokerClient
+# itself is still re-exported from clients/broker_client.py, so the import
+# above and every other test here are unchanged.
 
 from discord_broker.servers.broker_server import BrokerHttpServer
 from discord_broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue

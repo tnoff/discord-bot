@@ -23,7 +23,7 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 
-from discord_seam_queue_worker.types.queue import PutsBlocked
+from discord_core.types.queue import PutsBlocked
 
 from discord_gateway.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer

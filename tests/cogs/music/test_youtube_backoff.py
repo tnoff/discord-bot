@@ -7,7 +7,7 @@ import pytest
 from discord_core.exceptions import ExitEarlyException
 from discord_core.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 
-from discord_seam_queue_worker.utils.failure_queue import FailureStatus
+from discord_core.utils.failure_queue import FailureStatus
 
 from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer

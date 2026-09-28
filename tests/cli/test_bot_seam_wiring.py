@@ -12,7 +12,7 @@ import pytest
 
 from discord_core.utils.common import SeamContractConfig
 
-from discord_seam_queue_worker.clients.http_broker_client import HttpBrokerClient
+from discord_core.clients.http_broker_client import HttpBrokerClient
 
 from discord_gateway.cli.bot import register_seam_checks
 
