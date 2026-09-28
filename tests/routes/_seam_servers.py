@@ -21,10 +21,9 @@ from discord_core.routes import contract
 from discord_core.routes import media_search as media_search_routes
 from discord_core.routes import database as database_routes
 from discord_core.routes import broker as broker_routes
+from discord_core.routes import queue_worker as queue_worker_routes
 
 from discord_seam_dispatch.routes import dispatch as dispatch_routes
-
-from discord_seam_queue_worker.routes import queue_worker as queue_worker_routes
 
 from discord_broker.servers.broker_server import BrokerHttpServer
 from discord_db.servers.database_server import DatabaseHttpServer

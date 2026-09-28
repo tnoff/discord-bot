@@ -25,7 +25,7 @@ from discord_core.types.search_resolution import SearchResolution
 from discord_core.utils.common import return_loop_runner
 from discord_core.utils.loop_health import LoopHealth
 
-from discord_seam_queue_worker.clients.http_broker_client import HttpBrokerClient
+from discord_core.clients.http_broker_client import HttpBrokerClient
 
 from discord_broker.servers.broker_server import BrokerHttpServer
 from discord_broker.workers.asyncio_queues import AsyncioSearchResultQueue

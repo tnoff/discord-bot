@@ -21,12 +21,11 @@ from discord_core.utils.common import get_logger, LoggingConfig
 from discord_core.utils.common import return_loop_runner
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.otel import async_otel_span_wrapper, span_links_from_context
+from discord_core.types.queue import Queue
 
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.types.checkout_result import CheckoutResult
 from discord_core.utils.integrations.s3 import get_file
-
-from discord_seam_queue_worker.types.queue import Queue
 
 from discord_gateway.types.cleanup_reason import CleanupReason
 from discord_gateway.types.history_playlist_item import HistoryPlaylistItem

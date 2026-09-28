@@ -14,13 +14,12 @@ import gc
 
 import pytest
 
+from discord_core.clients.http_broker_client import HttpBrokerClient
 from discord_core.clients.http_client_base import (HttpClientMixin, SEAM_CLIENTS,
                                                   start_seam_checks)
 from discord_core.utils.common import SeamContractConfig
 
 from discord_seam_dispatch.clients.http_dispatch_client import HttpDispatchClient
-
-from discord_seam_queue_worker.clients.http_broker_client import HttpBrokerClient
 
 
 class _SeamlessClient(HttpClientMixin):

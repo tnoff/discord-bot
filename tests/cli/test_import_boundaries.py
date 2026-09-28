@@ -551,22 +551,21 @@ def test_the_core_does_not_import_a_seam():
     Asserted in BOTH directions, because a rule about a direction proves nothing
     if traffic has quietly stopped flowing the other way too.
     '''
-    # KNOWN, TEMPORARY, and NARROW: media_search folded into core first
-    # (smallest seam, first PR of the reversal) and brought
-    # `YoutubeMusicSearchWorkerBase` with it, which genuinely depends on
-    # queue_worker's `FailureQueue`/`FailureStatus` (used at runtime, not just
-    # for typing) and `ClearGuildResult`. That is a real pre-existing coupling
-    # between two seams' contracts, not an accident introduced by the fold.
-    # queue_worker is the fourth seam scheduled to fold in the same reversal,
-    # at which point this becomes a core-to-core reference and stops needing
-    # an exception. Listed by exact module, not seam, so nothing else earns a
-    # free pass by resembling it.
-    known_transitional_downward = {
-        'discord_core/interfaces/youtube_music_search_protocols.py': {
-            'discord_seam_queue_worker.types.clear_guild_result',
-            'discord_seam_queue_worker.utils.failure_queue',
-        },
-    }
+    # known_transitional_downward has held two entries across this reversal,
+    # and both are RESOLVED as of this fold:
+    # - media_search's `youtube_music_search_protocols.py` depended on
+    #   queue_worker's `FailureQueue`/`FailureStatus`/`ClearGuildResult`
+    #   (added in the media_search PR). Both are `discord_core` now that
+    #   queue_worker has folded too -- core-to-core, not core-to-seam.
+    # - queue_worker's own `http_broker_client.py`/`http_player_session.py`
+    #   depended on broker's routes and response/result types (added in this
+    #   PR before broker had merged). Both are `discord_core` now that broker
+    #   folded first -- resolved by the rebase before this commit even
+    #   landed, not by anything in this diff.
+    # Left empty rather than deleted: dispatch is the one seam left, and a
+    # transitional coupling into it -- if its own fold finds one -- goes
+    # here the same way, narrowed to the exact module and exact imports.
+    known_transitional_downward = {}
 
     core_dirs = dirs_for(REPO_ROOT, CORE_DIR)
     seam_dirs = dirs_for(REPO_ROOT, SEAMS_DIR)

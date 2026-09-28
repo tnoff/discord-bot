@@ -70,14 +70,13 @@ CORE_ROOT = 'discord_core'
 #: gateway speaks. What was a convention defended by a docstring is now a fact
 #: about the dependency graph, which is the strongest form of the argument the
 #: retired file was making.
-#: `media_search`, `broker` and `database` folded into `discord_core` --
-#: DECIDED to simplify pods/core to a two-tier concept rather than
-#: pods/core/seams, trading the per-seam dependency-list precision this
-#: table's docstring above was written to defend. See
+#: `media_search`, `broker`, `database` and `queue_worker` folded into
+#: `discord_core` -- DECIDED to simplify pods/core to a two-tier concept
+#: rather than pods/core/seams, trading the per-seam dependency-list
+#: precision this table's docstring above was written to defend. See
 #: per-image-code-split.md criterion 8 for the tradeoff record.
 SEAM_ROOTS = {
     'dispatch': 'discord_seam_dispatch',
-    'queue_worker': 'discord_seam_queue_worker',
 }
 
 #: Service folder -> distribution import root. `bot` becomes `discord_gateway`:

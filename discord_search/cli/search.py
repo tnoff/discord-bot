@@ -57,8 +57,8 @@ from discord_core.servers.base import AiohttpServerBase
 from discord_core.utils.common import GeneralConfig
 from discord_core.utils.loop_health import LoopHealth
 
-from discord_seam_queue_worker.clients.http_broker_client import HttpBrokerClient
-from discord_seam_queue_worker.utils.failure_queue import FailureQueue
+from discord_core.clients.http_broker_client import HttpBrokerClient
+from discord_core.utils.failure_queue import FailureQueue
 
 from discord_search.clients.media_search_client import build_media_search_client
 from discord_search.servers.composite_server import CompositeHttpServer

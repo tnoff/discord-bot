@@ -18,7 +18,7 @@ from discord_core.types.search import SearchResult, SearchCollection
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import loop_heartbeat_observations
 
-from discord_seam_queue_worker.clients.http_broker_client import HttpBrokerClient
+from discord_core.clients.http_broker_client import HttpBrokerClient
 
 from discord_gateway.clients.http_download_client import HttpDownloadClient
 from discord_gateway.clients.http_media_search_client import HttpMediaSearchClient
