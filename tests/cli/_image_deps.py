@@ -147,11 +147,32 @@ def measure(entrypoint: str) -> dict:
     return json.loads(_measure_cached(entrypoint))
 
 
-def declared_extras() -> set:
-    '''The extras pyproject actually defines, for the ownership table.'''
+def declared_scripts() -> dict:
+    '''Console script name -> the entrypoint it targets, read from EVERY
+    package's own pyproject.toml.
+
+    Criterion 8 step 5 gave each package its own pyproject.toml with its own
+    `[project.scripts]`; there is no longer one file to read this from.
+    '''
     import tomllib  # pylint: disable=import-outside-toplevel
-    pyproject = tomllib.loads((REPO_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))
-    return set(pyproject['project']['optional-dependencies'])
+    scripts = {}
+    for root in ROOTS:
+        candidate = REPO_ROOT / root / 'pyproject.toml'
+        if not candidate.is_file():
+            continue
+        declared = tomllib.loads(candidate.read_text(encoding='utf-8'))
+        scripts.update(declared.get('project', {}).get('scripts', {}))
+    return scripts
+
+
+def declared_dependencies(root: str) -> list:
+    '''The `dependencies` list `root`'s own pyproject.toml declares, or [].'''
+    import tomllib  # pylint: disable=import-outside-toplevel
+    candidate = REPO_ROOT / root / 'pyproject.toml'
+    if not candidate.is_file():
+        return []
+    declared = tomllib.loads(candidate.read_text(encoding='utf-8'))
+    return declared.get('project', {}).get('dependencies', [])
 
 
 def render_table() -> str:
@@ -169,22 +190,20 @@ def render_table() -> str:
         '',
         'Measured by importing each entrypoint in a clean interpreter, not by reading',
         'the code. The packages column is the tier-defining vocabulary only — every',
-        'image also gets the base dependencies (aiohttp, pydantic, redis, the OTel',
-        'stack), which is why the numbers below are smaller than an image manifest.',
+        'image also gets discord_core\'s own dependencies (aiohttp, pydantic, redis,',
+        'the OTel stack, boto3), which is why the numbers below are smaller than an',
+        'image manifest.',
         '',
         '## Tier-defining packages per image',
         '',
-        '| image | extra | packages it imports |',
-        '|---|---|---|',
+        '| image | own package | its pyproject.toml\'s own deps | packages it imports |',
+        '|---|---|---|---|',
     ]
-    extras = declared_extras()
     for ep, name in IMAGE_NAMES.items():
-        candidate = name.replace('discord-', '')
-        # Reported, not assumed: an image with no extra of its own installs the
-        # base dependencies only, and saying so is the point of this column.
-        extra = f'`[{candidate}]`' if candidate in extras else 'base only'
+        root = ep.split('.', 1)[0]
+        own_deps = len(declared_dependencies(root))
         pkgs = ', '.join(f'`{p}`' for p in sorted(measured[ep]['packages'])) or '—'
-        lines.append(f'| `{name}` | {extra} | {pkgs} |')
+        lines.append(f'| `{name}` | `{root}` | {own_deps} | {pkgs} |')
 
     lines += [
         '',
@@ -230,14 +249,16 @@ def render_table() -> str:
         f'{shared_2plus} of {len(every)} modules ({shared_2plus * 100 // len(every)}%) are '
         f'imported by two or more entrypoints but not all {total}.',
         '',
-        'This section used to end "which is why this stays one package with per-image',
-        'extras", on the grounds that one distribution per tier would force every shared',
-        f'module into a single `core` — and dependencies follow modules, so {shared_desc}',
-        f'would land back on all {total} images. The premise was right and the conclusion',
-        'did not follow. Criterion 8 of per-image-code-split answers it: shared-but-not-',
-        'all-six code goes into a package per SEAM, not into one undifferentiated core,',
-        'so a pod installs the contracts it actually speaks. The number above is exactly',
-        'the population that argument turns on, which is why it is still measured here.',
+        'This used to be the argument for a package per SEAM rather than one',
+        'undifferentiated core: dependencies follow modules, so shared-but-not-all-six',
+        f'code (here: {shared_desc}) landing in one `discord_core` would reach every pod,',
+        'not just the ones that actually speak that contract. Criterion 8\'s seam-fold',
+        'reversal (DECIDED 2026-09-28) took that cost on purpose, in exchange for a',
+        'two-tier pods/core model instead of pods/core/seams -- so the number above is',
+        'no longer an argument against the current shape, only a measurement of what it',
+        'costs today. `boto3` already made the opposite move, out of this list and into',
+        f'every one of the {total} images via discord_core -- any package still in the',
+        'list below is one that split kept precise rather than centralising.',
         '',
     ]
     return '\n'.join(lines)

@@ -5,19 +5,20 @@
 
 Measured by importing each entrypoint in a clean interpreter, not by reading
 the code. The packages column is the tier-defining vocabulary only — every
-image also gets the base dependencies (aiohttp, pydantic, redis, the OTel
-stack), which is why the numbers below are smaller than an image manifest.
+image also gets discord_core's own dependencies (aiohttp, pydantic, redis,
+the OTel stack, boto3), which is why the numbers below are smaller than an
+image manifest.
 
 ## Tier-defining packages per image
 
-| image | extra | packages it imports |
-|---|---|---|
-| `discord-bot` | `[bot]` | `boto3`, `bs4`, `dappertable`, `discord` |
-| `discord-dispatcher` | `[dispatcher]` | `discord` |
-| `discord-broker` | `[broker]` | `boto3`, `dappertable` |
-| `discord-downloader` | `[downloader]` | `boto3`, `yt_dlp` |
-| `discord-search` | `[search]` | `googleapiclient`, `spotipy`, `ytmusicapi` |
-| `discord-db` | `[db]` | `alembic`, `dappertable`, `sqlalchemy` |
+| image | own package | its pyproject.toml's own deps | packages it imports |
+|---|---|---|---|
+| `discord-bot` | `discord_gateway` | 6 | `boto3`, `bs4`, `dappertable`, `discord` |
+| `discord-dispatcher` | `discord_dispatcher` | 1 | `discord` |
+| `discord-broker` | `discord_broker` | 1 | `boto3`, `dappertable` |
+| `discord-downloader` | `discord_downloader` | 2 | `boto3`, `yt_dlp` |
+| `discord-search` | `discord_search` | 3 | `googleapiclient`, `spotipy`, `ytmusicapi` |
+| `discord-db` | `discord_db` | 4 | `alembic`, `dappertable`, `sqlalchemy` |
 
 ## How much of the tree each image loads
 
@@ -45,11 +46,13 @@ Modules by how many of the 6 entrypoints import them:
 
 88 of 201 modules (43%) are imported by two or more entrypoints but not all 6.
 
-This section used to end "which is why this stays one package with per-image
-extras", on the grounds that one distribution per tier would force every shared
-module into a single `core` — and dependencies follow modules, so `boto3` (bot + broker + downloader), `dappertable` (bot + broker + db) and `discord` (bot + dispatcher)
-would land back on all 6 images. The premise was right and the conclusion
-did not follow. Criterion 8 of per-image-code-split answers it: shared-but-not-
-all-six code goes into a package per SEAM, not into one undifferentiated core,
-so a pod installs the contracts it actually speaks. The number above is exactly
-the population that argument turns on, which is why it is still measured here.
+This used to be the argument for a package per SEAM rather than one
+undifferentiated core: dependencies follow modules, so shared-but-not-all-six
+code (here: `boto3` (bot + broker + downloader), `dappertable` (bot + broker + db) and `discord` (bot + dispatcher)) landing in one `discord_core` would reach every pod,
+not just the ones that actually speak that contract. Criterion 8's seam-fold
+reversal (DECIDED 2026-09-28) took that cost on purpose, in exchange for a
+two-tier pods/core model instead of pods/core/seams -- so the number above is
+no longer an argument against the current shape, only a measurement of what it
+costs today. `boto3` already made the opposite move, out of this list and into
+every one of the 6 images via discord_core -- any package still in the
+list below is one that split kept precise rather than centralising.

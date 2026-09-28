@@ -48,7 +48,7 @@ import pytest
 from tests.cli._image_deps import (
     ALL_SIX, CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, IMAGE_NAMES, LAYOUT_DOC, NOT_YET_SPLIT,
     OWNERSHIP_DOC, REPO_ROOT, PACKAGE, VOCABULARY,
-    codeless_inits, declared_home, layout_violations, measure, measured_owners,
+    codeless_inits, declared_home, declared_scripts, layout_violations, measure, measured_owners,
     render_closure, render_layout, render_table,
 )
 from tests.cli._roots import (
@@ -257,11 +257,11 @@ def test_every_published_image_has_a_boundary():
     to be a hardcoded literal, which meant it agreed with ``[project.scripts]``
     only for as long as someone kept both in step by hand — and a stale copy
     passes just as green as a correct one.
+
+    Criterion 8 step 5 moved each console script onto its own package's own
+    pyproject.toml, so `declared_scripts()` reads all seven rather than one.
     '''
-    import tomllib  # pylint: disable=import-outside-toplevel
-    pyproject = tomllib.loads((REPO_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))
-    published = {target.split(':', 1)[0]
-                 for target in pyproject['project']['scripts'].values()}
+    published = {target.split(':', 1)[0] for target in declared_scripts().values()}
     assert set(IMAGE_IMPORTS) == published, (
         f'console scripts and image boundaries disagree: '
         f'{published ^ set(IMAGE_IMPORTS)}. Every published script ships as an image, '
