@@ -17,7 +17,7 @@ from discord_core.utils.otel import async_otel_span_wrapper, MetricNaming, Attri
 from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase
 from discord_seam_dispatch.types.dispatch_result import ChannelHistoryResult
 
-from discord_bot.services.bot.cogs.common import CogHelperBase
+from discord_gateway.cogs.common import CogHelperBase
 
 # Default for deleting messages after X days
 DELETE_AFTER_DEFAULT = 7

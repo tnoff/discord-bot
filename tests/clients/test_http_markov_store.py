@@ -21,7 +21,7 @@ from discord_core.exceptions import DatabaseUnavailable
 from discord_seam_database.interfaces.database_protocols import MarkovStore
 from discord_seam_database.types.markov import MarkovChannelEntry, MarkovMessageWrite
 
-from discord_bot.services.bot.clients.http_markov_store import HttpMarkovStore
+from discord_gateway.clients.http_markov_store import HttpMarkovStore
 from discord_db.clients.markov_client import MarkovClient
 from discord_db.servers.database_server import DatabaseHttpServer
 

@@ -12,7 +12,7 @@ from yaml import dump
 
 from discord_core.cli._lib.common import read_config
 
-from discord_bot.services.bot.cli.bot import main, main_loop
+from discord_gateway.cli.bot import main, main_loop
 from discord_dispatcher.cli.dispatcher import main as dispatcher_main
 from discord_dispatcher.cli.dispatcher import main_loop as dispatcher_main_loop
 from discord_dispatcher.cli.dispatcher import run_bot as dispatcher_run_bot
@@ -790,7 +790,7 @@ async def test_main_with_health_server_monitoring(mocker):
             dump(config_data, writer)
         mock_hs = MagicMock()
         mock_hs.serve = AsyncMock()
-        mocker.patch('discord_bot.services.bot.cli.health.HealthServer', return_value=mock_hs)
+        mocker.patch('discord_gateway.cli.health.HealthServer', return_value=mock_hs)
         mocker.patch('discord_core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])

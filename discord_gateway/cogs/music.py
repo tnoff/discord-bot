@@ -54,19 +54,19 @@ from discord_seam_queue_worker.interfaces.download_client_protocol import (
 from discord_seam_queue_worker.types.queue import PutsBlocked
 from discord_seam_queue_worker.types.queue import Queue
 
-from discord_bot.services.bot.clients.http_download_client import HttpDownloadClient
-from discord_bot.services.bot.clients.http_media_search_client import HttpMediaSearchClient
-from discord_bot.services.bot.clients.youtube_music_search_client import (
+from discord_gateway.clients.http_download_client import HttpDownloadClient
+from discord_gateway.clients.http_media_search_client import HttpMediaSearchClient
+from discord_gateway.clients.youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
-from discord_bot.services.bot.cogs.common import CogHelperBase
-from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
-from discord_bot.services.bot.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
-from discord_bot.services.bot.types.cleanup_reason import CleanupReason
-from discord_bot.services.bot.types.history_playlist_item import HistoryPlaylistItem
-from discord_bot.services.bot.types.playlist_add_result import PlaylistAddResult
-from discord_bot.services.bot.utils.bot_metrics import BotMetricNaming
-from discord_bot.services.bot.utils.otel_command import command_wrapper
+from discord_gateway.cogs.common import CogHelperBase
+from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
+from discord_gateway.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
+from discord_gateway.types.cleanup_reason import CleanupReason
+from discord_gateway.types.history_playlist_item import HistoryPlaylistItem
+from discord_gateway.types.playlist_add_result import PlaylistAddResult
+from discord_gateway.utils.bot_metrics import BotMetricNaming
+from discord_gateway.utils.otel_command import command_wrapper
 
 # GLOBALS
 

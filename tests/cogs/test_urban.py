@@ -2,7 +2,7 @@ import pytest
 
 from discord_core.exceptions import CogMissingRequiredArg
 
-from discord_bot.services.bot.cogs.urban import UrbanDictionary, BASE_URL
+from discord_gateway.cogs.urban import UrbanDictionary, BASE_URL
 
 from tests.data.urban_data import HTML_DATA
 from tests.helpers import  fake_context #pylint:disable=unused-import

@@ -9,8 +9,8 @@ from discord_core.types.download import DownloadErrorType, DownloadResult, Downl
 
 from discord_seam_queue_worker.utils.failure_queue import FailureStatus
 
-from discord_bot.services.bot.cogs.music import Music
-from discord_bot.services.bot.cogs.music_helpers.music_player import MusicPlayer
+from discord_gateway.cogs.music import Music
+from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.cogs.test_music import BASE_MUSIC_CONFIG, yield_fake_download_worker
@@ -132,7 +132,7 @@ def yield_download_worker_bot_flagged():
 async def test_retryable_exception_adds_failure_to_queue(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that RetryableException adds a failure to the download failure queue"""
     mocker.patch('discord_downloader.interfaces.download_protocols.random.randint', return_value=5000)
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch('discord_downloader.interfaces.download_protocols.sleep', return_value=None)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -158,7 +158,7 @@ async def test_retryable_exception_adds_failure_to_queue(freezer, fake_context, 
 async def test_retryable_exception_applies_exponential_backoff(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that RetryableException applies exponential backoff based on failure queue size"""
     mocker.patch('discord_downloader.interfaces.download_protocols.random.randint', return_value=5000)
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch('discord_downloader.interfaces.download_protocols.sleep', return_value=None)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -191,7 +191,7 @@ async def test_retryable_exception_applies_exponential_backoff(freezer, fake_con
 async def test_bot_download_flagged_applies_backoff(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that BotDownloadFlagged (a RetryableException) applies proper backoff"""
     mocker.patch('discord_downloader.interfaces.download_protocols.random.randint', return_value=5000)
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch('discord_downloader.interfaces.download_protocols.sleep', return_value=None)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -219,7 +219,7 @@ async def test_bot_download_flagged_applies_backoff(freezer, fake_context, mocke
 async def test_successful_download_clears_failure_from_queue(freezer, fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test that successful download removes one item from failure queue"""
     mocker.patch('discord_downloader.interfaces.download_protocols.random.randint', return_value=5000)
-    mocker.patch('discord_bot.services.bot.cogs.music.sleep', return_value=True)
+    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch('discord_downloader.interfaces.download_protocols.sleep', return_value=None)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 

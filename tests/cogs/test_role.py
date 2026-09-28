@@ -2,7 +2,7 @@ import pytest
 
 from discord_core.exceptions import CogMissingRequiredArg
 
-from discord_bot.services.bot.cogs.role import RoleAssignment, RoleConfig
+from discord_gateway.cogs.role import RoleAssignment, RoleConfig
 
 from tests.helpers import fake_context #pylint:disable=unused-import
 from tests.helpers import FakeAuthor, FakeRole

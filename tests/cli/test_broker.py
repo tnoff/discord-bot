@@ -3,7 +3,7 @@ import pytest
 
 from discord_core.utils.common import SeamContractConfig
 
-from discord_bot.services.bot.cogs.music import MusicGeneralConfig
+from discord_gateway.cogs.music import MusicGeneralConfig
 from discord_broker.cli import broker as broker_cli
 from discord_broker.clients.http_video_cache_store import HttpVideoCacheStore
 

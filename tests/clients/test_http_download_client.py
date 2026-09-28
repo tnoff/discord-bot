@@ -24,8 +24,8 @@ from discord_core.types.search import SearchResult
 
 from discord_seam_queue_worker.types.queue import PutsBlocked, SUBMIT_REJECTION_STATUS
 
-from discord_bot.services.bot.clients.http_download_client import HttpDownloadClient
-from discord_bot.services.bot.clients.http_queue_worker_client import _exception_detail
+from discord_gateway.clients.http_download_client import HttpDownloadClient
+from discord_gateway.clients.http_queue_worker_client import _exception_detail
 from discord_downloader.servers.download_server import DownloadHttpServer
 
 
@@ -548,7 +548,7 @@ async def test_poller_timeout_warns_with_detail(mocker):
     '''A timed-out status refresh names TimeoutError instead of trailing off.'''
     client = HttpDownloadClient('http://localhost:9999')
     mocker.patch.object(client, '_http', side_effect=asyncio.TimeoutError())
-    warn = mocker.patch('discord_bot.services.bot.clients.http_queue_worker_client.logger.warning')
+    warn = mocker.patch('discord_gateway.clients.http_queue_worker_client.logger.warning')
     await client._poll_status_loop_once()  # pylint: disable=protected-access
     warn.assert_called_once_with('%s status poller error: %s', 'downloader', 'TimeoutError')
     # Still swallowed: the cached values survive the outage.
@@ -560,7 +560,7 @@ async def test_poller_keeps_a_useful_message(mocker):
     '''An aiohttp-style connector message is passed through unchanged.'''
     client = HttpDownloadClient('http://localhost:9999')
     mocker.patch.object(client, '_http', side_effect=RuntimeError('Cannot connect to host'))
-    warn = mocker.patch('discord_bot.services.bot.clients.http_queue_worker_client.logger.warning')
+    warn = mocker.patch('discord_gateway.clients.http_queue_worker_client.logger.warning')
     await client._poll_status_loop_once()  # pylint: disable=protected-access
     warn.assert_called_once_with('%s status poller error: %s', 'downloader',
                                  'Cannot connect to host')

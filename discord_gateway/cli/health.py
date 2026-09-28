@@ -12,7 +12,7 @@ from discord.ext.commands import Bot
 
 from discord_core.utils.common import GeneralConfig
 
-from discord_bot.services.bot.servers.health_server import HealthServer
+from discord_gateway.servers.health_server import HealthServer
 
 
 def setup_health_server(bot: Bot, general_config: GeneralConfig,

@@ -24,10 +24,10 @@ from discord_seam_media_search.routes import media_search as media_search_routes
 
 from discord_seam_queue_worker.routes import queue_worker as queue_worker_routes
 
-from discord_bot.services.bot.clients.http_download_client import HttpDownloadClient
-from discord_bot.services.bot.clients.http_markov_store import HttpMarkovStore
-from discord_bot.services.bot.clients.http_playlist_store import HttpPlaylistStore
-from discord_bot.services.bot.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
+from discord_gateway.clients.http_download_client import HttpDownloadClient
+from discord_gateway.clients.http_markov_store import HttpMarkovStore
+from discord_gateway.clients.http_playlist_store import HttpPlaylistStore
+from discord_gateway.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_search.servers.composite_server import CompositeHttpServer
 from discord_search.servers.media_search_server import MediaSearchHttpServer
 from discord_search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer

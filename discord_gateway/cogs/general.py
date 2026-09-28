@@ -8,8 +8,8 @@ from discord_core.exceptions import CogMissingRequiredArg
 
 from discord_seam_dispatch.clients.dispatch_client_base import DispatchClientBase
 
-from discord_bot.services.bot.cogs.common import CogHelperBase
-from discord_bot.services.bot.utils.otel_command import command_wrapper
+from discord_gateway.cogs.common import CogHelperBase
+from discord_gateway.utils.otel_command import command_wrapper
 
 ROLL_REGEX = r'^(?P<rolls>\d+)?([dD])?(?P<sides>\d+)'
 
