@@ -36,7 +36,7 @@ import subprocess  # nosec B404 - fixed argv, no shell, reads git metadata only
 import sys
 from pathlib import Path
 
-from tests.cli._roots import root_of
+from tests.cli._roots import TESTS_DIR, root_of
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLOSURE_PATH = 'docs/image-closure.json'
@@ -59,7 +59,8 @@ DB_ONLY_FILES = ('alembic.ini',)
 
 
 def module_for(path: str) -> str | None:
-    '''`discord_bot/a/b.py` -> `discord_bot.a.b`; None if not a first-party module.
+    '''`discord_bot/a/b.py` -> `discord_bot.a.b`; None if not a first-party
+    SHIPPED module.
 
     The root is looked up in `_roots.ROOTS` rather than spelled `discord_bot/`
     here, because criterion 8 hoists each folder to its own top-level package
@@ -70,8 +71,23 @@ def module_for(path: str) -> str | None:
     An UNDECLARED root is still None, and that is the case the equality check on
     ROOTS covers: recognising any `*/**.py` would make `scripts/foo.py` an
     orphan and fail CI on a file that should build nothing.
+
+    A path under a recognised root's OWN `tests/` subtree is also None, for
+    the same reason `_roots.source_files()` excludes it (see `TESTS_DIR`
+    there): criterion 8 step 5 nested each package's test tree inside its own
+    directory, so `discord_core/tests/utils/test_otel.py` now passes the
+    `root_of()` check the same as any production module under `discord_core/`
+    -- but no entrypoint's closure will ever claim it, correctly, since no
+    pod imports test code. Before that nesting, `tests/` sat entirely outside
+    every recognised root and this case could not arise; this project's own
+    orphan-guard PR found that out by shipping it and watching the "changes"
+    job fail on all 166 of them, not by reasoning it through in advance.
     '''
-    if root_of(path) is None or not path.endswith('.py'):
+    root = root_of(path)
+    if root is None or not path.endswith('.py'):
+        return None
+    rel = Path(path).relative_to(root)
+    if rel.parts and rel.parts[0] == TESTS_DIR:
         return None
     module = path[: -len('.py')].replace('/', '.')
     if module.endswith('.__init__'):

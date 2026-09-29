@@ -69,6 +69,15 @@ def _affected(files, base_closure=None, deleted=()):
     # exactly as undeclared as discord_notathing above.
     ('discord_seam_queue_worker/workers/redis_guild_queue.py', None),
     ('discord_seam_dispatch/clients/http_dispatch_client.py', None),
+    # Criterion 8 step 5 nested each package's own test tree inside its own
+    # directory, so a path under it now passes the root_of() check the same
+    # as production code -- but no entrypoint's closure will ever claim it.
+    # This is the exact shape that made PR #1005's "Detect image-input
+    # changes" job fail on all 166 of them: root_of() alone cannot tell test
+    # code apart from shipped code once both live under the same root.
+    ('discord_core/tests/utils/test_otel.py', None),
+    ('discord_gateway/tests/cogs/test_music.py', None),
+    ('discord_db/tests/__init__.py', None),
 ])
 def test_module_for(path, expected):
     '''Paths map to module names, and non-modules map to nothing.'''
