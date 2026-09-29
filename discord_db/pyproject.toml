@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discord-db"
+dynamic = ["version"]
+description = "discord-bot: owns the postgres schema and the engine"
+authors = [
+    {name = "Tyler D. North", email = "me@tyler-north.com"},
+]
+requires-python = ">=3.11"
+# dappertable is not a leak from the broker: PlaylistClient calls
+# shorten_string when it builds playlist entries, so the pod serving those
+# routes imports it for real. No boto3 -- VideoCacheClient is a pure catalog.
+dependencies = [
+    "SQLAlchemy==2.0.52",
+    # No import site. SQLAlchemy's async driver, named in the URL cli/_lib/db
+    # builds ("postgresql+asyncpg"); absent, nothing can open the database.
+    "asyncpg==0.31.0",
+    # No import site. The migration CLI; this is the only image that COPYs
+    # alembic/ and alembic.ini and can run `alembic upgrade head`.
+    "alembic==1.19.2",
+    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.8.tar.gz",
+]
+
+[project.scripts]
+discord-db = "discord_db.cli.database:main"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["discord_db", "discord_db.*"]
+# Excluded, not just left unmentioned: discord_db/tests/ is a real,
+# discoverable package (it has __init__.py throughout, the same
+# convention the old central tests/ used), so the include globs above
+# would otherwise sweep it into this distribution. Verified empirically
+# -- discord_db.tests, discord_db.tests.cli, etc. showed up in a real
+# PackageFinder.find() call before this exclude was added.
+exclude = ["discord_db.tests", "discord_db.tests.*"]

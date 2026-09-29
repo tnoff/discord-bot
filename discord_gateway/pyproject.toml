@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discord-gateway"
+dynamic = ["version"]
+description = "discord-bot: the Discord gateway connection and cog surface"
+authors = [
+    {name = "Tyler D. North", email = "me@tyler-north.com"},
+]
+requires-python = ">=3.11"
+# Measured against this package's own files (TYPE_CHECKING excluded), minus
+# whatever discord_core already guarantees.
+#
+# async-timeout moves here from the old monorepo base set: its only real
+# import site anywhere in the repo is cogs/music_helpers/music_player.py, and
+# aiohttp 3.14 (the version actually installed) does not require it either --
+# there was never a transitive reason for every pod to carry it, only a
+# historical one.
+#
+# PyNaCl and davey have no import site of their own -- discord.py loads them
+# itself and says so on startup when they are missing ("PyNaCl is not
+# installed, voice will NOT be supported"). Declared here anyway, the same
+# reasoning as the old [voice] extra: the gateway is the one pod that connects
+# to voice channels.
+dependencies = [
+    "discord.py==2.7.1",
+    "PyNaCl==1.6.2",
+    "davey==0.1.6",
+    "async-timeout==5.0.1",
+    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.8.tar.gz",
+    "beautifulsoup4==4.15.0",
+]
+
+[project.scripts]
+discord-bot = "discord_gateway.cli.bot:main"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["discord_gateway", "discord_gateway.*"]
+# Excluded, not just left unmentioned: discord_gateway/tests/ is a real,
+# discoverable package (it has __init__.py throughout, the same
+# convention the old central tests/ used), so the include globs above
+# would otherwise sweep it into this distribution. Verified empirically
+# -- discord_gateway.tests, discord_gateway.tests.cli, etc. showed up in a real
+# PackageFinder.find() call before this exclude was added.
+exclude = ["discord_gateway.tests", "discord_gateway.tests.*"]

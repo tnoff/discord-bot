@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discord-broker"
+dynamic = ["version"]
+description = "discord-bot: the request/result broker between the gateway and the worker pods"
+authors = [
+    {name = "Tyler D. North", email = "me@tyler-north.com"},
+]
+requires-python = ">=3.11"
+# No boto3 here: the S3 checkout this pod used to declare storage for now lives
+# in discord_core/utils/integrations/s3.py, reached transitively. dappertable
+# is real -- workers/media_bundle.py renders bundles with it.
+dependencies = [
+    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.8.tar.gz",
+]
+
+[project.scripts]
+discord-broker = "discord_broker.cli.broker:main"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["discord_broker", "discord_broker.*"]
+# Excluded, not just left unmentioned: discord_broker/tests/ is a real,
+# discoverable package (it has __init__.py throughout, the same
+# convention the old central tests/ used), so the include globs above
+# would otherwise sweep it into this distribution. Verified empirically
+# -- discord_broker.tests, discord_broker.tests.cli, etc. showed up in a real
+# PackageFinder.find() call before this exclude was added.
+exclude = ["discord_broker.tests", "discord_broker.tests.*"]

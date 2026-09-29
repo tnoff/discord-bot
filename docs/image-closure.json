@@ -6,7 +6,6 @@
       "image": "bot",
       "entrypoint": "discord_gateway.cli.bot",
       "dockerfile": "docker/Dockerfile",
-      "extra": "bot",
       "modules": [
         "discord_core",
         "discord_core.cli",
@@ -127,7 +126,6 @@
       "image": "broker",
       "entrypoint": "discord_broker.cli.broker",
       "dockerfile": "docker/Dockerfile.broker",
-      "extra": "broker",
       "modules": [
         "discord_broker",
         "discord_broker.cli",
@@ -220,7 +218,6 @@
       "image": "db",
       "entrypoint": "discord_db.cli.database",
       "dockerfile": "docker/Dockerfile.db",
-      "extra": "db",
       "modules": [
         "discord_core",
         "discord_core.cli",
@@ -286,7 +283,6 @@
       "image": "dispatcher",
       "entrypoint": "discord_dispatcher.cli.dispatcher",
       "dockerfile": "docker/Dockerfile.dispatcher",
-      "extra": "dispatcher",
       "modules": [
         "discord_core",
         "discord_core.cli",
@@ -352,7 +348,6 @@
       "image": "downloader",
       "entrypoint": "discord_downloader.cli.downloader",
       "dockerfile": "docker/Dockerfile.downloader",
-      "extra": "downloader",
       "modules": [
         "discord_core",
         "discord_core.cli",
@@ -433,7 +428,6 @@
       "image": "search",
       "entrypoint": "discord_search.cli.search",
       "dockerfile": "docker/Dockerfile.search",
-      "extra": "search",
       "modules": [
         "discord_core",
         "discord_core.cli",

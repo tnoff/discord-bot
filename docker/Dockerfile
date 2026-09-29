@@ -28,30 +28,39 @@ RUN curl -fsSL https://deno.land/install.sh | sh && mv /root/.deno /opt/deno
 # against a STUB package, so this layer is invalidated by a dependency change
 # and nothing else.
 #
-# The stub is what keeps VERSION out of this layer.  setuptools resolves the
-# version via `[tool.setuptools.dynamic] version = {file = "VERSION"}` and will
-# not build without it, but VERSION is bumped by *every* MR (the changelog.d
-# workflow), so copying the real one here would bust the dep install on every
-# change and defeat the split entirely.  A placeholder satisfies the build; the
-# real version is installed by the source layer below.
-COPY pyproject.toml "${APPDIR}/"
-RUN mkdir -p "${APPDIR}/discord_bot" && \
-    : > "${APPDIR}/discord_bot/__init__.py" && \
-    echo "0.0.0" > "${APPDIR}/VERSION" && \
-    pip install --no-cache-dir --prefix=/install "${APPDIR}[bot]" && \
-    rm -rf /install/lib/python*/site-packages/discord_bot \
-           /install/lib/python*/site-packages/discord_bot-0.0.0.dist-info
+# Two packages now, not one: criterion 8 step 5 gave discord_core and each pod
+# its own pyproject.toml. The stub is what keeps VERSION out of this layer.
+# setuptools resolves each one's version via `[tool.setuptools.dynamic]` and
+# will not build without a VERSION file present in ITS OWN directory
+# (setuptools refuses to read outside a package's own root), but VERSION is
+# bumped by *every* MR (the changelog.d workflow), so copying the real one
+# here would bust the dep install on every change and defeat the split
+# entirely.  A placeholder satisfies each build; the real versions are
+# installed by the source layer below.
+COPY discord_core/pyproject.toml "${APPDIR}/discord_core/pyproject.toml"
+COPY discord_gateway/pyproject.toml "${APPDIR}/discord_gateway/pyproject.toml"
+RUN mkdir -p "${APPDIR}/discord_core" "${APPDIR}/discord_gateway" && \
+    : > "${APPDIR}/discord_core/__init__.py" && \
+    : > "${APPDIR}/discord_gateway/__init__.py" && \
+    echo "0.0.0" > "${APPDIR}/discord_core/VERSION" && \
+    echo "0.0.0" > "${APPDIR}/discord_gateway/VERSION" && \
+    pip install --no-cache-dir --prefix=/install \
+        "${APPDIR}/discord_core" "${APPDIR}/discord_gateway" && \
+    rm -rf /install/lib/python*/site-packages/discord_core \
+           /install/lib/python*/site-packages/discord_core-0.0.0.dist-info \
+           /install/lib/python*/site-packages/discord_gateway \
+           /install/lib/python*/site-packages/discord_gateway-0.0.0.dist-info
 
-# ---- source layer: the actual package ----
+# ---- source layer: the actual packages ----
 # --no-deps because the layer above already resolved and installed every
-# third-party requirement; this installs our package only.
+# third-party requirement; this installs our own packages only.
 #
-# The stub install is torn down in the layer above rather than overwritten
-# here: pip cannot reliably uninstall from a `--prefix` tree, so leaving it in
-# place produced BOTH a discord_bot-0.0.0.dist-info and the real
-# discord_bot-<VERSION>.dist-info, and `importlib.metadata.version()` resolved
-# to the 0.0.0 one. Nothing reads the version at runtime today, but the image
-# would have reported the wrong one.
+# The stub installs are torn down in the layer above rather than overwritten
+# here: pip cannot reliably uninstall from a `--prefix` tree, so leaving them in
+# place produced BOTH a 0.0.0.dist-info and the real
+# <package>-<VERSION>.dist-info for each, and `importlib.metadata.version()`
+# resolved to the 0.0.0 one. Nothing reads the version at runtime today, but
+# the image would have reported the wrong one.
 #
 # It installs to a SEPARATE prefix (/install-app, not /install). That split is
 # what keeps the export phase cheap: the final stage copies the two prefixes as
@@ -68,6 +77,9 @@ RUN mkdir -p "${APPDIR}/discord_bot" && \
 # entirely rather than keeping it alongside the new one. This is the internal
 # package rename -- the image, the console script and the deployed contract
 # all stay `discord-bot`; only the import root the source lives under changed.
+# Each COPY brings its own real VERSION symlink (-> ../VERSION), which is why
+# the plain `COPY VERSION` below has to land before the install, not after:
+# the symlink target does not exist until it does.
 COPY discord_gateway/ "${APPDIR}/discord_gateway/"
 COPY discord_core/ "${APPDIR}/discord_core/"
 # No alembic/ or alembic.ini. Both were COPYd here until the MR 4 cutover
@@ -77,7 +89,8 @@ COPY discord_core/ "${APPDIR}/discord_core/"
 # a build step that implied the bot could run `alembic upgrade head`, which it
 # now cannot. Same correction #917 made on the dispatcher.
 COPY VERSION "${APPDIR}/"
-RUN pip install --no-cache-dir --no-deps --prefix=/install-app "${APPDIR}[bot]"
+RUN pip install --no-cache-dir --no-deps --prefix=/install-app \
+    "${APPDIR}/discord_core" "${APPDIR}/discord_gateway"
 
 
 # ---------- final: runtime only ----------

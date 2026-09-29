@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discord-core"
+dynamic = ["version"]
+description = "discord-bot: shared code every pod installs"
+authors = [
+    {name = "Tyler D. North", email = "me@tyler-north.com"},
+]
+requires-python = ">=3.11"
+# THE SHARED SET. Every one of the six pods installs discord_core, so
+# everything here reaches every image -- there is no per-pod tier below this
+# one any more. Two kinds of package end up here for two different reasons:
+#
+# 1. Genuinely imported by discord_core's own code at runtime: aiohttp, redis,
+#    pydantic, pyaml-env, psutil, requests, boto3, the OTel stack. Verified by
+#    an AST scan of every file in this package with TYPE_CHECKING blocks
+#    excluded (the same rule test_the_core_does_not_import_a_seam always used).
+#
+# 2. click: has NO import site inside discord_core itself -- every one of the
+#    six pods' own cli/*.py imports it directly instead. Centralised here
+#    anyway, deliberately: six identical pins is exactly the drift shape this
+#    project has already been burned by once (yt-dlp 2026.8.19 in one image,
+#    2026.7.4 in the pod that actually runs it). One pin, reached
+#    transitively, cannot disagree with itself.
+#
+# discord.py is deliberately NOT here, despite discord_core/cli/_lib/gateway.py
+# importing it for real (Intents, when_mentioned_or, Bot -- not an annotation).
+# That module is reached only from discord_gateway.cli.bot and
+# discord_dispatcher.cli.dispatcher, so discord.py stays declared on THOSE two
+# packages, not here -- exactly the precision the [gateway]/[voice] split
+# already existed to buy, which putting it here would spend for nothing:
+# broker, downloader, db and search never import cli._lib.gateway and would
+# gain a dependency they cannot reach.
+#
+# boto3 is the one new, accepted exception to precision: utils/integrations/s3.py
+# is a real, unconditional import site inside discord_core, so every pod that
+# installs discord_core now installs boto3 too, including the three (search,
+# dispatcher, db) that could not reach it before this split. That is the
+# measured cost of the criterion 8 seam-fold reversal's two-tier model, DECIDED
+# and accepted in per-image-code-split.md -- not something this list tries to
+# avoid.
+#
+# pydantic-yaml and pytz were in the old monorepo base set and are dropped
+# here: a repo-wide search (production code, tests, docs) found zero import
+# sites for either, anywhere, and `pip show`'s reverse-dependency check found
+# nothing else installed requires them either. Recorded as a finding in the
+# PR that introduced this file rather than carried forward silently.
+dependencies = [
+    "aiohttp>=3.9",
+    "redis==8.1.0",
+    "pydantic==2.13.5",
+    "opentelemetry-sdk==1.44.0",
+    "opentelemetry-instrumentation-requests",
+    "opentelemetry-instrumentation-redis",
+    "opentelemetry-instrumentation-logging",
+    "opentelemetry-instrumentation-sqlalchemy",
+    "opentelemetry-exporter-otlp",
+    "click==8.5.0",
+    "pyaml-env==1.2.2",
+    "psutil==7.2.2",
+    "requests==2.34.2",
+    "boto3==1.43.78",
+]
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["discord_core", "discord_core.*"]
+# Excluded, not just left unmentioned: discord_core/tests/ is a real,
+# discoverable package (it has __init__.py throughout, the same
+# convention the old central tests/ used), so the include globs above
+# would otherwise sweep it into this distribution. Verified empirically
+# -- discord_core.tests, discord_core.tests.cli, etc. showed up in a real
+# PackageFinder.find() call before this exclude was added.
+exclude = ["discord_core.tests", "discord_core.tests.*"]

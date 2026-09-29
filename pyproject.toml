@@ -3,207 +3,31 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "discord_bot"
+name = "discord-bot-repo"
 dynamic = ["version"]
-description = "Discord Bot"
+description = "discord-bot: shared test tooling and cross-package checks"
 authors = [
     {name = "Tyler D. North", email = "me@tyler-north.com"},
 ]
 requires-python = ">=3.11"
-# THE CORE SET. Not an extra, and it cannot be one: an extra is optional by
-# definition, and pip has no name for "always installed" other than this list.
-# Everything here is imported by all five entrypoints — the aiohttp/redis
-# transport, the pydantic config models, the OTel stack and the CLI plumbing.
+# This project installs NO production code of its own any more. Criterion 8
+# step 5 gave each of the seven packages (discord_core plus the six pods) its
+# own pyproject.toml with its own real `dependencies` list, replacing the
+# single monorepo extra system this file used to hold -- the capability
+# groups and per-image extras that lived here are now split across
+# discord_core/pyproject.toml and each pod's own. See per-image-code-split.md
+# criterion 8 step 5 for the full record.
 #
-# discord.py is deliberately NOT here any more. It sat in the core set because
-# utils/otel imported Context at module scope for a runtime isinstance, so every
-# image pulled it; discord-bot!248 closed that and the three worker images
-# stopped importing it. It is now paid for by [gateway], i.e. by the two images
-# that actually talk to Discord.
+# What is left here is the one thing that has nowhere else to live: shared
+# test tooling and the pytest/coverage config the whole-tree test run needs,
+# since tests/ (boundary and cross-package checks) has nowhere else to live
+# either. `pip install -e .[test]` plus a path install of all seven packages
+# is what the local CI gate and tox.ini both actually run.
 #
-# Adding something here puts it on all five images. Prefer a capability group.
-dependencies = [
-    "aiohttp>=3.9",
-    "redis==8.1.0",
-    "async-timeout==5.0.1",
-    "pydantic==2.13.5",
-    "pydantic-yaml==1.7.0",
-    "opentelemetry-sdk==1.44.0",
-    # Dont pin these so dependabot updates are easier
-    "opentelemetry-instrumentation-requests",
-    "opentelemetry-instrumentation-redis",
-    "opentelemetry-instrumentation-logging",
-    "opentelemetry-instrumentation-sqlalchemy",
-    "opentelemetry-exporter-otlp",
-    "click==8.5.0",
-    "pyaml-env==1.2.2",
-    "psutil==7.2.2",
-    "pytz==2026.3.post1",
-    "requests==2.34.2",
-]
-
+# Versioning stays SHARED across all eight pyproject.toml files in this repo
+# for now (one VERSION/CHANGELOG.md) -- independent per-package tag series is
+# criterion 8 step 6, not this one.
 [project.optional-dependencies]
-# ---------------------------------------------------------------------------
-# CAPABILITY GROUPS — what a thing can DO. One pin per package, here and nowhere
-# else.
-#
-# The per-image extras below are built from these by self-reference rather than
-# by listing packages again. That is deliberate: the first cut of this split
-# repeated the pins in each image extra, and within a single renovate bump the
-# copies had already drifted — [bot] moved to yt-dlp 2026.8.19 while the
-# downloader, the image that actually runs yt-dlp, was left pinned to 2026.7.4.
-# Two lists describing one fact stay correct only while somebody keeps them in
-# step, which is the same failure this project already found in the console-script
-# list, the per-image forbidden tuples and the dashboard panel scoping.
-#
-# Add a package to exactly one group. If two images need it, they compose the
-# same group; they do not each name the package.
-#
-# Group names are HYPHENATED, not underscored, and that is load-bearing. PEP 685
-# normalises extra names, so an extra declared as search_providers is published
-# in the metadata as search-providers -- and a self-reference written with the
-# underscore then resolves to nothing, SILENTLY. It installs no packages and
-# raises no error. That is exactly how ytmusicapi and the search providers went
-# missing from the tox environment while every hyphen-free group resolved fine.
-# ---------------------------------------------------------------------------
-gateway = [
-    # Talking to Discord at all. Only the bot and the dispatcher do.
-    "discord.py==2.7.1",
-]
-voice = [
-    # Playing audio into a voice channel. The gateway needs this; the dispatcher
-    # does NOT, which is why it is separate from [gateway] rather than folded in.
-    # Neither package has an import site — discord.py loads them itself, and says
-    # so on startup when they are missing ("PyNaCl is not installed, voice will
-    # NOT be supported"), which is the log line the dispatcher has always carried.
-    "discord_bot[gateway]",
-    "PyNaCl==1.6.2",
-    "davey==0.1.6",
-]
-database = [
-    # The postgres schema: markov, playlists, the video cache.
-    "SQLAlchemy==2.0.52",
-    # No import site. SQLAlchemy's async driver, named in the URL cli/_lib/db
-    # builds ("postgresql+asyncpg"); absent, nothing can open the database.
-    "asyncpg==0.31.0",
-    # No import site. The migration CLI. Every image that COPYs alembic/ and
-    # alembic.ini needs it to be able to run `alembic upgrade head`.
-    "alembic==1.19.2",
-]
-storage = [
-    # S3 object storage for finished media.
-    "boto3==1.43.78",
-]
-rendering = [
-    # Table/bundle rendering for what gets posted back to Discord.
-    # dappertable is GitHub-canonical; the GitLab copy is frozen. Both URLs
-    # still resolve, but only the GitHub one can ever be bumped past the
-    # freeze. Verified installable at 1.0.0 from this URL.
-    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.8.tar.gz",
-]
-downloading = [
-    # yt-dlp and its JS runtime helper. The downloader pod only.
-    "yt-dlp==2026.8.19",
-    # Dont pin, let yt-dlp install
-    "yt-dlp-ejs",
-]
-search-providers = [
-    # Metadata providers source expansion runs against.
-    #
-    # The search pod's, and ONLY the search pod's, as of the media_search cutover
-    # -- the cog reaches these through HttpMediaSearchClient now and imports
-    # neither SDK. That is what this group was carved out of [bot] to make
-    # possible, and it is why beautifulsoup4 is NOT here. bs4 was in this group
-    # once and it did not belong: its only import site is cogs/urban.py, which
-    # cli/_lib/cog_registry imports unconditionally, so the bot needs it no matter
-    # what media_search does. It rode this group's name to the edge of leaving the
-    # bot image with it. A group named for a capability has to hold only packages
-    # that serve it, or the next person to move the group by its name takes an
-    # unrelated package along.
-    "spotipy==2.26.0",
-    "google-api-python-client==2.199.0",
-]
-scraping = [
-    # Parsing HTML out of a page the API does not cover. The urban cog only.
-    "beautifulsoup4==4.15.0",
-]
-youtube-music = [
-    # The search pod's only tier-defining dependency.
-    #
-    # It lives HERE ONLY, as of the dual-path collapse. It used to be in the bot
-    # set too, because the cog built a real YoutubeMusicClient whenever
-    # music.youtube_music_search_client was absent — single-process, local dev and
-    # the whole test suite — so the bot image had to be able to run the search
-    # worker even though the HA bot never imported it. That fallback is gone: the
-    # cog is a client only. This is the drop discord-bot!209 tried to make and
-    # could not (projects/discord-bot-ha-only).
-    "ytmusicapi==1.12.2",
-]
-
-# ---------------------------------------------------------------------------
-# PER-IMAGE EXTRAS — what each deployed image installs. Exactly one per image,
-# named after the image, composed from the capability groups above.
-#
-# These are derived from each entrypoint's MEASURED import set, not from reading
-# the code, and docs/image-dependencies.md is generated from the same
-# measurement. tests/cli/test_import_boundaries.py asserts the two agree in both
-# directions: a package an image imports but does not install is an ImportError
-# at pod start, and a package it installs but no longer imports is dead weight.
-# ---------------------------------------------------------------------------
-bot = [
-    # No search-providers: source expansion is a round trip to the search pod, so
-    # spotipy and google-api-python-client are the pod's and not this image's.
-    # scraping stays -- bs4 is the urban cog's, which has nothing to do with
-    # media_search and is imported unconditionally by the cog registry.
-    "discord_bot[gateway,voice,storage,rendering,scraping]",
-]
-dispatcher = [
-    # The strictest image: the core set plus discord.py and nothing else. It sends
-    # and edits real messages (workers/message_dispatcher imports Message, Bot and
-    # NotFound), which is why it is the one non-gateway image that genuinely needs
-    # discord.py. It ran on the core dependencies alone until now, so its boundary
-    # was discipline; naming an extra makes it a declaration.
-    "discord_bot[gateway]",
-]
-broker = [
-    # The S3 checkout, and rendering bundles. NOT [database]: the video-cache
-    # catalog moved to the db pod in MR 4a and is reached over HTTP, so this
-    # image installs no SQLAlchemy, asyncpg or alembic. The objects stayed here,
-    # which is why [storage] did not follow the catalog out.
-    "discord_bot[storage,rendering]",
-]
-downloader = [
-    # Downloads media and uploads the result. No database, no rendering, no
-    # search — it used to install the bot's whole set and carry all three.
-    "discord_bot[downloading,storage]",
-]
-db = [
-    # The persistence tier. Owns the schema and the engine so [bot] and [broker]
-    # can stop carrying them at the cutover.
-    #
-    # rendering is NOT a copy-paste from [broker]: it is MEASURED. PlaylistClient
-    # calls dappertable's shorten_string when it builds playlist entries, so the
-    # pod that serves the playlist routes imports it. That is a rendering concern
-    # living inside a store and it is worth knowing about, but moving it is a
-    # behaviour change and this MR is not the place -- the import-boundary test
-    # would have failed the moment the extra disagreed with the measurement
-    # either way.
-    #
-    # No storage: VideoCacheClient is a pure catalog and imports no boto3, which
-    # is what made moving it behind HTTP the same transformation as the others.
-    # No gateway: this pod never touches Discord.
-    "discord_bot[database,rendering]",
-]
-search = [
-    # Thin HTTP clients. search-providers joined here when media_search folded in
-    # -- hyphens, per the PEP 685 note above: a self-reference spelled
-    # search_providers resolves to nothing and says so nowhere.
-    #
-    # It is still installed in [bot] as well, and stays there until the cog stops
-    # building an in-process client at the cutover. That is the one item this
-    # split could not close on its own.
-    "discord_bot[youtube-music,search-providers]",
-]
 test = [
     "bandit==1.9.4",
     "fakeredis==2.37.1",
@@ -229,27 +53,22 @@ test = [
     "tox==4.61.1",
 ]
 
-[project.scripts]
-discord-bot = "discord_gateway.cli.bot:main"
-discord-dispatcher = "discord_dispatcher.cli.dispatcher:main"
-discord-broker = "discord_broker.cli.broker:main"
-discord-downloader = "discord_downloader.cli.downloader:main"
-discord-search = "discord_search.cli.search:main"
-discord-db = "discord_db.cli.database:main"
-
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}
 
-[tool.setuptools.packages.find]
-# alembic* is excluded for a different reason than tests*/docs*. Those are
-# merely unwanted; alembic/ is actively harmful to install. It has no
-# __init__.py, so setuptools discovers it as a NAMESPACE package and writes
-# env.py and versions/ into site-packages/alembic/ -- which on the bot and
-# broker is the installed alembic library's own directory. The migration
-# scripts do not need to be importable: alembic.ini sets
-# script_location = %(here)s/alembic, so the CLI reads them from the COPY at
-# ${APPDIR} and never from site-packages.
-exclude = ["tests*", "docs*", "alembic*"]
+[tool.setuptools]
+# Each console script moved to live on its own pod's pyproject.toml (discord-bot
+# on discord_gateway, discord-dispatcher on discord_dispatcher, and so on) --
+# this project no longer ships any of the code they point at.
+#
+# This project owns no importable package of its own any more: the seven
+# discord_*/pyproject.toml files each claim their own directory (see their
+# `[tool.setuptools.packages.find]`), and alembic/ has no __init__.py so
+# setuptools would otherwise discover it as a namespace package and write
+# env.py and versions/ into site-packages/alembic/ -- the installed alembic
+# library's own directory. `packages = []` means this editable install exists
+# only to resolve the `test` extra and carry the shared tool config below.
+packages = []
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
@@ -302,6 +121,21 @@ filterwarnings = [
 source = ["."]
 omit = [
     "tests/*",
+    # Criterion 8 step 5 nested each package's own test tree at
+    # discord_core/tests/, discord_gateway/tests/, etc., mirroring the source
+    # layout -- so "tests/*" alone (matching only the central location) no
+    # longer omits most of the suite from its own coverage report. One entry
+    # per package rather than a single "*/tests/*": that would also match a
+    # future PRODUCTION path that happens to contain a "tests" segment, which
+    # is exactly the kind of over-broad pattern this project's own comments
+    # elsewhere warn against.
+    "discord_core/tests/*",
+    "discord_gateway/tests/*",
+    "discord_broker/tests/*",
+    "discord_db/tests/*",
+    "discord_dispatcher/tests/*",
+    "discord_downloader/tests/*",
+    "discord_search/tests/*",
     "alembic/*",
     ".tox/*",
     ".venv/*",

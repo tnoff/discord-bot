@@ -16,7 +16,7 @@ from fnmatch import fnmatch
 import pytest
 
 from tests.cli._affected_images import (
-    affected, extra_closure, images_for_pyproject, module_for,
+    affected, images_for_pyproject, module_for,
 )
 from tests.cli._image_deps import CLOSURE_DOC, REPO_ROOT
 from tests.cli._roots import LEGACY_ROOT, ROOTS
@@ -24,25 +24,14 @@ from tests.cli._roots import LEGACY_ROOT, ROOTS
 
 CLOSURE = {'images': [
     {'image': 'bot', 'entrypoint': 'discord_bot.cli.bot', 'dockerfile': 'docker/Dockerfile',
-     'extra': 'bot', 'modules': ['discord_bot', 'discord_bot.cogs.music', 'discord_bot.shared']},
+     'modules': ['discord_bot', 'discord_bot.cogs.music', 'discord_bot.shared']},
     {'image': 'db', 'entrypoint': 'discord_bot.cli.database', 'dockerfile': 'docker/Dockerfile.db',
-     'extra': 'db', 'modules': ['discord_bot', 'discord_bot.shared', 'discord_bot.store']},
+     'modules': ['discord_bot', 'discord_bot.shared', 'discord_bot.store']},
 ]}
 
-PYPROJECT = '''
-[project]
-name = "discord_bot"
 
-[project.optional-dependencies]
-storage = ["boto3==1.0.0"]
-test = ["pylint==4.0.7"]
-bot = ["discord_bot[storage]"]
-db = ["sqlalchemy==2.0.0"]
-'''
-
-
-def _affected(files, head=PYPROJECT, base=PYPROJECT, base_closure=None, deleted=()):
-    return affected(files, deleted, CLOSURE, base_closure, head, base)
+def _affected(files, base_closure=None, deleted=()):
+    return affected(files, deleted, CLOSURE, base_closure)
 
 
 @pytest.mark.parametrize('path, expected', [
@@ -80,6 +69,15 @@ def _affected(files, head=PYPROJECT, base=PYPROJECT, base_closure=None, deleted=
     # exactly as undeclared as discord_notathing above.
     ('discord_seam_queue_worker/workers/redis_guild_queue.py', None),
     ('discord_seam_dispatch/clients/http_dispatch_client.py', None),
+    # Criterion 8 step 5 nested each package's own test tree inside its own
+    # directory, so a path under it now passes the root_of() check the same
+    # as production code -- but no entrypoint's closure will ever claim it.
+    # This is the exact shape that made PR #1005's "Detect image-input
+    # changes" job fail on all 166 of them: root_of() alone cannot tell test
+    # code apart from shipped code once both live under the same root.
+    ('discord_core/tests/utils/test_otel.py', None),
+    ('discord_gateway/tests/cogs/test_music.py', None),
+    ('discord_db/tests/__init__.py', None),
 ])
 def test_module_for(path, expected):
     '''Paths map to module names, and non-modules map to nothing.'''
@@ -103,7 +101,7 @@ def test_a_move_without_a_regenerated_closure_fails_loudly():
     """
     images, orphans = _affected(
         ['discord_bot/cogs/music.py', 'discord_bot/services/bot/cogs/music.py'],
-        deleted=['discord_bot/cogs/music.py'], base_closure=CLOSURE)
+        base_closure=CLOSURE, deleted=['discord_bot/cogs/music.py'])
     assert orphans == ['discord_bot/services/bot/cogs/music.py']
     assert images == {'bot'}
 
@@ -118,7 +116,7 @@ def test_a_move_with_a_regenerated_closure_builds_only_the_owning_image():
     ]}
     images, orphans = affected(
         ['discord_bot/cogs/music.py', 'discord_bot/services/bot/cogs/music.py'],
-        ['discord_bot/cogs/music.py'], moved, CLOSURE, PYPROJECT, PYPROJECT)
+        ['discord_bot/cogs/music.py'], moved, CLOSURE)
     assert not orphans
     assert images == {'bot'}
 
@@ -164,9 +162,9 @@ def test_a_deleted_module_is_attributed_to_its_old_owners():
     '''
     base = {'images': [
         {'image': 'bot', 'entrypoint': 'discord_bot.cli.bot', 'dockerfile': 'docker/Dockerfile',
-         'extra': 'bot', 'modules': ['discord_bot', 'discord_bot.gone']},
+         'modules': ['discord_bot', 'discord_bot.gone']},
         {'image': 'db', 'entrypoint': 'discord_bot.cli.database', 'dockerfile': 'docker/Dockerfile.db',
-         'extra': 'db', 'modules': ['discord_bot']},
+         'modules': ['discord_bot']},
     ]}
     images, orphans = _affected(['discord_bot/gone.py'], base_closure=base,
                                 deleted=['discord_bot/gone.py'])
@@ -203,41 +201,59 @@ def test_docker_files_no_image_copies_build_nothing():
     assert images == set()
 
 
-def test_test_only_dependency_bump_builds_nothing():
+# The extras/TOML-diffing tests this file used to carry here -- a [test] bump
+# building nothing, a [db]/[storage] dependency bump reaching only the extras
+# that pulled it, an unparseable base falling back to every image, and
+# `extra_closure`'s self-reference resolution -- are gone along with the
+# machinery they tested. Criterion 8 step 5 retired the per-image extras on
+# one pyproject.toml entirely; `images_for_pyproject` no longer reads any
+# TOML content (there is nothing left to diff, and so nothing that can fail
+# to parse), only the CHANGED PATH, so the replacement tests below check paths
+# rather than dependency-string edits.
+def test_root_pyproject_bump_builds_nothing():
     '''
-    A [test] bump changes no image, and used to rebuild and rescan all six.
-
-    pylint is not installed by any image, so there is nothing for a build to
-    pick up -- this is the single most common shape of dependency PR here.
+    The root pyproject.toml holds only the shared `test` extra and tool
+    config as of criterion 8 step 5 -- it installs no production package of
+    its own, so a change to it reaches no deployed image. This is the
+    [test]-bump-builds-nothing case, now true of the WHOLE file rather than
+    one extra inside it.
     '''
-    bumped = PYPROJECT.replace('pylint==4.0.7', 'pylint==4.0.8')
-    images, _ = _affected(['pyproject.toml'], head=bumped)
+    images, _ = _affected(['pyproject.toml'])
     assert images == set()
 
 
-def test_dependency_bump_reaches_only_the_images_whose_extras_pull_it():
-    '''A [db] dependency is a db input; a [storage] one reaches the bot through its extra.'''
-    db_bump = PYPROJECT.replace('sqlalchemy==2.0.0', 'sqlalchemy==2.0.1')
-    assert _affected(['pyproject.toml'], head=db_bump)[0] == {'db'}
-    storage_bump = PYPROJECT.replace('boto3==1.0.0', 'boto3==1.0.1')
-    assert _affected(['pyproject.toml'], head=storage_bump)[0] == {'bot'}
+def test_a_packages_own_pyproject_bump_builds_only_its_image():
+    '''Each package's own pyproject.toml reaches exactly the images whose
+    measured closure claims a module under that root -- the same rule a .py
+    change under it already gets, not a separate mechanism.'''
+    closure = {'images': [
+        {'image': 'bot', 'entrypoint': 'discord_gateway.cli.bot', 'dockerfile': 'docker/Dockerfile',
+         'modules': ['discord_core.shared', 'discord_gateway.cogs.music']},
+        {'image': 'db', 'entrypoint': 'discord_db.cli.database', 'dockerfile': 'docker/Dockerfile.db',
+         'modules': ['discord_core.shared', 'discord_db.store']},
+    ]}
+    images, _ = affected(['discord_gateway/pyproject.toml'], [], closure, None)
+    assert images == {'bot'}
 
 
-def test_unparseable_base_pyproject_falls_back_to_every_image():
-    '''
-    Not being able to tell what changed is not evidence that nothing did.
-
-    This is the branch that runs on a first commit, or when the base ref is
-    unreachable -- exactly when guessing low would skip a real build.
-    '''
-    images = images_for_pyproject(PYPROJECT, 'not : valid ::: toml', {'bot': 'bot', 'db': 'db'})
+def test_discord_cores_own_pyproject_bump_reaches_every_image_that_installs_it():
+    '''discord_core's dependencies reach every pod that installs discord_core --
+    the same measured-cost shape boto3 already accepted in the seam-fold
+    reversal, not a special case for this function.'''
+    closure = {'images': [
+        {'image': 'bot', 'entrypoint': 'discord_gateway.cli.bot', 'dockerfile': 'docker/Dockerfile',
+         'modules': ['discord_core.shared', 'discord_gateway.cogs.music']},
+        {'image': 'db', 'entrypoint': 'discord_db.cli.database', 'dockerfile': 'docker/Dockerfile.db',
+         'modules': ['discord_core.shared', 'discord_db.store']},
+    ]}
+    images, _ = affected(['discord_core/pyproject.toml'], [], closure, None)
     assert images == {'bot', 'db'}
 
 
-def test_extra_closure_follows_self_references_and_survives_cycles():
-    '''`discord_bot[...]` self-references are resolved transitively.'''
-    extras = {'a': ['discord_bot[b]'], 'b': ['discord_bot[c]'], 'c': ['discord_bot[a]', 'x==1']}
-    assert extra_closure(extras, 'a') == {'a', 'b', 'c'}
+def test_images_for_pyproject_of_an_undeclared_root_is_empty():
+    '''No TOML to fail to parse any more -- an unrecognised root just answers
+    with no images, the same as any other path no image claims.'''
+    assert images_for_pyproject('discord_notathing/pyproject.toml', {'bot': set()}) == set()
 
 
 def test_generated_closure_covers_every_image_the_matrix_needs():

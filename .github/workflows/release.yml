@@ -91,7 +91,7 @@ jobs:
           MATCH=false
           # `discord_*/` rather than `discord_bot/`: criterion 8 hoists each folder
           # to its own top-level package (discord_core, discord_gateway,
-          # discord_seam_dispatch, ...), and a root this does not match sets
+          # discord_broker, ...), and a root this does not match sets
           # image=false -- no release build, silently, which is the 2026-09-04
           # shape where a green run published nothing for four days. The prefix
           # glob over-matches rather than under-matches on purpose: an extra

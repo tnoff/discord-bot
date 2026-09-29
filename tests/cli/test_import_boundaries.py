@@ -40,7 +40,6 @@ asserting that would be tautological, and a tautological test is worse than no
 test — it reads as coverage while checking nothing.
 '''
 import json
-import ast
 import os
 import re
 
@@ -49,12 +48,12 @@ import pytest
 from tests.cli._image_deps import (
     ALL_SIX, CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, IMAGE_NAMES, LAYOUT_DOC, NOT_YET_SPLIT,
     OWNERSHIP_DOC, REPO_ROOT, PACKAGE, VOCABULARY,
-    codeless_inits, declared_home, layout_violations, measure, measured_owners,
+    codeless_inits, declared_home, declared_scripts, layout_violations, measure, measured_owners,
     render_closure, render_layout, render_table,
 )
 from tests.cli._roots import (
-    CORE_DIR, CORE_ROOT, LEGACY_ROOT, ROOTS, SEAMS_DIR, SERVICE_ROOTS,
-    canonical, dirs_for, home_of, source_files,
+    CORE_ROOT, LEGACY_ROOT, ROOTS, SERVICE_ROOTS,
+    canonical, home_of, source_files,
 )
 
 
@@ -258,11 +257,11 @@ def test_every_published_image_has_a_boundary():
     to be a hardcoded literal, which meant it agreed with ``[project.scripts]``
     only for as long as someone kept both in step by hand — and a stale copy
     passes just as green as a correct one.
+
+    Criterion 8 step 5 moved each console script onto its own package's own
+    pyproject.toml, so `declared_scripts()` reads all seven rather than one.
     '''
-    import tomllib  # pylint: disable=import-outside-toplevel
-    pyproject = tomllib.loads((REPO_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))
-    published = {target.split(':', 1)[0]
-                 for target in pyproject['project']['scripts'].values()}
+    published = {target.split(':', 1)[0] for target in declared_scripts().values()}
     assert set(IMAGE_IMPORTS) == published, (
         f'console scripts and image boundaries disagree: '
         f'{published ^ set(IMAGE_IMPORTS)}. Every published script ships as an image, '
@@ -315,32 +314,15 @@ def test_layout_doc_is_current():
 
 
 
-def test_seam_folders_are_named_by_exactly_one_route():
-    '''
-    Every seam folder on disk holds exactly the one route module that names it.
-
-    This used to run over the DERIVED groups, where it was a check on the naming
-    rule. It ran over the tree after that, where it was a check on the tree: a
-    seam folder is a contract, the route module IS the contract, and a folder
-    holding two routes or none has a name that came from somewhere other than
-    what it contains.
-
-    All five seams have folded into `discord_core` as of this fold (criterion
-    8's seam-fold reversal), so there is no `{SEAMS_DIR}/` folder left on disk to
-    hold that naming rule -- the check this test made has no subject any more,
-    not a broken one. Pinned as "zero seam folders remain" rather than deleted,
-    the same way test_the_declared_roots_are_exactly_the_packages_on_disk was
-    flipped when LEGACY_ROOT's directory was actually removed.
-    '''
-    owners = measured_owners()
-    seams = {}
-    for module in owners:
-        home = declared_home(module)
-        if home and home[0] == SEAMS_DIR:
-            seams.setdefault(home[1], []).append(module)
-    assert not seams, (
-        f'found {SEAMS_DIR}/ folders on disk after every seam has folded: {sorted(seams)}'
-    )
+# `test_seam_folders_are_named_by_exactly_one_route` retired here: it checked
+# that every `seams/<name>/` folder on disk held exactly the one route module
+# that named it. All five seams have folded into `discord_core` and
+# `discord_bot/` has not existed since #997, so there is no `seams/` folder
+# left anywhere for the check to run over -- not a broken check, one with no
+# subject. `test_the_declared_roots_are_exactly_the_packages_on_disk` is the
+# still-live guard against an undeclared package (seam-shaped or otherwise)
+# reappearing on disk; this test would have been a strictly narrower repeat
+# of that one from here on.
 
 
 # The only image whose Dockerfile may COPY the migration scripts. Declared, not
@@ -483,87 +465,19 @@ def test_the_all_six_set_is_exactly_declared():
     )
 
 
-def _runtime_imports(path, prefixes):
-    """Modules under `prefixes` that `path` imports AT RUNTIME.
-
-    Takes a TUPLE of prefixes, because a home has two dotted spellings while the
-    criterion 8 migration runs -- `discord_bot.core.` and `discord_core.` name
-    the same folder, and a rule that knows only one stops matching mid-move.
-
-    AST rather than substring, and `if TYPE_CHECKING:` blocks are skipped on
-    purpose: an annotation-only import creates no runtime dependency, pip never
-    has to resolve it, and the measured closure cannot see it either. That is
-    not a loophole -- it is exactly the fix discord-bot #976 applied to
-    `core/cli/_lib/common.py`, which dropped four modules out of every image by
-    moving one annotation-only import under TYPE_CHECKING. A rule that called
-    that a violation would be arguing against the thing it is meant to protect.
-    """
-    tree = ast.parse(path.read_text(encoding='utf-8'))
-    guarded = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.If):
-            test = node.test
-            name = getattr(test, 'id', None) or getattr(test, 'attr', None)
-            if name == 'TYPE_CHECKING':
-                for inner in node.body:
-                    for sub in ast.walk(inner):
-                        guarded.add(id(sub))
-    found = []
-    for node in ast.walk(tree):
-        if id(node) in guarded:
-            continue
-        if isinstance(node, ast.ImportFrom) and (node.module or '').startswith(prefixes):
-            found.append(node.module)
-        elif isinstance(node, ast.Import):
-            found += [a.name for a in node.names if a.name.startswith(prefixes)]
-    return found
-
-
-def test_the_core_does_not_import_a_seam():
-    '''
-    The dependency direction: seams may import the core, never the reverse.
-
-    This is the rule placement alone cannot express. `core/` means SHARED and
-    `seams/<x>/` means CONTRACT, and both are legal at the same fanout -- so
-    nothing in `layout_violations` notices a core module reaching UP into a
-    seam. Six were, after the last 25 modules were placed on owner-set
-    arithmetic rather than on meaning.
-
-    It mattered most under the packaging split criterion 8 originally shaped
-    this around: `core` was to become the distribution every pod depends on, so
-    a core-to-seam import would make `discord-core` depend on
-    `discord-seam-dispatch`, and every pod installing core would drag in a
-    seam it may have no route to. That premise is what the seam-fold reversal
-    (criterion 8, DECIDED 2026-09-28: fold every seam into `discord_core`
-    rather than publish them separately) removes for a seam once it has
-    actually folded -- there is no longer a separate distribution to invert
-    into. Until every seam has folded, though, the remaining ones are still
-    real separately-shaped code, and a NEW core-to-seam reference into one of
-    them is exactly what this test still exists to catch.
-
-    Asserted in BOTH directions, because a rule about a direction proves nothing
-    if traffic has quietly stopped flowing the other way too -- that held while
-    any seam was still separately-shaped code. Dispatch was the last one: as of
-    this fold there is no `{SEAMS_DIR}/` directory left on disk for a core module
-    to reach up into, so both directions are vacuously satisfied rather than
-    checked. `known_transitional_downward` is dead weight for the same reason --
-    no seam will ever need an entry again -- and is left declared rather than
-    removed here, the same way `SEAM_ROOTS` itself was: retiring this test's own
-    now-pointless machinery is a separate decision from folding the code.
-    '''
-    known_transitional_downward = {}
-
-    core_dirs = dirs_for(REPO_ROOT, CORE_DIR)
-    seam_dirs = dirs_for(REPO_ROOT, SEAMS_DIR)
-    assert core_dirs, 'core/ is missing'
-    assert not seam_dirs, (
-        f'found {SEAMS_DIR}/ folders on disk after every seam has folded: {seam_dirs}'
-    )
-    assert not known_transitional_downward, (
-        'known_transitional_downward is declared empty and permanent now that no '
-        'seam remains to be transitionally coupled to -- a non-empty dict here '
-        'would mean a new seam-shaped directory reappeared'
-    )
+# `test_the_core_does_not_import_a_seam` retired here, along with its
+# `_runtime_imports` AST helper and the `known_transitional_downward`
+# allowlist it carried. The rule was the dependency direction: seams may
+# import the core, never the reverse -- load-bearing while `core` was meant
+# to become a distribution every pod depends on, so a core-to-seam import
+# would have made `discord-core` depend on a seam's own package. The
+# seam-fold reversal (criterion 8, DECIDED 2026-09-28) removed the premise:
+# there is no separate seam distribution left to invert into, and there
+# never will be again short of un-deciding the reversal itself. The
+# allowlist mechanism had already run down to permanently empty by the time
+# dispatch (the last seam) folded; keeping the test after that point would
+# have meant asserting `core/` exists and `seams/` does not, which
+# `test_the_declared_roots_are_exactly_the_packages_on_disk` already covers.
 
 
 @pytest.mark.parametrize('module, home', [

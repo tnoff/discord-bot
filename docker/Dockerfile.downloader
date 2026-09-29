@@ -29,16 +29,21 @@ RUN groupadd -g 1000 discord && \
 # and the expensive install re-runs for a version string. Measured on the
 # dispatcher before and after this split: 24.4s -> 9.6s on a VERSION-only bump.
 #
-# setuptools resolves the version via `[tool.setuptools.dynamic]` and will not
-# build without the file, so a STUB package and a placeholder VERSION satisfy
-# the dependency resolve. The real ones arrive in the source layer below.
-COPY pyproject.toml "${APPDIR}/"
+# Two packages now, not one: criterion 8 step 5 gave discord_core and each pod
+# its own pyproject.toml. setuptools resolves each one's version via
+# `[tool.setuptools.dynamic]` and will not build without a VERSION file present
+# in ITS OWN directory (setuptools refuses to read outside a package's own
+# root), so a STUB package plus a placeholder VERSION satisfies each. The real
+# ones arrive in the source layer below.
+COPY discord_core/pyproject.toml "${APPDIR}/discord_core/pyproject.toml"
+COPY discord_downloader/pyproject.toml "${APPDIR}/discord_downloader/pyproject.toml"
 
-# Single layer: install build + runtime apt packages, pip install the
-# [downloader] extra (yt-dlp + boto3; no git, and no dappertable/SQLAlchemy/
-# search clients — it used to install [bot] and carry all of them), deno, then purge
-# build-only packages plus the mesa/LLVM stack
-# that ffmpeg pulls in transitively through libGL's lazy GLX provider chain
+# Single layer: install build + runtime apt packages, pip install discord_core
+# (boto3 is here now, not on this package) plus discord_downloader's own
+# (yt-dlp; no git, and no dappertable/SQLAlchemy/search clients — it used to
+# install [bot] and carry all of them), both as path installs, deno, then
+# purge build-only packages plus the mesa/LLVM stack that ffmpeg pulls in
+# transitively through libGL's lazy GLX provider chain
 # (libGL -> libglx-mesa0 -> libgl1-mesa-dri -> libllvm15).  Audio-only ffmpeg
 # never triggers that chain, so removing the JIT (libllvm15, 115 MB) and the DRI
 # driver (libgl1-mesa-dri, 25 MB) is safe.
@@ -49,11 +54,13 @@ RUN apt-get update && \
     if [ "$INSTALL_HEAPTRACK" = "true" ]; then \
       apt-get install -y --no-install-recommends heaptrack; \
     fi && \
-    mkdir -p "${APPDIR}/discord_bot" && \
-    : > "${APPDIR}/discord_bot/__init__.py" && \
-    echo "0.0.0" > "${APPDIR}/VERSION" && \
-    pip install --no-cache-dir "${APPDIR}[downloader]" && \
-    pip uninstall -y discord_bot && \
+    mkdir -p "${APPDIR}/discord_core" "${APPDIR}/discord_downloader" && \
+    : > "${APPDIR}/discord_core/__init__.py" && \
+    : > "${APPDIR}/discord_downloader/__init__.py" && \
+    echo "0.0.0" > "${APPDIR}/discord_core/VERSION" && \
+    echo "0.0.0" > "${APPDIR}/discord_downloader/VERSION" && \
+    pip install --no-cache-dir "${APPDIR}/discord_core" "${APPDIR}/discord_downloader" && \
+    pip uninstall -y discord-core discord-downloader && \
     curl -fsSL https://deno.land/install.sh \
       | DENO_INSTALL="${DENO_INSTALL_ROOT}" sh && \
     chown -R discord:discord "${WORKDIR}" "${LOGFILE}" && \
@@ -61,10 +68,10 @@ RUN apt-get update && \
     dpkg --remove --force-depends libllvm15 libgl1-mesa-dri && \
     rm -rf /var/lib/apt/lists/* /root/.cache
 
-# ---- source layer: the actual package ----
+# ---- source layer: the actual packages ----
 # --no-deps because the layer above already resolved every third-party
-# requirement. The stub is UNINSTALLED up there rather than overwritten here:
-# leaving it produced both a discord_bot-0.0.0.dist-info and the real one, and
+# requirement. The stubs are UNINSTALLED up there rather than overwritten here:
+# leaving them produced both a 0.0.0 dist-info and the real one, and
 # `importlib.metadata.version()` resolved to the 0.0.0.
 #
 # `rm -rf "${APPDIR}"` moved down here from the layer above. It has to run AFTER
@@ -76,11 +83,14 @@ RUN apt-get update && \
 # of the split is that an image carries the roots it reaches and no others.
 # discord_downloader/ replaces the legacy root as of criterion 8 step 4: the
 # pod's own code no longer lives there at all, so this image drops that line
-# entirely rather than keeping it alongside the new one.
+# entirely rather than keeping it alongside the new one. Each COPY brings its
+# own real VERSION symlink (-> ../VERSION), which is why the plain `COPY
+# VERSION` below has to land before the install, not after: the symlink target
+# does not exist until it does.
 COPY discord_downloader/ "${APPDIR}/discord_downloader/"
 COPY discord_core/ "${APPDIR}/discord_core/"
 COPY VERSION "${APPDIR}/"
-RUN pip install --no-cache-dir --no-deps "${APPDIR}[downloader]" && \
+RUN pip install --no-cache-dir --no-deps "${APPDIR}/discord_core" "${APPDIR}/discord_downloader" && \
     rm -rf "${APPDIR}" /root/.cache
 
 ENV PATH="$PATH:/opt/discord/.deno/bin"

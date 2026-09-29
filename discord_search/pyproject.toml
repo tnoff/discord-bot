@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discord-search"
+dynamic = ["version"]
+description = "discord-bot: thin HTTP clients plus the metadata provider and YouTube Music SDKs"
+authors = [
+    {name = "Tyler D. North", email = "me@tyler-north.com"},
+]
+requires-python = ">=3.11"
+dependencies = [
+    "spotipy==2.26.0",
+    "google-api-python-client==2.199.0",
+    "ytmusicapi==1.12.2",
+]
+
+[project.scripts]
+discord-search = "discord_search.cli.search:main"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["discord_search", "discord_search.*"]
+# Excluded, not just left unmentioned: discord_search/tests/ is a real,
+# discoverable package (it has __init__.py throughout, the same
+# convention the old central tests/ used), so the include globs above
+# would otherwise sweep it into this distribution. Verified empirically
+# -- discord_search.tests, discord_search.tests.cli, etc. showed up in a real
+# PackageFinder.find() call before this exclude was added.
+exclude = ["discord_search.tests", "discord_search.tests.*"]
