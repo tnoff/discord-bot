@@ -177,10 +177,28 @@ def package_dirs(repo_root: Path) -> list:
             if (repo_root / root / '__init__.py').is_file()]
 
 
+#: The name every package's own test tree is nested under, as of criterion 8
+#: step 5. `discord_core/tests/`, `discord_gateway/tests/`, etc. are real,
+#: `__init__.py`-bearing packages -- the same convention the old central
+#: `tests/` used -- so a plain `rglob('*.py')` finds them as readily as any
+#: production module. Callers here answer "what does this repo SHIP", and
+#: test code is exactly what a Dockerfile's COPY line and each pyproject.toml's
+#: `packages.find` exclude both already agree does not ship.
+TESTS_DIR = 'tests'
+
+
 def source_files(repo_root: Path) -> list:
-    """Every first-party `.py` file, across every root that exists."""
+    """Every first-party `.py` file that ships, across every root that exists.
+
+    Excludes each root's own `tests/` subtree -- see `TESTS_DIR` -- so a test
+    file does not have to be reachable from a real entrypoint the way a
+    shipped module does. `test_the_declared_roots_are_exactly_the_packages_on_disk`
+    and the Dockerfiles are the check that test code does NOT ship; this is
+    the check that everything else does.
+    """
     return sorted(path for directory in package_dirs(repo_root)
-                  for path in directory.rglob('*.py'))
+                  for path in directory.rglob('*.py')
+                  if TESTS_DIR not in path.relative_to(directory).parts)
 
 
 def dirs_for(repo_root: Path, kind: str, name: str | None = None) -> list:

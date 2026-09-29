@@ -121,6 +121,21 @@ filterwarnings = [
 source = ["."]
 omit = [
     "tests/*",
+    # Criterion 8 step 5 nested each package's own test tree at
+    # discord_core/tests/, discord_gateway/tests/, etc., mirroring the source
+    # layout -- so "tests/*" alone (matching only the central location) no
+    # longer omits most of the suite from its own coverage report. One entry
+    # per package rather than a single "*/tests/*": that would also match a
+    # future PRODUCTION path that happens to contain a "tests" segment, which
+    # is exactly the kind of over-broad pattern this project's own comments
+    # elsewhere warn against.
+    "discord_core/tests/*",
+    "discord_gateway/tests/*",
+    "discord_broker/tests/*",
+    "discord_db/tests/*",
+    "discord_dispatcher/tests/*",
+    "discord_downloader/tests/*",
+    "discord_search/tests/*",
     "alembic/*",
     ".tox/*",
     ".venv/*",

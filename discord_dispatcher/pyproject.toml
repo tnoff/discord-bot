@@ -26,3 +26,10 @@ version = {file = "VERSION"}
 [tool.setuptools.packages.find]
 where = [".."]
 include = ["discord_dispatcher", "discord_dispatcher.*"]
+# Excluded, not just left unmentioned: discord_dispatcher/tests/ is a real,
+# discoverable package (it has __init__.py throughout, the same
+# convention the old central tests/ used), so the include globs above
+# would otherwise sweep it into this distribution. Verified empirically
+# -- discord_dispatcher.tests, discord_dispatcher.tests.cli, etc. showed up in a real
+# PackageFinder.find() call before this exclude was added.
+exclude = ["discord_dispatcher.tests", "discord_dispatcher.tests.*"]

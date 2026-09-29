@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from tests.cli._roots import package_dirs
+from tests.cli._roots import TESTS_DIR, package_dirs
 
 from discord_core.clients.http_client_base import HttpClientMixin
 from discord_core.exceptions import SeamResponseInvalid
@@ -33,7 +33,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CLIENT_DIRS = sorted(directory
                      for root in package_dirs(REPO_ROOT)
                      for directory in root.rglob('clients')
-                     if directory.is_dir())
+                     if directory.is_dir()
+                     and TESTS_DIR not in directory.relative_to(root).parts)
 
 #: The one module allowed to call model_validate directly -- it is the helper.
 VALIDATION_HOME = 'http_client_base.py'
