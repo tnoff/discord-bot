@@ -142,7 +142,7 @@ jobs:
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_BOT }}
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.gateway
     secrets:
       oci_username: ${{ secrets.OCI_USERNAME }}
       oci_token: ${{ secrets.OCI_TOKEN }}

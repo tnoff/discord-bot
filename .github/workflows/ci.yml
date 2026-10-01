@@ -102,7 +102,7 @@ jobs:
   # [test] bump changes no image at all and rebuilt every one).
   #
   # The mapping lives in tests/cli/_affected_images.py against the MEASURED
-  # closure in docs/image-closure.json, not in shell here. Two reasons: the
+  # closure in tests/cli/image-closure.json, not in shell here. Two reasons: the
   # closure has to come from importing each entrypoint (a static walk misses the
   # one PEP 562 import in the tree), and a filter with real edge cases -- a
   # deleted module, an unparseable base -- deserves tests, which shell in a

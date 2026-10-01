@@ -25,7 +25,7 @@ The Discord bot includes comprehensive monitoring capabilities using OpenTelemet
 The bot exports OpenTelemetry metrics to track runtime state and performance:
 
 - **Music Cog Metrics** - Active players per guild, multirequest bundles, cache usage
-- **Memory Metrics** - Object counts and memory usage by Python class type
+- **Memory Metrics** - Top memory allocations by file and line (see [Memory Profiling](memory_profiling.md))
 - **Heartbeat Metrics** - Background loop health indicators (see [Background Loop Health](loop_health.md))
 - **System Metrics** - Filesystem usage, database connections
 

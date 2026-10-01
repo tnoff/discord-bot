@@ -59,10 +59,26 @@ def test_provides_matches_what_each_pod_serves():
         assert declared == [api_ref(name) for name in names], image
 
 
+# Declared consumesApis that are real dependencies the seam-topology measurement
+# cannot see, because they are not an HTTP seam between two of the six pods.
+# Listed explicitly rather than filtered out broadly, so a consumesApis entry
+# that belongs in NEITHER this list nor the measured topology still fails the
+# way every other entry here does.
+NON_SEAM_CONSUMED_APIS = {
+    # The release workflow's `bump-image-pin` repository_dispatch to
+    # docker-apps -- a GitHub Actions cross-repo call, not an import/HTTP edge
+    # any entrypoint measurement walks. See #1010.
+    'discord-bot': {api_ref('image-bump')},
+}
+
+
 def test_consumes_matches_the_measured_topology():
     for image, names in consumes().items():
         declared = COMPONENTS[image]['spec'].get('consumesApis', [])
-        assert declared == [api_ref(name) for name in names], image
+        exempt = NON_SEAM_CONSUMED_APIS.get(image, set())
+        measured = [api_ref(name) for name in names]
+        assert [entry for entry in declared if entry not in exempt] == measured, image
+        assert exempt <= set(declared), (image, exempt)
 
 
 def test_a_serve_only_pod_consumes_nothing():

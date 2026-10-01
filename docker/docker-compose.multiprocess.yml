@@ -184,7 +184,7 @@ services:
   bot:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.gateway
     environment:
       <<: *aws-env
       DISCORD_BOT_CMD: discord-bot

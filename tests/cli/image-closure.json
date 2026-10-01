@@ -5,7 +5,7 @@
     {
       "image": "bot",
       "entrypoint": "discord_gateway.cli.bot",
-      "dockerfile": "docker/Dockerfile",
+      "dockerfile": "docker/Dockerfile.gateway",
       "modules": [
         "discord_core",
         "discord_core.cli",

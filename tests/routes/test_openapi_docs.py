@@ -6,9 +6,10 @@ are derived from the built router -- the same source GET /_contract/routes reads
 -- so a pod and its published API description cannot disagree about which routes
 exist.
 
-Same shape as docs/seam-topology.md and docs/image-dependencies.md: a generator,
-a committed artifact, and a test that fails when the two diverge. A generated
-file nobody checks is a file that silently stops being true.
+Same shape as tests/cli/image-closure.json and the seam-topology block spliced into
+docs/architecture.md: a generator, a committed artifact, and a test that fails
+when the two diverge. A generated file nobody checks is a file that silently
+stops being true.
 '''
 import os
 

@@ -1,8 +1,9 @@
 # Development
 
 Setup, test, lint, and conventions for working in this repo. User-facing
-configuration is in [README.md](README.md). Per-cog and subsystem docs are
-under [`docs/`](docs/).
+configuration is in [README.md](README.md) and
+[docs/configuration.md](docs/configuration.md). Per-cog and subsystem docs
+are under [`docs/`](docs/).
 
 ## System dependencies
 
@@ -18,20 +19,32 @@ brew install ffmpeg
 
 ## Installation
 
-Use a virtualenv. Editable install picks up local changes:
+This repo is seven Python packages — `discord_core` (shared by every pod)
+plus one per pod (`discord_gateway`, `discord_dispatcher`, `discord_broker`,
+`discord_db`, `discord_downloader`, `discord_search`), each with its own
+`pyproject.toml` and its own real `dependencies`. There is no single-package
+`.[bot,search,test]`-style extra any more; the root `pyproject.toml` only
+holds the `test` extra and installs no production code of its own
+(`packages = []`).
+
+Use a virtualenv. Editable install every package you need, plus the root's
+`test` extra — if in doubt, install all seven (this is what `tox.ini`'s
+`deps =` does, and what the full test suite needs regardless of which pod
+you're actually changing):
 
 ```bash
 virtualenv venv
 source venv/bin/activate
-pip install -e ".[bot,search,test]"
+pip install -e ./discord_core -e ./discord_gateway -e ./discord_broker \
+            -e ./discord_db -e ./discord_dispatcher -e ./discord_downloader \
+            -e ./discord_search -e ".[test]"
 ```
 
-Available extras:
-
-| Extra | Use case |
-|-------|----------|
-| `bot` | Bot-specific dependencies (media, database, etc., including `asyncpg`) |
-| `test` | Test tooling (pytest, pylint, pytest-postgresql, etc.) |
+Each package's own `pyproject.toml` documents what it depends on and why
+(e.g. `discord_search` pulls in spotipy/ytmusicapi, `discord_db` pulls in
+SQLAlchemy/asyncpg/alembic). `discord_core` is the one every pod installs
+alongside its own — it carries the shared set (aiohttp, redis, pydantic, the
+OTel stack, boto3, etc.).
 
 The test suite uses `pytest-postgresql`, which expects `pg_ctl` and friends
 on `PATH`. Install the system postgres binaries (`apt install postgresql`
@@ -44,6 +57,13 @@ before running the suite.
 discord-bot /path/to/config.yml
 ```
 
+`discord-bot` (`discord_gateway.cli.bot`) is one of six pods and will not
+start on its own — it hard-requires `general.dispatch_http_url` and
+`general.database_http_url` pointing at running `discord-dispatcher` and
+`discord-db` instances (see [docs/configuration.md](docs/configuration.md#database)
+and [docs/architecture.md](docs/architecture.md)). `docker/docker-compose.multiprocess.yml` is the
+easiest way to bring up the other pods for local development.
+
 Config schema is in README.md; full per-cog config keys are in each
 `docs/<cog>.md`.
 
@@ -52,25 +72,41 @@ Config schema is in README.md; full per-cog config keys are in each
 **Always invoke through the project venv** — system Python has an older
 `dappertable` that causes ~27 false failures.
 
+Each package has its own `tests/` tree, mirroring its own layout
+(`discord_core/tests/`, `discord_gateway/tests/`, …); only genuinely
+cross-package tests (a real HTTP client in one package tested against a real
+server in another, the CI import-boundary/build-filter checks) live in the
+central `tests/` at repo root. **Run pytest with no path argument** — passing
+`tests/` explicitly collects only the central tree and silently skips the
+other six (this broke CI once, PR #1005, before the invocation was fixed):
+
 ```bash
-venv/bin/pytest -q                              # full suite
-venv/bin/pytest tests/path/to/test_file.py -q   # single file
-venv/bin/pytest --cov=discord_bot --cov-report=html tests/
+venv/bin/pytest -q                                   # full suite, every package
+venv/bin/pytest discord_gateway/tests/cogs/test_music.py -q   # single file
+venv/bin/pytest --cov --cov-report=html               # coverage, no path arg either
 ```
 
-Coverage threshold is 90%. All async tests must be marked
-`@pytest.mark.asyncio` (mode is `strict`); see `[tool.pytest.ini_options]`
-in `pyproject.toml`.
+Coverage threshold is 99% (`--cov-fail-under=99` in `tox.ini`), measured
+against `source = ["."]` in `pyproject.toml`'s `[tool.coverage.run]` — repo-rooted,
+not a single package. All async tests must be marked `@pytest.mark.asyncio`
+(mode is `strict`); see `[tool.pytest.ini_options]` in `pyproject.toml`.
 
 ## Linting
 
 ```bash
-venv/bin/pylint --rcfile .pylintrc discord_bot/   # production code
-venv/bin/pylint --rcfile .pylintrc.test tests/    # test code
+venv/bin/pylint --ignore=tests discord_core/ discord_gateway/ discord_broker/ \
+    discord_db/ discord_dispatcher/ discord_downloader/ discord_search/   # production code
+venv/bin/pylint --rcfile .pylintrc.test tests/ discord_core/tests/ discord_gateway/tests/ \
+    discord_broker/tests/ discord_db/tests/ discord_dispatcher/tests/ \
+    discord_downloader/tests/ discord_search/tests/                       # test code, all eight locations
 ```
 
-Target score is 10.00/10. Tox runs both pylint configs + pytest across
-py311–py314:
+`--ignore=tests` on the production line matters: each package's own `tests/`
+now lives *inside* it, so a plain scan would otherwise lint test code under
+the production rcfile too.
+
+Target score is 10.00/10. Tox runs both pylint invocations, bandit, and
+pytest across py311–py314:
 
 ```bash
 tox
@@ -85,69 +121,78 @@ alembic upgrade head                                       # apply migrations
 alembic revision --autogenerate -m "description of change" # generate one
 ```
 
-After editing `discord_bot/database.py`, regenerate the revision and review
-the generated `op.*` calls — autogenerate doesn't catch every change.
+After editing `discord_db/database.py`, regenerate the revision and review
+the generated `op.*` calls — autogenerate doesn't catch every change. Alembic
+itself, and the schema it manages, belong only to the `discord_db` pod — no
+other package has a database connection.
 
 ## Adding a new cog
 
-Three files change:
+Cogs live only in `discord_gateway` now — there is no dispatcher-only cog
+mode; `discord_dispatcher` runs a single Redis-backed worker
+(`MessageDispatcher`), not a cog list. Two files change:
 
-1. **`discord_bot/utils/common.py`** — if you want the cog to be enabled
+1. **`discord_core/utils/common.py`** — if you want the cog to be enabled
    via the typed Pydantic config, add a field to `IncludeConfig`. (Some
    cogs read `general.include.<name>` straight from the raw dict — see
-   `cogs/role.py`. The Pydantic field is optional but recommended.)
+   `discord_gateway/cogs/role.py`. The Pydantic field is optional but
+   recommended.)
 
    ```python
    class IncludeConfig(BaseModel):
        my_cog: bool = False
    ```
 
-2. **`discord_bot/cli/bot.py`** — append to `POSSIBLE_COGS` (order matters;
-   `MessageDispatcher` must stay first). If the cog should also run in
-   dispatcher-only mode, add it to `discord_bot/cli/dispatcher.py` too.
+2. **`discord_gateway/cli/_lib/cog_registry.py`** — append to
+   `POSSIBLE_COGS`. There is no ordering requirement any more —
+   `MessageDispatcher` isn't in this list at all, since it's a separate
+   pod's own worker, not a cog.
 
    ```python
    POSSIBLE_COGS = [
-       MessageDispatcher,
+       DeleteMessages,
        ...
        MyCog,
    ]
    ```
 
-3. **`discord_bot/cogs/my_cog.py`** — implement the cog (see below).
+3. **`discord_gateway/cogs/my_cog.py`** — implement the cog (see below).
 
 ### Cog skeleton
 
-Cogs that need a database inherit `CogHelper`
-(`discord_bot/cogs/cog_helper.py`); cogs that only need Discord/Redis
-inherit `CogHelperBase` (`discord_bot/cogs/common.py`). The dispatch
-helpers live on the base, so both subclasses get them. See
-[docs/common.md](docs/common.md) for the full API.
+Every cog inherits `CogHelperBase` (`discord_gateway/cogs/common.py`) — there
+is no separate database-aware subclass. Cogs reach the database, if they
+need it, through an HTTP store wrapper (`discord_gateway/clients/database_stores.py`)
+passed in via `stores`, not a local `AsyncEngine`. See [Dispatch
+helpers](#dispatch-helpers) below for the dispatcher methods every cog gets.
 
 ```python
-from discord_bot.services.bot.cogs.common import CogHelper
+from discord_gateway.cogs.common import CogHelperBase
 from discord_core.exceptions import CogMissingRequiredArg
 from pydantic import BaseModel
 
 class MyCogConfig(BaseModel):
     loop_sleep_interval: float = 300.0
 
-class MyCog(CogHelper):
-    def __init__(self, bot, settings, db_engine):
+class MyCog(CogHelperBase):
+    def __init__(self, bot, settings, dispatcher, stores=None):
         if not settings.get('general', {}).get('include', {}).get('my_cog', False):
             raise CogMissingRequiredArg('MyCog not enabled')
-        super().__init__(bot, settings, db_engine,
+        super().__init__(bot, settings, dispatcher, stores=stores,
                          settings_prefix='my_cog',
                          config_model=MyCogConfig)
         # self.config.loop_sleep_interval now available
 ```
 
-`CogHelper.__init__` provides:
+`CogHelperBase.__init__` provides:
 
-- `self.bot`, `self.settings`, `self.db_engine` (`AsyncEngine | None`)
+- `self.bot`, `self.settings`, `self.dispatcher` (an `HttpDispatchClient`
+  in the one entrypoint that actually builds cogs, `discord_gateway/cli/bot.py`)
 - `self.logger` — name is the lowercase class name; config from
   `general.logging`
 - `self.config` — Pydantic-validated cog config (if `config_model` supplied)
+
+There is no `self.db_engine` — no cog holds a database connection.
 
 ### Dispatch helpers
 
@@ -170,10 +215,20 @@ await self.dispatch_channel_history(guild_id, channel_id, limit=100)
 await self.dispatch_guild_emojis(guild_id)
 ```
 
-The helpers route through either the in-process `MessageDispatcher` cog or
-a `RedisDispatchClient` depending on `general.dispatch_cross_process`
-config. Either way, accessing the dispatcher when none is configured
-raises `RuntimeError`.
+The helpers route through `self.dispatcher`, injected at construction time —
+in the one entrypoint that builds cogs (`discord_gateway/cli/bot.py`) that is
+always an `HttpDispatchClient` talking to the `discord-dispatcher` pod. There
+is no in-process fallback and no config toggle any more; `dispatch_http_url`
+is a hard requirement of the bot process itself, checked before any cog is
+even loaded. `dispatch_fetch` is the one exception worth knowing about: it
+calls `self.dispatcher.fetch_object(...)`, which only the dispatcher-pod-only
+`MessageDispatcher` class implements — `HttpDispatchClient` has no
+`fetch_object` method, so calling `dispatch_fetch` from a real cog raises
+`AttributeError` today. It is exercised only in unit tests with a fake
+dispatcher; don't copy it into new code until that's reconciled.
+
+There is no `send_funcs` method — it does not exist anywhere in
+`CogHelperBase` or any cog.
 
 ### Background loop
 
@@ -200,35 +255,42 @@ Every cog with a background loop should register a heartbeat gauge so
 ops can alert on stuck loops. See
 [docs/monitoring/metrics_reference.md](docs/monitoring/metrics_reference.md)
 for the canonical pattern; new `MetricNaming` entries go in
-`discord_bot/utils/otel.py`.
+`discord_core/utils/otel.py`.
 
 ## Database
 
-SQLAlchemy 2.x, fully async. The engine is `AsyncEngine` (asyncpg).
-PostgreSQL is the only supported backend. Open a session via the
-`CogHelper` context manager:
+No cog in `discord_gateway` holds a database session — that pod has no DB
+engine at all. Cogs reach data through the HTTP store wrappers in
+`discord_gateway/clients/database_stores.py` (`HttpMarkovStore`,
+`HttpPlaylistStore`, `HttpGuildAnalyticsStore`, `HttpVideoCacheStore`, …),
+which call the `discord-db` pod over HTTP.
+
+The only package with a real SQLAlchemy engine is `discord_db` itself.
+SQLAlchemy 2.x, fully async (`AsyncEngine`, asyncpg). PostgreSQL is the only
+supported backend. Code that runs inside `discord_db` opens a session via
+`with_db_session()` (`discord_db/cli/database.py`):
 
 ```python
 from sqlalchemy import select, delete
 
-async with self.with_db_session() as db:
+async with with_db_session() as db:
     row  = (await db.execute(select(Model).where(Model.id == x))).scalars().first()
     rows = (await db.execute(select(Model).where(...))).scalars().all()
     n    = (await db.execute(select(func.count()).select_from(Model).where(...))).scalar()
     await db.execute(delete(Model).where(Model.id == x))
-    await self.retry_commit(db)
+    await db.commit()
 ```
 
 `session.query()` is **not** supported on `AsyncSession`.
 
 ### DB retry
 
-`async_retry_database_commands` (`discord_bot/utils/sql_retry.py`) retries on
+`async_retry_database_commands` (`discord_db/utils/sql_retry.py`) retries on
 `OperationalError` (rollback + sleep) and `PendingRollbackError` (rollback),
 up to 3 attempts:
 
 ```python
-from discord_bot.services.db.utils.sql_retry import async_retry_database_commands
+from discord_db.utils.sql_retry import async_retry_database_commands
 
 result = await async_retry_database_commands(
     db_session,
@@ -237,7 +299,8 @@ result = await async_retry_database_commands(
 await async_retry_database_commands(db_session, db_session.commit)
 ```
 
-`self.retry_commit(db)` in `CogHelper` is the cog-level shorthand.
+This helper, like the session it wraps, is `discord_db`-internal — nothing
+outside that pod opens a database connection to retry against.
 
 ## Error handling
 
@@ -247,8 +310,10 @@ await async_retry_database_commands(db_session, db_session.commit)
 - `async_retry_discord_message_command` handles Discord transient errors
   (`RateLimited`, `DiscordServerError`, `TimeoutError`,
   `ServerDisconnectedError`); everything else is a real bug.
-- The only sanctioned broad-except lives in `MessageDispatcher._ReadItem`
-  dispatch — see [AGENTS.md](AGENTS.md#the-one-allowed-broad-except).
+- The sanctioned broad-excepts live in the dispatcher worker loop and its
+  request handlers (`discord_dispatcher/workers/message_dispatcher.py`,
+  each tagged `# pylint: disable=broad-except`) — see
+  [AGENTS.md](AGENTS.md#broad-except-is-rare-and-pylint-annotated).
 
 ## Test infrastructure
 
@@ -269,9 +334,9 @@ Shared fixtures and fakes are in `tests/helpers.py`:
 `FakeChannel.send()` records every message in `channel.messages`, so tests
 assert against the list directly.
 
-`FakeBot.get_cog()` always returns `None`, so `CogHelper.dispatch_*` falls
-back to direct retry calls automatically — no special setup needed in
-most cog tests.
+Cog tests construct `CogHelperBase` subclasses with a fake or mocked
+dispatcher passed in directly (there is no `self.bot.get_cog()`-based lookup
+or fallback any more — the dispatcher is a required constructor argument).
 
 ### Typical async test
 
@@ -287,18 +352,23 @@ async def test_something(fake_context):  # pylint: disable=redefined-outer-name
 
 ### Synchronising with `MessageDispatcher`
 
-`fetch_object` goes through the LOW-priority queue — it is **not** a barrier
-for NORMAL-priority work. Use a sentinel:
+This only applies to `discord_dispatcher`'s own worker tests
+(`discord_dispatcher/tests/cogs/test_message_dispatcher.py`) — cog tests in
+`discord_gateway` interact with a fake/mocked `HttpDispatchClient`, not a
+real `MessageDispatcher`, and have nothing to drain. `MessageDispatcher` is
+Redis-backed now (a `WorkQueue`/`BundleStore` pair, not an in-process
+`asyncio.PriorityQueue`), so synchronising means polling its work queue
+empty, not waiting on a sentinel through a priority ordering:
 
 ```python
-async def drain_dispatcher(dispatcher, guild_id, timeout=5.0):
-    """Wait until all NORMAL-priority work for guild_id has been processed."""
-    import asyncio
-    done = asyncio.Event()
-    async def _sentinel():
-        done.set()
-    dispatcher.send_single(guild_id, [_sentinel])
-    await asyncio.wait_for(done.wait(), timeout=timeout)
+async def drain_dispatcher(dispatcher, timeout=5.0):
+    """Wait until the work queue is empty and all in-flight work has completed."""
+    await asyncio.sleep(0)  # let pending enqueue create_tasks run first
+    deadline = asyncio.get_running_loop().time() + timeout
+    while asyncio.get_running_loop().time() < deadline:
+        if dispatcher._work_queue._queue.empty():  # pylint: disable=protected-access
+            return
+        await asyncio.sleep(0.01)
 ```
 
 ### `bot.loop` in tests

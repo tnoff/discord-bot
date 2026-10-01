@@ -7,6 +7,27 @@ Registered as discord-bot.  The single-process entrypoint that ran the gateway,
 the cogs and the dispatcher in one process was retired, and the transitional
 discord-bot-min alias was dropped once the deployed manifests stopped naming it
 — see projects/discord-bot-ha-only in the docs repo.
+
+Configure with:
+    general.discord_token     — Discord bot token (required; see
+                                require_discord_token)
+    general.dispatch_http_url — Dispatcher pod URL; cogs route all outbound
+                                messages through it (required — raises
+                                DiscordBotException if missing)
+    general.database_http_url — discord-db pod URL (required for HA bot mode —
+                                raises DiscordBotException if missing)
+    general.include           — which optional cogs to load (markov, urban, music,
+                                delete_messages default off; default and
+                                message_dispatcher default on) — see IncludeConfig
+    general.intents           — extra discord.py Intents to enable beyond
+                                Intents.default()
+    general.rejectlist_guilds — guild IDs the bot leaves on sight (on_ready)
+    general.monitoring        — optional OTLP / health-server config
+    music.*                   — Music cog, see docs/music.md
+    markov.*                  — Markov cog, see docs/markov.md
+    role.*                    — RoleAssignment cog, see docs/role.md
+    urban.*                   — UrbanDictionary cog, see docs/urban.md
+    delete_messages.*         — DeleteMessages cog, see docs/delete_messages.md
 '''
 import logging
 
@@ -69,7 +90,7 @@ def register_seam_checks(bot: Bot) -> None:
     common.py is imported by all six images; importing the seam-check machinery
     there pulled ``clients/http_client_base`` into the dispatcher image, which
     serves its seam and calls none — measured as +2 modules by
-    docs/image-dependencies.md. This function is bot-only, so it belongs in the
+    tests/cli/image-closure.json. This function is bot-only, so it belongs in the
     bot-only module. See http-seam-contract.md, acceptance criterion one.
 
     Takes no client list. Every client that was given a seam contract config

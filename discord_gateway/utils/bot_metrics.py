@@ -8,7 +8,7 @@ string one of them uses.
 
 Reached by discord_bot.cli.bot alone, which is the property that makes the
 split worth anything. It is checked rather than asserted in prose:
-tests/utils/test_metric_ownership.py reads docs/image-closure.json and fails
+tests/utils/test_metric_ownership.py reads tests/cli/image-closure.json and fails
 if any name in the shared enum is emitted by exactly one image.
 '''
 from enum import Enum

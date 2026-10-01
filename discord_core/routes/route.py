@@ -2,7 +2,7 @@
 The `Route` value type shared by every seam registry.
 
 **This module is fanout 6** — every image imports it, measured by
-docs/image-dependencies.md. Not via the seam registries, which is where the
+tests/cli/image-closure.json. Not via the seam registries, which is where the
 fanout was expected to come from, but via clients/http_client_base.py: every
 image runs some HTTP client, and the client base takes a Route.
 

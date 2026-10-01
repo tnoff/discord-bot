@@ -235,17 +235,28 @@ The backoff system can be monitored via:
 
 ## Implementation Details
 
-Located in `discord_bot/cogs/music_helpers/download_client.py`:
+`FailureQueue`/`FailureStatus` (`discord_core/utils/failure_queue.py`) are
+the shared, generic tracking classes — used by both download and search
+backoff, not a download-specific `DownloadFailureQueue`/`DownloadStatus`
+pair. `DownloadStatus` itself is a separate, narrower type
+(`discord_core/types/download.py`) that isn't part of this backoff
+mechanism:
 
-- **`DownloadStatus`**: Dataclass storing success/failure state, exception info, and timestamp
-- **`DownloadFailureQueue`**: Manages the failure queue and backoff calculation
+- **`FailureStatus`**: stores success/failure state, exception info, and timestamp
+- **`FailureQueue`**: Manages the failure queue and backoff calculation
   - `add_item()`: Add new status (failure or success) with automatic cleanup
   - `size`: Property returning current queue size (= backoff multiplier)
 
-Used in `discord_bot/cogs/music.py`:
-- Created during Music cog initialization with config parameters
-- Populated when download completes (success) or fails (`RetryableException`)
+Retry-budget enforcement for downloads itself now runs in the standalone
+`discord-downloader` pod (`discord_downloader/cli/downloader.py`), not the
+gateway — the gateway only submits requests and polls for results. A
+`FailureQueue` is:
+- Created during that pod's worker initialization with config parameters
+- Populated when a download completes (success) or fails (`RetryableException`)
 - Queried via `size` property to calculate additional backoff before retrying
+
+YouTube Music search backoff follows the identical pattern inside the
+standalone `discord-search` pod.
 
 ## Mathematical Summary
 

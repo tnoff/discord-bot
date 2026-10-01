@@ -46,10 +46,10 @@ import re
 import pytest
 
 from tests.cli._image_deps import (
-    ALL_SIX, CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, IMAGE_NAMES, LAYOUT_DOC, NOT_YET_SPLIT,
-    OWNERSHIP_DOC, REPO_ROOT, PACKAGE, VOCABULARY,
+    ALL_SIX, CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, IMAGE_NAMES, NOT_YET_SPLIT,
+    REPO_ROOT, PACKAGE, VOCABULARY,
     codeless_inits, declared_home, declared_scripts, layout_violations, measure, measured_owners,
-    render_closure, render_layout, render_table,
+    render_closure,
 )
 from tests.cli._roots import (
     CORE_ROOT, LEGACY_ROOT, ROOTS, SERVICE_ROOTS,
@@ -269,51 +269,6 @@ def test_every_published_image_has_a_boundary():
     )
 
 
-def test_ownership_doc_is_current():
-    '''
-    docs/image-dependencies.md matches a live measurement.
-
-    The doc is the human-readable answer to "what is used strictly by what". It is
-    generated rather than written so it cannot drift into being confidently wrong,
-    which is the failure mode this project keeps finding in restated facts.
-    '''
-    rendered = render_table()
-    if os.environ.get('UPDATE_IMAGE_DEPS'):
-        OWNERSHIP_DOC.write_text(rendered, encoding='utf-8')
-    assert OWNERSHIP_DOC.read_text(encoding='utf-8') == rendered, (
-        'docs/image-dependencies.md is out of date. Regenerate with:\n'
-        '    UPDATE_IMAGE_DEPS=1 pytest tests/cli/test_import_boundaries.py'
-    )
-
-
-def test_layout_doc_is_current():
-    '''
-    docs/module-layout.md matches a live measurement.
-
-    This test's SCOPE has not changed and its docstring's caveat has. Through
-    steps 1 to 5 it carried a warning that the doc could not fail on a module
-    living in the wrong place, because homes were derived from the closure and
-    so agreed with it by construction. Step 6 removed the reason for the warning
-    rather than the warning itself, and it is deleted here rather than softened:
-    a stale caveat is the same failure as a stale figure, and it is worse for
-    telling a reader not to trust a check that now works.
-
-    What this test catches is still only the doc going stale. The check with
-    teeth is test_every_module_lives_where_its_closure_says; this one keeps the
-    rendering of it honest, which is the failure the hand-copied figures in the
-    spec have already hit twice.
-    '''
-    rendered = render_layout()
-    if os.environ.get('UPDATE_IMAGE_DEPS'):
-        LAYOUT_DOC.write_text(rendered, encoding='utf-8')
-    assert LAYOUT_DOC.read_text(encoding='utf-8') == rendered, (
-        'docs/module-layout.md is out of date. Regenerate with:\n'
-        '    UPDATE_IMAGE_DEPS=1 pytest tests/cli/test_import_boundaries.py'
-    )
-
-
-
-
 # `test_seam_folders_are_named_by_exactly_one_route` retired here: it checked
 # that every `seams/<name>/` folder on disk held exactly the one route module
 # that named it. All five seams have folded into `discord_core` and
@@ -390,7 +345,7 @@ def test_every_dockerfile_exists():
 
 def test_image_closure_is_current():
     '''
-    docs/image-closure.json matches a live measurement.
+    tests/cli/image-closure.json matches a live measurement.
 
     This one is load-bearing in a way the markdown table is not: ci.yml reads it
     to decide which images to build, so a stale copy does not merely misinform a
@@ -401,7 +356,7 @@ def test_image_closure_is_current():
     if os.environ.get('UPDATE_IMAGE_DEPS'):
         CLOSURE_DOC.write_text(rendered, encoding='utf-8')
     assert CLOSURE_DOC.read_text(encoding='utf-8') == rendered, (
-        'docs/image-closure.json is out of date, and CI keys its build filter on it.\n'
+        'tests/cli/image-closure.json is out of date, and CI keys its build filter on it.\n'
         'Regenerate with:\n'
         '    UPDATE_IMAGE_DEPS=1 pytest tests/cli/test_import_boundaries.py'
     )

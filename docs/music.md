@@ -303,7 +303,7 @@ When enabled, the live exit is attached to observability — deliberately **not*
 - the `music.download_client.create_source` span gets `egress.hostname` / `egress.ip` attributes
 - each YouTube download failure logs `Download failure (<type>) attributed to egress exit <hostname>`
 
-Aggregate failure alerting stays on the existing `download_failure_count` metric; the per-exit breakdown is a trace/log drill-down. The probe runs in the standalone [HA downloader](ha.md) process, which owns the proxy. An unknown `egress_probe` value fails at startup rather than silently disabling attribution. Add a new provider by subclassing `ExitProbe` in `discord_bot/utils/integrations/egress_probe.py` and registering it in `EXIT_PROBE_TYPES`.
+Aggregate failure alerting stays on the existing `download_failure_count` metric; the per-exit breakdown is a trace/log drill-down. The probe runs in the standalone [HA downloader](architecture.md) process, which owns the proxy. An unknown `egress_probe` value fails at startup rather than silently disabling attribution. Add a new provider by subclassing `ExitProbe` in `discord_downloader/utils/integrations/egress_probe.py` and registering it in `EXIT_PROBE_TYPES`.
 
 ### Egress Modes
 
@@ -379,7 +379,7 @@ sequenceDiagram
     W->>Pool: release("us-nyc-wg-301")
 ```
 
-Providers are pluggable: `egress_mode` names a resolver in `EXIT_PROXY_RESOLVERS` (`discord_bot/utils/integrations/egress_pool.py`) that maps an exit name to its proxy URL. `mullvad-socks5` is the first; add another VPN/proxy by subclassing `ExitProxyResolver`.
+Providers are pluggable: `egress_mode` names a resolver in `EXIT_PROXY_RESOLVERS` (`discord_downloader/utils/integrations/egress_pool.py`) that maps an exit name to its proxy URL. `mullvad-socks5` is the first; add another VPN/proxy by subclassing `ExitProxyResolver`.
 
 ### YTDLP Wait Time
 
@@ -509,5 +509,5 @@ For additonal reading:
 - [Terminology](./music/terminology.md)
 - [Background Tasks](./music/background.md)
 - [Video Download Flow](./music/flow.md)
-- [Discord Messaging](./music/messaging.md)
+- [Discord Messaging](./messaging.md)
 - [Retry Backoff System](./music/retry_backoff.md)

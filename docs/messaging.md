@@ -1,8 +1,17 @@
-# Discord Bot Music Messaging System - Architecture Explainer
+# Discord Bot Messaging System - Architecture Explainer
 
 ## Overview
 
-The music messaging system is a multi-layer architecture that manages real-time Discord message updates for music playback, downloads, and queue operations. It achieves efficient API usage through inline message edits/deletes and maintains stable ordering through carefully managed data structures.
+The messaging system is a multi-layer architecture that manages real-time
+Discord message updates across every pod, via the shared `MessageDispatcher`
+worker — not just music. It achieves efficient API usage through inline
+message edits/deletes and maintains stable ordering through carefully managed
+data structures. Music is the system's largest and most complex consumer
+(bundles, queue operations, download progress), so most of the detailed
+examples below are drawn from it, but the dispatcher and bundle model
+themselves are pod-agnostic — this page lives alongside
+[docs/message_dispatcher.md](./message_dispatcher.md) rather than under
+`docs/music/`.
 
 ---
 
@@ -10,7 +19,12 @@ The music messaging system is a multi-layer architecture that manages real-time 
 
 ### 1. **Message Dispatcher** (`MessageDispatcher`)
 
-The `MessageDispatcher` cog (`discord_bot/cogs/message_dispatcher.py`) is the central dispatcher for all Discord API calls across the entire bot. It replaces the old per-cog `MessageQueue` with a shared, per-guild priority queue.
+`MessageDispatcher` is not a cog — it is the sole worker of the standalone
+`discord-dispatcher` pod (`discord_dispatcher/workers/message_dispatcher.py`),
+the dispatcher for all Discord API calls across every other pod, reached
+over HTTP via `HttpDispatchClient`. See
+[docs/message_dispatcher.md](./message_dispatcher.md) for the full
+reference; this page focuses on the messaging/bundle model specifically.
 
 **Two Message Types**:
 
@@ -18,7 +32,9 @@ The `MessageDispatcher` cog (`discord_bot/cogs/message_dispatcher.py`) is the ce
 2. **`MULTIPLE_MUTABLE`** - Bundles of messages that update in-place via edits
 
 **Processing Flow**:
-- One `asyncio.PriorityQueue` per guild; one lazy worker task per active guild
+- One Redis-backed priority work queue per guild (a sorted set); one
+  `BZPOPMIN` worker per active guild — not an in-process `asyncio.PriorityQueue`,
+  since this now runs in its own pod
 - Mutable sentinel items (HIGH priority) flush the current bundle display
 - Immutable sends and deletes run at NORMAL priority
 - Background reads (fetch_message, channel history) run at LOW priority
@@ -27,7 +43,8 @@ The `MessageDispatcher` cog (`discord_bot/cogs/message_dispatcher.py`) is the ce
 
 ### 2. **Message Bundle System** (`MessageMutableBundle`)
 
-This manages multiple related Discord messages as a cohesive unit. Defined in `discord_bot/cogs/message_dispatcher.py`.
+This manages multiple related Discord messages as a cohesive unit. Defined
+in `discord_dispatcher/workers/message_dispatcher.py`.
 
 **Key Features**:
 
@@ -41,14 +58,18 @@ This manages multiple related Discord messages as a cohesive unit. Defined in `d
 
 ---
 
-### 3. **Media Request Bundle** (`MultiMediaRequestBundle`)
+### 3. **Media Request Bundle** (`BundleState` + `BundleRenderer`)
 
-Manages the lifecycle of multiple media requests (playlists, albums, searches).
-
-**Key Fields**:
-- `table` - DapperTable for paginated table rendering
-- `row_collections` - Cached paginated rows (frozen after all requests added)
-- `media_requests` - List of request dictionaries
+There is no single `MultiMediaRequestBundle` class any more — it was split
+into `BundleState` (Pydantic, the persisted data) and `BundleRenderer` (the
+transient `DapperTable` wrapper), both in
+`discord_broker/workers/media_bundle.py`, since HA broker mode needs bundle
+state persisted in Redis independently of any one bot process. The exact
+field names moved with the split (e.g. `BundleState` has `uuid`,
+`pagination_length`, `input_string`; check the source directly rather than
+trusting a field list here, since this doc predates the split and hasn't
+been re-verified field-by-field). Manages the lifecycle of multiple media
+requests (playlists, albums, searches):
 - `total`, `completed`, `failed`, `rejected`, `discarded` - Counters for tracking progress
 
 `rejected` counts requests that reached FAILED because the *video* was declined
@@ -60,10 +81,9 @@ actually failed).
 
 **Request Tracking Structure**:
 
-Each media request is tracked with:
-- `search_string` - Display name
-- `status` - Current lifecycle stage
-- `uuid` - Unique identifier
+Each media request is tracked in a `BundledRequestState`
+(`discord_broker/workers/media_bundle.py`), which embeds the `MediaRequest`
+itself (for `search_string`, `status`/lifecycle stage, `uuid`) plus:
 - `table_index` - Index in DapperTable
 - `row_collection_index` - Pagination collection index
 - `row_index_in_collection` - Row index within collection
@@ -152,16 +172,18 @@ Shows current playback and upcoming tracks.
 **Index Name**: `play_order-{guild_id}`
 **Sticky**: True (always shown at bottom)
 
-### **Download/Search Queues** (`DistributedQueue`)
+### **Download/Search Queues**
 
-Two separate queues handle different stages:
-- `download_queue` - Manages yt-dlp downloads
-- `youtube_music_search_queue` - Handles YouTube Music API lookups
+There is no `DistributedQueue` any more — download and YouTube Music search
+each run as a per-guild Redis-backed worker in their own standalone pod
+(`discord-downloader`, `discord-search`), not an in-process queue the bot
+drains itself. The gateway submits requests to those pods over HTTP and
+polls the broker for results.
 
 These are **separate from messaging** but trigger bundle updates:
 
-1. **Search Queue** → YouTube Music API lookup → Updates bundle status to `QUEUED`
-2. **Download Queue** → yt-dlp download → Updates bundle status to `IN_PROGRESS` → `COMPLETED`/`FAILED`
+1. **Search** (`discord-search` pod) → YouTube Music API lookup → Updates bundle status to `QUEUED`
+2. **Download** (`discord-downloader` pod) → yt-dlp download → Updates bundle status to `IN_PROGRESS` → `COMPLETED`/`FAILED`
 
 ---
 
@@ -172,12 +194,12 @@ These are **separate from messaging** but trigger bundle updates:
 ### **1. Bundle Creation**
 
 Process:
-1. Create `MultiMediaRequestBundle` for the album
+1. Create a `BundleState`/`BundleRenderer` pair for the album, on the broker
 2. Set initial search string: "spotify:album:abc123"
 3. Add each track as a `MediaRequest` with `SEARCHING` status
-4. Queue each request to `youtube_music_search_queue`
+4. Submit each request to the `discord-search` pod over HTTP
 5. Call `bundle.all_requests_added()` to freeze pagination
-6. Register bundle with message queue
+6. Register bundle with the dispatcher for message updates
 
 **Messages Sent**:
 ```
@@ -229,24 +251,6 @@ Completed processing of "spotify:album:abc123"
 
 ---
 
-## MessageDispatcher Worker
-
-There is no dedicated send-messages loop inside the Music cog. Instead, each guild gets a lazy worker task inside `MessageDispatcher` that processes its priority queue. The Music cog calls `self.dispatcher.update_mutable(...)` and `self.dispatcher.send_message(...)` to enqueue work.
-
-**Process** (per-guild worker):
-1. Dequeue next item from the guild's `asyncio.PriorityQueue`
-2. For **mutable sentinel** (HIGH priority):
-   - Fetch current bundle content and dispatch edit/delete/send operations
-   - Update message references for newly sent messages
-3. For **immutable send/delete** (NORMAL priority):
-   - Execute the callable directly with retry
-4. For **read/fetch** (LOW priority):
-   - Execute callable, resolve the caller's `asyncio.Future`
-
-**Worker lifetime**: Started lazily on first message for a guild; exits when the guild's queue drains.
-
----
-
 ## API Call Optimization Summary
 
 | Operation | Naive Approach | Optimized Approach | Savings |
@@ -267,7 +271,7 @@ There is no dedicated send-messages loop inside the Music cog. Instead, each gui
 1. **Separation of Concerns**:
    - `MediaRequest`: User intent (what to play)
    - `MediaDownload`: Downloaded file (where it is)
-   - `MultiMediaRequestBundle`: Progress tracking (how it's going)
+   - `BundleState`/`BundleRenderer`: Progress tracking (how it's going)
    - `MessageMutableBundle`: Discord presentation (what user sees)
 
 2. **Immutable Pagination**: Once `all_requests_added()` is called, row positions are frozen, enabling stable inline edits

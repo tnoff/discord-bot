@@ -43,7 +43,7 @@ jobs:
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_BOT }}
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.gateway
       build_args: 'INSTALL_HEAPTRACK=true'
       tag_override: 'heaptrack'
     secrets:

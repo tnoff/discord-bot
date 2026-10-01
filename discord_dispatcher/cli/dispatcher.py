@@ -1,6 +1,18 @@
 '''
 Dispatcher process — HTTP-only, Redis-backed work queue, MessageDispatcher worker only.
 No SQLAlchemy, no gateway connection.
+
+Configure with:
+    general.discord_token                      — Discord bot token (required for outbound REST
+                                                 auth; see require_discord_token)
+    general.redis_url / general.redis_sentinel — Redis connection (required — raises
+                                                 DiscordBotException if neither is set)
+    general.dispatch_shard_id                  — this process's shard index (default 0)
+    general.dispatch_process_id                — this process's worker id for the sharded work
+                                                 queue (default: a random uuid4)
+    general.dispatch_server                    — {host, port} for the HTTP server
+                                                 (default 0.0.0.0:8082)
+    general.monitoring                         — optional OTLP / health-server config
 '''
 import asyncio
 import logging

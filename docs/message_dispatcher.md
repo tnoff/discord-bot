@@ -1,7 +1,15 @@
 # MessageDispatcher
 
-An app-wide Discord API dispatcher that serialises calls per guild, applies retry
-logic, and deduplicates rapid-fire mutable message updates.
+`MessageDispatcher` is the sole worker of the standalone `discord-dispatcher`
+pod (`discord_dispatcher/workers/message_dispatcher.py`) — not a cog, and
+not part of `discord_gateway`'s process. It serialises Discord API calls per
+guild, applies retry logic, and deduplicates rapid-fire mutable message
+updates, all for the bot (and any other pod) reaching it over HTTP via
+`HttpDispatchClient`.
+
+This page is the full reference for the worker itself. For the higher-level
+messaging/bundle model built on top of it (message types, bundle updates,
+priority queue), see [docs/messaging.md](./messaging.md).
 
 ## Why it exists
 
@@ -11,28 +19,40 @@ the same rate-limit buckets:
 - Music sends/edits progress messages at high frequency during downloads.
 - Markov and DeleteMessages issue channel history reads and message deletions.
 
-`MessageDispatcher` solves this by owning **one `asyncio.PriorityQueue` per guild**
-and **one worker task per active guild**. All Discord API calls route through the
-appropriate guild queue and drain in priority order.
+`MessageDispatcher` solves this with **one Redis-backed priority work queue per
+guild** (a sorted set, scored by priority and timestamp) and one `BZPOPMIN`
+worker per active guild — not an in-process `asyncio.PriorityQueue`, since the
+whole point is that this now runs in a pod separate from every caller. All
+Discord API calls route through the appropriate guild queue and drain in
+priority order.
 
 ## Priority levels
 
-| Priority | Value | Used for |
-|----------|-------|----------|
-| HIGH | 0 | Mutable bundle updates (music queue display) |
-| NORMAL | 1 | One-off sends, message deletes |
-| LOW | 2 | Background reads (channel history, fetch_message) |
+| Priority | Value | Redis score range | Used for |
+|----------|-------|--------------------|----------|
+| HIGH | 0 | `0 + ms` | Mutable bundle updates (music queue display) |
+| NORMAL | 1 | `10¹² + ms` | One-off sends, message deletes |
+| LOW | 2 | `2×10¹² + ms` | Background reads (channel history, fetch_message) |
 
-Python's `asyncio.PriorityQueue` is a min-heap, so `0` is served first.
+Lower score is popped first by `BZPOPMIN` — the queue is a Redis sorted set,
+not an `asyncio.PriorityQueue`, but the same min-first ordering applies.
 
 ## Work item types
 
-| Type | Priority | Description |
+Work items are plain dicts enqueued under a member key whose prefix says
+which handler processes them (`discord_dispatcher/workers/message_dispatcher.py`,
+`_MEMBER_*` constants) — there are no `_MutableSentinel`/`_ImmutableItem`/
+`_SendItem`/`_ReadItem` classes any more:
+
+| Member prefix | Priority | Description |
 |------|----------|-------------|
-| `_MutableSentinel` | HIGH | Triggers flush of a mutable bundle update |
-| `_ImmutableItem` | NORMAL | List of arbitrary callables (e.g. message deletes) |
-| `_SendItem` | NORMAL | Plain text channel send with optional `delete_after` |
-| `_ReadItem` | LOW | Callable that resolves a future for the caller |
+| `mutable:` | HIGH | Triggers flush of a mutable bundle update |
+| `remove:` | HIGH | Removes a mutable bundle |
+| `send:` | NORMAL | Plain text channel send with optional `delete_after` |
+| `delete:` | NORMAL | Single message deletion |
+| `update_channel:` | HIGH | Moves a mutable bundle to a new channel |
+| `fetch_history:` | LOW | Channel history fetch (fire-and-forget; result polled separately) |
+| `fetch_emojis:` | LOW | Guild emoji fetch (fire-and-forget; result polled separately) |
 
 ## Public API
 
@@ -66,10 +86,9 @@ the old channel (fire-and-forget) then re-queues with the new channel.
 Enqueue a plain text send at NORMAL priority. The dispatcher resolves the channel
 at call-time via `bot.get_channel()`.
 
-### `send_single(guild_id, funcs)`
+### `delete_message(guild_id, channel_id, message_id, span_context=None)`
 
-Enqueue a list of callables at NORMAL priority. Use this for atomic batches (e.g.
-delete several messages together).
+Enqueue a single message deletion at NORMAL priority.
 
 ### `fetch_object(guild_id, func, max_retries=3, allow_404=False)`
 
@@ -104,23 +123,12 @@ until `remove_mutable` is called (or the bundle has `delete_after` set).
 
 ## Using the dispatcher from a cog
 
-`CogHelper` (the base class for all cogs) provides three thin wrappers that
-route through the dispatcher when it is loaded and fall back to direct calls
-otherwise:
-
-```python
-# Send a plain message (fire-and-forget via dispatcher, or direct send as fallback)
-await self.dispatch_message(ctx, 'Something happened')
-
-# Fetch a Discord object with retry
-channel = await self.dispatch_fetch(guild_id, partial(bot.fetch_channel, channel_id))
-
-# Enqueue callables (e.g. message deletes)
-await self.send_funcs(guild_id, [partial(message.delete)])
-```
-
-These helpers keep individual cogs free of direct `async_retry_discord_message_command`
-imports and dispatcher availability checks.
+A cog never calls the Public API above directly — `CogHelperBase` wraps it
+in `dispatch_message`/`dispatch_fetch`/`dispatch_delete`/
+`dispatch_channel_history`/`dispatch_guild_emojis`, so individual cogs stay
+free of direct `async_retry_discord_message_command` imports. See
+[Dispatch helpers](../DEVELOPMENT.md#dispatch-helpers) for the method
+signatures, examples, and the `dispatch_fetch`-is-dead-code caveat.
 
 ## Observability
 
@@ -199,7 +207,7 @@ in Redis and the poll returns 200.
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `general.dispatch_http_url` | (unset) | Base URL of the dispatcher pod (e.g. `http://dispatcher:8082`). If unset, `CogHelper._dispatcher` uses the in-process `MessageDispatcher` cog. |
+| `general.dispatch_http_url` | (required) | Base URL of the dispatcher pod (e.g. `http://dispatcher:8082`). There is no in-process fallback: `discord_gateway/cli/bot.py::run()` raises `DiscordBotException` at startup if this is unset. |
 
 #### Dispatcher container config (`discord.dispatcher.cnf`)
 
@@ -222,21 +230,10 @@ general:
     message_dispatcher: true
 ```
 
-#### Bot container config (`discord.bot.cnf`)
-
-```yaml
-general:
-  discord_token: "YOUR_TOKEN"
-  dispatch_http_url: "http://dispatcher:8082"
-  include:
-    default: true
-    message_dispatcher: false
-    markov: true
-    delete_messages: true
-```
-
-See [Docker Compose](./docker.md#docker-compose) and [HA architecture](./ha.md) for the
-full multi-pod setup.
+The bot pod's full config (`dispatch_http_url` alongside `database_http_url`,
+the cog `include` list, etc.) isn't repeated here — see [HA
+architecture](./architecture.md#bot--cog-pod) for the complete example and
+[HA architecture](./architecture.md#docker-compose) for the full multi-pod setup.
 
 ### Redis keys used by the dispatcher
 
@@ -250,9 +247,10 @@ full multi-pod setup.
 
 ### HttpDispatchClient
 
-`HttpDispatchClient` (`discord_bot/clients/http_dispatch_client.py`) is a
+`HttpDispatchClient` (`discord_core/clients/http_dispatch_client.py`) is a
 drop-in replacement for `MessageDispatcher` with the same public API surface.
-It is returned by `CogHelper._dispatcher` when `dispatch_http_url` is set.
+It is what `discord_gateway/cli/bot.py::run()` injects into every cog as
+`self.dispatcher`.
 
 | Method | Behaviour |
 |--------|-----------|
