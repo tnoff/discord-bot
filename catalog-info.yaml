@@ -172,22 +172,16 @@ spec:
 # manifest lives.
 #
 # The manifest is apps/discord/backup-cronjob.yaml over there, and it runs an
-# image built by neither repo (iad.ocir.io/tnoff/database_backup). So no location
-# owns this workload outright, and "declare it where the YAML is" would split the
-# discord system across two files: the bucket it writes is HERE, and its only
-# writer would be somewhere else.
-#
-# The whole discord system in one descriptor is a property this file claims in its
-# own header, and it is the property that made the six-tier model legible. Entities
-# sit with the system they belong to; docker-apps' descriptor is the fallback for
-# things with no owning system, which is why the monitoring stack lives there and
-# backstage-database-backup does not live here.
+# image built by neither repo (iad.ocir.io/tnoff/database_backup). The datastores
+# it reads and writes (discord-postgres, discord-database-backups-bucket) are now
+# declared in docker-apps with the rest of the discord System's infrastructure;
+# this Component is left here for now and could follow them.
 #
 # Known wrinkle, pre-existing rather than new: AnnotateScmSlugEntityProcessor
 # derives the slug from the location a file was fetched from, so this Component
 # gets github.com/project-slug: tnoff/discord-bot even though its manifest and its
-# image come from elsewhere. Already true of discord-postgres, redis and both
-# buckets below. Worth knowing before the Kubernetes or GitHub plugins are pointed
+# image come from elsewhere. Was also true of the discord datastore Resources,
+# before they moved to docker-apps. Worth knowing before the Kubernetes or GitHub plugins are pointed
 # at these.
 apiVersion: backstage.io/v1alpha1
 kind: Component
@@ -209,98 +203,6 @@ spec:
     - component:default/database-backup
     - resource:default/discord-database-backups-bucket
     - resource:default/discord-postgres
----
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: discord-postgres
-  description: >-
-    The operator-managed `discord-pg` cluster in the `discord-postgres` namespace, reached
-    as the `discord.discord` role. Backed up nightly.
-spec:
-  type: database
-  owner: group:default/admin
-  system: discord
----
-# Redis sits with the discord system, not with docker-apps where its manifests
-# live -- the same rule discord-postgres follows. Checked rather than assumed:
-# across the whole docker-apps tree the only references to redis-primary are
-# apps/discord/config.yaml and apps/discord/downloader-app.yaml, and the
-# NetworkPolicy set in the redis namespace is a default deny plus exactly two
-# exceptions -- the discord tiers, and a metrics scrape from monitoring. A scrape
-# is not a consumer.
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: redis
-  description: >-
-    Redis at `redis-primary.redis.svc.cluster.local:6379`, used by four of the six tiers.
-    Modelled as a queue rather than a cache, and the distinction is load-bearing: it carries
-    the download and search work queues, so flushing it or losing a pod mid-pop drops real
-    in-flight work rather than a rebuildable cache. Access is per-client NetworkPolicy, and
-    a tier with no entry does not fail loudly -- its connect hangs, `/health` never comes up
-    and the pod CrashLoops.
-spec:
-  type: queue
-  owner: group:default/admin
-  system: discord
----
-# The two object-storage buckets, named individually rather than left implicit.
-# Transcribed from terraform oci/oci.tf, where they are literals:
-#
-#   module discord_data_cache  display_name "discord_data_cache"        no expiry
-#   module discord_database    display_name "discord_database_backups"  delete_after 14
-#
-# Both live in the `apps` compartment in us-sanjose-1. That region is worth
-# recording: the read-only OCI profile on the workstation is scoped to
-# us-ashburn-1, so these buckets 404 from there and the 404 looks exactly like
-# the bucket being gone. Contents are an operator measurement, not an inference
-# from an error code.
-#
-# There is deliberately NO entity for the `dev_discord_data` bucket. It is
-# development scaffolding with its own push bot and no deployed consumer in this
-# cluster, and the catalog is for what runs.
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: discord-data-cache-bucket
-  description: >-
-    The video cache: media objects checked out by the broker and replayed by the bot without
-    re-downloading. No lifecycle expiry, so it grows until something removes an object -- and
-    what is stored is the SIZED DOWNLOAD rather than decoded PCM, which is why measured
-    usage has run far over a cap set as though it were audio frames. discord-db owns the
-    CATALOG of what is in here; the objects themselves are this bucket.
-spec:
-  type: object-storage
-  owner: group:default/admin
-  system: discord
----
-# Written by discord-database-backup above -- declared in this same file, which is
-# the point of putting it here rather than in docker-apps. The Resource and its
-# only writer are one edge in one location.
-#
-# What would NOT be right is an edge from discord-postgres: that would claim the
-# database needs its own backups in order to run.
-#
-# (Two earlier drafts of this comment were wrong and are worth not repeating. The
-# first called database-backup a `library` that owns no workload when it was
-# spec.type: service -- it is `library` now, but only since database-backup#226,
-# and the reasoning was backwards either way. The second said this Resource had to
-# stay a leaf until docker-apps declared the CronJob. Neither the type nor the
-# location was settled at the time each was written.)
-apiVersion: backstage.io/v1alpha1
-kind: Resource
-metadata:
-  name: discord-database-backups-bucket
-  description: >-
-    Nightly `pg_dump` of the `discord-pg` cluster, written by the discord-database-backup
-    CronJob. Objects are deleted after 14 days, so it holds two weeks of dumps and nothing
-    older.
-spec:
-  type: object-storage
-  owner: group:default/admin
-  system: discord
-
 ---
 # The six API entities, one per SERVED SURFACE, and the OpenAPI documents behind
 # them are generated -- tests/routes/test_openapi_docs.py reads each server's
