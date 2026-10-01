@@ -34,13 +34,18 @@ All loops run asynchronously and are managed by the Discord bot's event loop. Th
 
 ## Messaging
 
-All Discord API calls are handled by the `MessageDispatcher` cog (`discord_bot/cogs/message_dispatcher.py`), which is loaded before the Music cog and shared across all cogs. It maintains one `asyncio.PriorityQueue` per guild and one lazy worker task per active guild — no dedicated send-messages background loop runs inside the Music cog.
+All Discord API calls are handled by `MessageDispatcher`, the sole worker of the separate `discord-dispatcher` pod (`discord_dispatcher/workers/message_dispatcher.py`) — not a cog loaded alongside Music. It is Redis-backed (one sorted-set queue per guild, drained by `BZPOPMIN` workers) rather than an in-process `asyncio.PriorityQueue`, and the bot reaches it over HTTP via `HttpDispatchClient` (`discord_core/clients/http_dispatch_client.py`); `dispatch_http_url` is a required config value, with no in-process fallback. No dedicated send-messages background loop runs inside the Music cog.
 
-See [messaging.md](./messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispatcher) for details.
+See [messaging.md](../messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispatcher-is-a-separate-pod-not-a-cog) for details.
 
 ---
 
-## The Four Background Loops
+## The Six Background Loops, Across Three Pods
+
+Two of these (Download Files, YouTube Music Search) run in their own
+standalone pods, not the bot; the other four run in the gateway pod
+(`discord_gateway/cogs/music.py`) and are what the old "Four Background
+Loops" title here used to mean, before the first two moved out.
 
 ### 1. **Download Files Loop** (`download_files()`)
 
@@ -74,7 +79,7 @@ See [messaging.md](./messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispat
 6. Enqueue to player or add to playlist
 7. Update bundle status to `COMPLETED` or `FAILED`
 
-**Queue Type**: `DistributedQueue` (fair distribution across multiple guilds)
+**Queue Type**: per-guild Redis fair-distribution queue (`discord_core/workers/redis_guild_queue.py`) — not `DistributedQueue`, which no longer exists in production (see [Queue Systems](#queue-systems) below)
 
 **Shutdown Behavior**: Exits immediately when shutdown flag is set
 
@@ -85,29 +90,26 @@ See [messaging.md](./messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispat
 
 ---
 
-### 3. **YouTube Music Search Loop** (`search_youtube_music()`)
+### 2. **YouTube Music Search Loop**
+
+> **Where it runs**: the standalone search pod (`discord-search`), not the
+> bot. Like the Download Files Loop above, the cog used to drive this
+> in-process; that path is gone (`projects/discord-bot-ha-only`). The
+> current implementation is `YoutubeMusicSearchDriver`
+> (`discord_search/workers/youtube_music_search_driver.py`) driving
+> `RedisYoutubeMusicSearchWorker`
+> (`discord_search/workers/redis_youtube_music_search_worker.py`), not a
+> bare `search_youtube_music()` function — the Processing Flow below is the
+> conceptual shape; check those two files for the exact current mechanics
+> rather than the numbered steps here.
 
 **Purpose**: Convert text searches to YouTube video URLs using YouTube Music API
 
 **Key Responsibilities**:
-- Pull `MediaRequest` objects from `youtube_music_search_queue`
+- Pull queued search requests (per-guild Redis work, not an in-process queue)
 - Query YouTube Music API for best match
 - Convert search results to YouTube video URLs
-- Check cache for converted URLs
-- Hand off to download queue
-
-**Processing Flow**:
-1. Get next `(MediaRequest, channel)` from `youtube_music_search_queue.get_nowait()`
-2. Call `search_client.search_youtube_music()` with search string
-3. If result found:
-   - Convert to YouTube URL format (`https://youtube.com/watch?v=...`)
-   - Update `media_request.search_string` with URL
-4. Check cache via `_enqueue_media_download_from_cache()`
-5. If not cached, add to `download_queue`
-6. Update bundle status to `QUEUED`
-
-
-**Queue Type**: `DistributedQueue` (10x larger than download queue due to lightweight operations)
+- Hand off resolved requests to the broker, for the bot to pick up via `process_search_results`
 
 **Rate-limit backoff**: A 429 arms a backoff window of `youtube_wait_period_minimum
 * 2**failures`. The loop waits that window out **before** popping, and only for
@@ -133,7 +135,54 @@ See [messaging.md](./messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispat
 
 ---
 
-### 4. **Cleanup Players Loop** (`cleanup_players()`)
+### 3. **Process Search Results Loop** (`process_search_results()`)
+
+**Where it runs**: the bot (gateway) pod — this is the bot-side tail of
+search resolution: cache-check then download submit, which can only run
+where the download client and cache live. Mirrors Process Download Results
+Loop below.
+
+**Purpose**: Pick up resolved YouTube Music searches from the broker and
+either serve them from cache or hand them to the download pipeline.
+
+**Key Responsibilities**:
+- Poll the broker for the next resolved search result (`broker_client.next_search_result()`)
+- Push a `QUEUED` lifecycle event for the media request
+- Check the video cache; on a hit, the request is already marked `COMPLETED`
+- On a cache miss, submit the request to the downloader
+  (`download_client.submit()`), respecting per-guild queue priority
+- On `PutsBlocked`/`QueueFull` (the downloader answering, not failing to
+  answer), mark the request `DISCARDED`
+- On any other error (most often the downloader pod being unreachable
+  mid-rollout), requeue the search result to the broker and re-raise, so the
+  loop runner's backoff applies rather than busy-spinning against a pod
+  that is still down
+
+**Shutdown Behavior**: Raises `ExitEarlyException` when the shutdown flag is set
+
+### 4. **Process Download Results Loop** (`process_download_results()`)
+
+**Where it runs**: the bot (gateway) pod.
+
+**Purpose**: Pick up completed (or permanently failed) downloads from the
+broker and route them to a player or a playlist handler.
+
+**Key Responsibilities**:
+- Poll the broker for the next finished result (`broker_client.next_result()`)
+- On a terminal failure, distinguish a rejection (video declined — too
+  long, banned, private, age-restricted) from a genuine fault; only genuine
+  faults mark the span ERROR, so ordinary user input doesn't page on the
+  Consumer Span Error Rate alert
+- On success, hand the media off to the player queue or, for a playlist
+  add, to the playlist handler
+- Retryable errors are handled inside the downloader's own worker; only
+  successes and terminal failures ever reach this loop
+
+**Shutdown Behavior**: Raises `ExitEarlyException` when the shutdown flag is set
+
+---
+
+### 5. **Cleanup Players Loop** (`cleanup_players()`)
 
 **Purpose**: Disconnect bot from voice channels with no members
 
@@ -162,7 +211,7 @@ See [messaging.md](./messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispat
 
 ---
 
-### 4. **Post-Play Processing Loop** (`post_play_processing()`)
+### 6. **Post-Play Processing Loop** (`post_play_processing()`)
 
 **Purpose**: Record playback history/analytics to database and run cache cleanup after each track finishes
 
@@ -212,11 +261,21 @@ See [messaging.md](./messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispat
 - Simple get/put operations
 - Supports blocking/unblocking
 
-### Distributed Queue (`DistributedQueue`)
+### Per-Guild Fair-Distribution Queue
+
+There is no `DistributedQueue` class any more — it survives only as a test
+double (`tests/fakes/distributed_queue.py`). The real implementation is
+`discord_core/workers/redis_guild_queue.py` plus pod-specific
+Asyncio/Redis worker variants in `discord_downloader`/`discord_search` (see
+[terminology.md](terminology.md#distributedqueue--retired)). The
+fair-distribution and priority-scheduling model below describes the design
+intent this queue class shared with its predecessor; verify against
+`redis_guild_queue.py` directly for exact current behavior rather than
+trusting this section's bullets line-for-line.
 
 **Used By**:
-- `download_queue` (media downloads)
-- `youtube_music_search_queue` (searches)
+- Media downloads, in the `discord-downloader` pod
+- YouTube Music searches, in the `discord-search` pod
 
 **Behavior**:
 - One queue per guild
@@ -261,21 +320,25 @@ Then:            req4 (Guild B - now oldest timestamp)
 ```
 User Command → MediaRequest Created
     ↓
-YouTube Search Loop → Convert search to URL
+YouTube Music Search Loop (discord-search pod) → Convert search to URL
     ↓
-Download Loop → Download file
+Process Search Results Loop (bot pod) → cache check, submit to downloader
+    ↓
+Download Files Loop (discord-downloader pod) → Download file
+    ↓
+Process Download Results Loop (bot pod) → hand off to player
     ↓
 Player Queue → Play audio
     ↓
-Post-Play Processing Loop → Record to database + cache cleanup
+Post-Play Processing Loop (bot pod) → Record to database + cache cleanup
 ```
 
 ### Message Updates
 
 ```
-Download Loop updates bundle → MessageDispatcher notified
+Process Download/Search Results Loop updates bundle → dispatcher pod notified over HTTP
     ↓
-MessageDispatcher worker (per-guild) → Edit Discord message
+MessageDispatcher worker (per-guild, discord-dispatcher pod) → Edit Discord message
 ```
 
 ### Shutdown Coordination
@@ -326,17 +389,17 @@ alert and fails the pod's liveness check. See
 ## Error Handling Strategies
 
 ### Continue on Error
-**Send Messages Loop**:
+**`MessageDispatcher`'s worker** (`discord-dispatcher` pod, not a bot-side loop):
 - Continues on `DiscordServerError` (temporary API issues)
-- Allows Discord to recover without restarting loop
+- Allows Discord to recover without restarting the worker
 
 ### Exit on Error
-**Download Loop**:
+**Download Files Loop** (`discord-downloader` pod):
 - Exits on `BotDownloadFlagged` (permanent failures)
 - Specific errors logged and bundle updated
 
 ### Graceful Skip
-**Cache Cleanup Loop**:
+**Post-Play Processing Loop** (bot pod — cache cleanup is folded into this loop, not a separate one):
 - Skips files in use
 - Continues to next file
 - Prevents partial cleanup failures

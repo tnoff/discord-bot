@@ -9,7 +9,7 @@ each individually reasonable, in the only enum anyone knew about. Nothing failed
 because nothing was looking -- a tier-local metric in a fanout-6 module is a
 rebuild cost, not an error.
 
-The check reads the MEASURED closure in docs/image-closure.json rather than a
+The check reads the MEASURED closure in tests/cli/image-closure.json rather than a
 static walk, for the same reason the CI build filter does: that file is what
 CI itself keys on, so a disagreement here is a disagreement with the build.
 '''

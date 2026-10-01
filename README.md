@@ -12,196 +12,63 @@ Includes some pre-written cogs for:
 
 ## Setup
 
-To install the python package, clone the repo and install with pip:
+This project is made up of six pods that work together; assume all six are built and running — see [docs/setup.md](./docs/setup.md) for the full walkthrough. Docker Compose is the quickest way to stand up the whole stack:
 
-```
+```bash
 $ git clone https://github.com/tnoff/discord-bot.git
-$ pip install "discord-bot/[bot]"
+$ cd discord-bot
+$ cp docker/.env.example docker/.env      # Discord token + music creds; leave MULLVAD_* blank
+$ docker compose -f docker/docker-compose.multiprocess.yml --profile local up -d --build
 ```
 
-The `bot` extra installs full bot dependencies (media, database, etc.). The bot only supports PostgreSQL as a backing database; `asyncpg` is bundled in the `bot` extra.
-
-## Docker
-
-Docker support and builds are available, read me in the [docker docs](./docs/docker.md)
+Installing just the bot's own package via `pip` is **not recommended** — with six inter-dependent pods, standing up the rest of the stack by hand is significantly more work than Compose does for you.
 
 ## Configuration
 
-You'll need to set up a YAML config file for the bot to use. The only requirement is a discord bot token. You can generate one of these through the [discord developer portal](https://discord.com/developers/docs/topics/oauth2).
-
-
-So at minimum a config file can look like:
-```
----
-general:
-  discord_token: blah-blah-blah-discord-token
-```
-
-There is also support for [pyaml-env](https://pypi.org/project/pyaml-env/) so environment variables can be passed in:
-```
----
-general:
-  discord_token: !ENV ${DISCORD_TOKEN}
-```
-
-### Database
-
-Certain cogs, such as markov or music, have functions that require database support. The bot requires a PostgreSQL connection string:
-
-```
----
-general:
-  discord_token: blah-blah-blah-discord-token
-  sql_connection_statement: postgresql://user:pass@host:5432/discord_bot
-```
-
-The bot rewrites the URL to `postgresql+asyncpg://` at startup, so the config uses the standard `postgresql://` form. Non-postgres URLs are rejected at boot.
-
-The database uses [alembic](https://alembic.sqlalchemy.org/en/latest/) to run the migrations. To upgrade to the latest changes use:
-
-```
-$ alembic upgrade head
-```
-
-**Important**: If upgrading from version 2.4.x or earlier to 2.5.0+, a database migration is required to convert Discord IDs from strings to integers. Make sure to run the migration command above before starting the bot with the new version.
-
-Alembic assumes you have an environment variable with `DATABASE_URL` set that is an sqlalchemy driver connection string.
-
-For local dev, run the following to generate migrations after editing the `database.py` file:
-
-```
-$ alembic revision --autogenerate -m "we changed some things, it was neat"
-```
-
-### Monitoring and Observability
-
-The bot includes comprehensive monitoring capabilities using OpenTelemetry (OTLP). Configure monitoring in your config file:
-
-```yaml
-general:
-  monitoring:
-    otlp:
-      enabled: true
-    memory_profiling:
-      enabled: false       # Optional: enable memory profiling
-    process_metrics:
-      enabled: false       # Optional: CPU/memory/thread metrics
-    health_server:
-      enabled: false       # Optional: HTTP liveness endpoint on port 8080
-      port: 8080
-```
-
-See the [Monitoring Documentation](./docs/monitoring/index.md) for complete setup instructions, available metrics, and configuration options.
-
-### Log Setup
-
-If no log section given, logs will go to stdout by default.
-
-#### File Logging
-
-To write logs to rotating files:
-
-```
----
-general:
-  discord_token: blah-blah-blah-discord-token
-  logging:
-    log_level: 20 # Log level (0=NOTSET, 10=DEBUG, 20=INFO, 30=WARNING, 40=ERROR, 50=CRITICAL)
-    log_dir: /logs/discord # Log file path
-    log_file_count: 2 # Max backup log files
-    log_file_max_bytes: 1240000 # Size to rotate log files at
-```
-
-A `log_dir` can be passed and then each cog is setup to send to a log file within that dir. Each log file will be named after the cog, so look for `music.log` for music cog logs, for example.
-
-#### OTLP-Only Logging
-
-If you have OTLP enabled and want logs sent exclusively via OTLP (no local log files), set `otlp_only: true`. The `log_dir`, `log_file_count`, and `log_file_max_bytes` fields are not required in this mode:
-
-```
----
-general:
-  discord_token: blah-blah-blah-discord-token
-  logging:
-    log_level: 20
-    otlp_only: true
-  monitoring:
-    otlp:
-      enabled: true
-```
-
-### Include Cogs
-
-The "common" cog with some basic functions will be included by default, the rest are opt-in
-```
----
-general:
-  discord_token: blah-blah-blah-discord-token
-  include:
-    music: true
-    markov: true
-    urban: true
-    delete_messages: true
-    role: true
-```
-
-## Running bot
-
-To run the bot via the command line
-
-```
-$ discord-bot /path/to/config/file
-```
+Each of the six pods takes its own YAML config file — there is no single config
+that runs "the bot" by itself. Only the bot and dispatcher pods require a real
+Discord bot token (generate one via the
+[discord developer portal](https://discord.com/developers/docs/topics/oauth2)) —
+the bot for its gateway connection, the dispatcher to authenticate outbound
+REST calls; the other four pods don't need one. Every pod's config supports
+[pyaml-env](https://pypi.org/project/pyaml-env/) so values can come from an
+environment variable instead of being written in plain text. See
+[docs/configuration.md](./docs/configuration.md) for the full per-pod
+configuration reference — database, logging, cog include-list, intents,
+guild-removal — and the [Monitoring Documentation](./docs/monitoring/index.md)
+for OpenTelemetry setup.
 
 ## Help Page
 
 To check the available functions, use `!help` command.
 
-
-## Intents
-
-Certain cogs and function will require different "intents" to be setup in the config, and enabled in your developer portal. You can read more about that [here](https://discordpy.readthedocs.io/en/stable/intents.html).
-
-You can find a list of intents [here](https://discordpy.readthedocs.io/en/stable/api.html?highlight=intents#discord.Intents) as well.
-
-You can set intents in the config like so
-
-```
-intents:
-  - members
-```
-
-## Remove Bot From Server
-
-Use config values to remove bot from server if you cannot remove it yourself. This will take effect on the next restart of the bot.
-
-```yaml
-general:
-  rejectlist_guilds:
-    - 123450501850  # Guild ID as integer (unquoted)
-```
-
 ## Cogs
 
 | Cog | Config key | Example commands | Docs |
 |-----|------------|------------------|------|
-| `General` | (always loaded) | `!hello`, `!roll <dice>`, `!meta` | — |
+| `General` | (always loaded) | `!hello`, `!roll <dice>`, `!meta` | [docs/general.md](./docs/general.md) |
 | `DeleteMessages` | `delete_messages` | `!delete <n>`, `!autodelete` | [docs/delete_messages.md](./docs/delete_messages.md) |
 | `Markov` | `markov` | `!markov speak`, `!markov on/off` | [docs/markov.md](./docs/markov.md) |
 | `Music` | `music` | `!play`, `!pause`, `!skip`, `!queue`, `!history` | [docs/music.md](./docs/music.md) |
 | `RoleAssignment` | `role` | `!role add/remove/list` | [docs/role.md](./docs/role.md) |
 | `UrbanDictionary` | `urban` | `!word <term>` | [docs/urban.md](./docs/urban.md) |
 
-`MessageDispatcher` and `CommandErrorHandler` load unconditionally and have
-no user-facing commands.
+`CommandErrorHandler` loads unconditionally and has no user-facing commands.
+`MessageDispatcher` is not one of the bot's cogs at all — it is the sole
+worker of the separate `discord-dispatcher` pod, which sends and edits
+Discord messages on the bot's behalf over HTTP. See
+[Message dispatcher](./docs/message_dispatcher.md).
 
 ## Additional docs
 
+- [Setup](./docs/setup.md) — the Docker Compose walkthrough
+- [Configuration](./docs/configuration.md) — database, logging, cog include-list, intents, guild removal, config file/volume locations
+- [HA architecture](./docs/architecture.md) — what each of the six pods does, how they talk to each other, and container runtime details (non-root user, volume permissions, debug builds)
 - [CLI and application lifecycle](./docs/cli.md)
-- [`CogHelper` reference (for developers)](./docs/common.md)
+- [`CogHelperBase` reference (for developers)](./DEVELOPMENT.md#cog-skeleton)
 - [Message dispatcher](./docs/message_dispatcher.md)
+- [Messaging system](./docs/messaging.md) — the dispatcher/bundle model used by every pod
 - [Monitoring and observability](./docs/monitoring/)
-- [Docker](./docs/docker.md)
-- Music deep-dives: [overview](./docs/music.md), [media broker](./docs/music/media_broker.md), [flow](./docs/music/flow.md), [messaging](./docs/music/messaging.md)
+- Music deep-dives: [overview](./docs/music.md), [media broker](./docs/music/media_broker.md), [flow](./docs/music/flow.md)
 - For setup, tests, and contributing: [DEVELOPMENT.md](./DEVELOPMENT.md)
 - For agent-specific guidance: [AGENTS.md](./AGENTS.md)

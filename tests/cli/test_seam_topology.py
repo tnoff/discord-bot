@@ -1,8 +1,9 @@
 '''
 The seam dependency graph, and the assertions that keep it honest.
 
-docs/seam-topology.md is generated from the same `SEAM` / `ROUTES_CALLED`
-declarations the runtime check reads, so it cannot disagree with the registries.
+The "Which pod calls which" block spliced into docs/architecture.md is
+generated from the same `SEAM` / `ROUTES_CALLED` declarations the runtime check
+reads, so it cannot disagree with the registries.
 What it *can* do is overstate: the measurement is import reachability, and a
 module can be imported without anything constructing the class inside it. The
 second test below is what rules that out, by pinning the measured set against
@@ -17,7 +18,7 @@ See docs/projects/http-seam-contract.md.
 import os
 
 from tests.cli._seam_topology import (
-    TOPOLOGY_DOC, measure_all, render_doc, resolve_peer, serving_images,
+    ARCHITECTURE_DOC, measure_all, render_architecture_doc, resolve_peer, serving_images,
 )
 
 # The clients each image actually constructs, as a deliberate restatement of the
@@ -136,14 +137,17 @@ def test_the_two_queue_worker_peers_are_different_pods():
 
 
 def test_topology_doc_is_current():
-    '''docs/seam-topology.md matches a live measurement.
+    '''The generated seam-topology block in docs/architecture.md matches a live
+    measurement.
 
     Regenerate with: UPDATE_SEAM_TOPOLOGY=1 pytest tests/cli/test_seam_topology.py
     '''
-    rendered = render_doc()
+    original = ARCHITECTURE_DOC.read_text(encoding='utf-8')
+    rendered = render_architecture_doc(original)
     if os.environ.get('UPDATE_SEAM_TOPOLOGY'):
-        TOPOLOGY_DOC.write_text(rendered, encoding='utf-8')
-    assert TOPOLOGY_DOC.read_text(encoding='utf-8') == rendered, (
-        'docs/seam-topology.md is out of date. Regenerate with:\n'
+        ARCHITECTURE_DOC.write_text(rendered, encoding='utf-8')
+        original = rendered
+    assert original == rendered, (
+        'docs/architecture.md\'s seam-topology block is out of date. Regenerate with:\n'
         '    UPDATE_SEAM_TOPOLOGY=1 pytest tests/cli/test_seam_topology.py'
     )

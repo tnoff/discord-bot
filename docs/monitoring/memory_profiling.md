@@ -1,31 +1,25 @@
 # Memory Profiling
 
-The Discord bot includes a built-in memory profiler that periodically logs snapshots of Python object counts and memory usage. This is useful for identifying memory leaks and understanding memory consumption patterns.
+The Discord bot includes a built-in memory profiler (`discord_core/utils/memory_profiler.py`, `MemoryProfiler`) that periodically logs snapshots of memory allocations by source location. This is useful for identifying memory leaks and understanding memory consumption patterns.
 
 ## Overview
 
 The memory profiler works by:
-1. Using Python's garbage collector (`gc.get_objects()`) to enumerate tracked objects
-2. Grouping objects by their class type
-3. Calculating object counts and approximate memory usage
-4. Logging periodic snapshots with the top classes by count and memory
+1. Using Python's `tracemalloc` to trace every allocation's file and line number
+2. Taking periodic snapshots and ranking allocation sites by total size
+3. Comparing each snapshot to the previous one to report growth/shrinkage per site
+4. Logging the top allocation sites by current size and by change since the last snapshot
 
 ## What Gets Tracked
 
-The profiler shows **objects tracked by Python's garbage collector**, which includes:
+The profiler shows **allocations traced by `tracemalloc`**, attributed to the
+file and line number that made them — not grouped by object class. This
+points directly at the code responsible for a leak (`music_player.py:142`,
+for example), rather than only naming the type of object involved.
 
-- **User-defined class instances** (Discord messages, bot objects, caches, etc.)
-- **Container types** (lists, dicts, sets)
-- **Functions and classes**
-- **Most objects that can participate in reference cycles**
-
-The profiler does NOT track:
-- Small integers (-5 to 256) - Python caches these
-- Interned strings - Common strings Python reuses
-- Simple immutable objects that can't form cycles
-- C extension objects not exposed to Python's GC
-
-This limitation is actually ideal for finding application-level memory leaks, as these are the "interesting" objects most likely to cause issues.
+`tracemalloc` has to be enabled (`tracemalloc.start()`, done automatically
+when profiling is turned on) before it can trace anything; allocations made
+before tracing started are invisible to it.
 
 ## Configuration
 
@@ -37,7 +31,7 @@ general:
     memory_profiling:
       enabled: true           # Enable memory profiling
       interval_seconds: 60    # How often to log snapshots (default: 60)
-      top_n_classes: 50       # Number of classes to include (default: 50)
+      top_n_lines: 25         # Number of lines to include (default: 25)
 ```
 
 ### Configuration Options
@@ -46,24 +40,24 @@ general:
 |--------|------|---------|-------------|
 | `enabled` | boolean | `false` | Enable/disable memory profiling |
 | `interval_seconds` | integer | `60` | Interval between snapshots in seconds (minimum: 10) |
-| `top_n_classes` | integer | `50` | Number of top classes to include in each snapshot (minimum: 1) |
+| `top_n_lines` | integer | `25` | Number of top allocation lines to include in each snapshot (minimum: 1) |
 
 ## Log Output
 
 Memory snapshots are logged to the `memory_profiler` logger with INFO level:
 
 ```
-Memory Snapshot
+**Memory Snapshot (tracemalloc)**
 
-Top 10 by object count:
-  discord.message.Message: 1,234 objects
-  dict: 5,678 objects
-  list: 3,456 objects
-  ...
+Top 25 allocation sites by current size:
+#1: discord_gateway/cogs/music_helpers/music_player.py:142: 45.20 MB
+    self._buffer.append(chunk)
+#2: discord_core/utils/dispatch_queue.py:88: 12.10 MB
+    pending[request_id] = payload
+...
 
-Top 10 by memory usage:
-  discord.message.Message: 45.2 MB
-  list: 23.1 MB
-  dict: 18.7 MB
-  ...
+Top 25 allocation changes since last snapshot:
+#1: discord_gateway/cogs/music_helpers/music_player.py:142: +3.40 MB
+    self._buffer.append(chunk)
+...
 ```

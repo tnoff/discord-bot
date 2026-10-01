@@ -12,16 +12,16 @@ This document defines all key components, types, and concepts used throughout th
 - Runs a background loop (`player_loop()`) that continuously plays queued tracks
 - Handles voice connection, and track transitions
 - One instance per Discord server (guild) that has active music playback
-- Located in `discord_bot/cogs/music_helpers/music_player.py`
+- Located in `discord_gateway/cogs/music_helpers/music_player.py`
 
 ### **`MediaRequest`**
 - Represents a user's request to play a song
 - Contains: search string, requester info, guild/channel IDs, search type
 - Immutable - created once and passed through the system
 - Has a unique UUID for tracking through the pipeline
-- Can be linked to a `MultiMediaRequestBundle` via `bundle_uuid`
+- Can be linked to a bundle (see `BundleState`/`BundleRenderer` below) via `bundle_uuid`
 - Tracks retry attempts via `retry_count` field (initialized to 0)
-- Located in `discord_bot/types/media_request.py`
+- Located in `discord_core/types/media_request.py`
 
 ### **`MediaDownload`**
 - Represents a successfully downloaded audio file
@@ -29,46 +29,64 @@ This document defines all key components, types, and concepts used throughout th
 - Created after yt-dlp downloads complete
 - Added to `MusicPlayer._play_queue` for playback
 - Deleted from disk after track finishes playing
-- Located in `discord_bot/types/media_download.py`
+- Located in `discord_core/types/media_download.py`
 
-### **`MultiMediaRequestBundle`**
-- Tracks progress for multi-track operations (playlists, albums)
-- Manages message updates showing "3/10 tracks processed"
-- Uses `DapperTable` for paginated progress display
+### **`BundleState` / `BundleRenderer`**
+- Track progress for multi-track operations (playlists, albums); together
+  replace what used to be one `MultiMediaRequestBundle` class
+- `BundleState` (Pydantic) is all the data needed to recompute a bundle's
+  Discord-message content — JSON-serialisable, persisted in Redis alongside
+  the rest of the broker's registry
+- `BundleRenderer` wraps a `BundleState` with a transient `DapperTable` for
+  paginated "3/10 tracks processed" message updates; its methods match the
+  old `MultiMediaRequestBundle`'s, since the split was meant to be mechanical
+  for callers
 - Maintains counters: total, completed, failed, discarded
 - Has frozen pagination after `all_requests_added()` is called
-- Located in `discord_bot/types/media_request.py`
+- Located in `discord_broker/workers/media_bundle.py` — bundle state now
+  lives in the broker pod, not the bot, since HA broker mode needs it
+  persisted independently of any one bot process
 
 ### **`MessageDispatcher`**
-- Central per-guild priority queue for all Discord API calls
+- The sole worker of the standalone `discord-dispatcher` pod (not a cog) —
+  owns one Redis-backed priority work queue per guild for all Discord API
+  calls
 - Routes messages to appropriate handlers (mutable vs immutable)
 - Manages `MessageMutableBundle` instances for editable messages
 - Handles single immutable messages (one-off notifications)
-- Located in `discord_bot/cogs/message_dispatcher.py`
+- Located in `discord_dispatcher/workers/message_dispatcher.py`; reached by
+  every other pod over HTTP via `HttpDispatchClient`
+  (`discord_core/clients/http_dispatch_client.py`)
 
 ### **`MessageMutableBundle`**
 - Collection of related Discord messages that can be edited in-place
 - Manages multiple `MessageContext` objects
 - Implements smart diffing to minimize API calls (edits instead of delete+send)
 - Supports "sticky" mode to keep messages at bottom of channel
-- Located in `discord_bot/cogs/message_dispatcher.py`
+- Located in `discord_dispatcher/workers/message_dispatcher.py`
 
 ### **`SearchClient`**
 - Parses and resolves search inputs
 - Handles Spotify URLs, YouTube URLs, and text searches
 - Converts inputs to `SearchResult` objects
-- Integrates with Spotify API, YouTube API, and YouTube Music API
+- Delegates the actual Spotify/YouTube/YouTube Music API calls to the
+  standalone `discord-search` pod over HTTP — this class itself is a thin
+  gateway-side client, not where those integrations live
 - Returns list of `SearchResult` for each track found
-- Located in `discord_bot/cogs/music_helpers/search_client.py`
+- Located in `discord_gateway/cogs/music_helpers/search_client.py`
 
-### **`DownloadClient`**
-- Wrapper around yt-dlp for downloading media
+### **Download pipeline**
+- There is no single `DownloadClient` class any more — yt-dlp download logic
+  lives in the standalone `discord-downloader` pod
+  (`discord_downloader/interfaces/download_protocols.py`,
+  `discord_downloader/workers/redis_download_worker.py`); the gateway holds
+  only a thin HTTP client (`discord_gateway/clients/http_download_client.py`)
+  that submits requests and polls for results
 - Handles download errors and raises appropriate exceptions
 - Distinguishes between retryable errors (timeouts, TLS issues) and permanent failures
 - Raises `RetryableException` for transient network errors
 - Processes audio files (normalization, silence removal if enabled)
 - Creates `MediaDownload` objects from successful downloads
-- Located in `discord_bot/cogs/music_helpers/download_client.py`
 
 ### **`VideoCacheClient`**
 - DB catalog for the video cache; manages `VideoCache` records (metadata, play counts, eviction policy)
@@ -76,26 +94,29 @@ This document defines all key components, types, and concepts used throughout th
 - Tracks `storage_type` (`'s3'` or `'local'`) per cache entry so stale entries are detected if the storage backend changes
 - On cache lookup: returns `None` and marks the entry for eviction if its `storage_type` doesn't match the current config
 - On cache write: updates `base_path` and `storage_type` in-place if an existing entry was from a different storage backend
-- All actual file operations (S3 download, local copy, delete) are handled by `MediaBroker`
-- Located in `discord_bot/cogs/music_helpers/video_cache_client.py`
+- All actual file operations (S3 download, local copy, delete) are handled by the broker (`RedisBroker`, `discord_broker/workers/redis_broker.py`), reached over HTTP via `HttpBrokerClient`
+- Located in `discord_db/cogs/music_helpers/video_cache_client.py`
 
 ---
 
 ## Queue Types
 
-### **`DistributedQueue`**
-- Fair distribution queue across multiple guilds
-- Each guild has its own sub-queue
-- Serves oldest unprocessed guild (with priority weighting)
-- Prevents one guild from monopolizing resources
-- Used for: `download_queue`, `youtube_music_search_queue`
-- Located in `discord_bot/utils/distributed_queue.py`
+### **`DistributedQueue`** — retired
+
+No longer exists in production code; it survives only as a test double
+(`tests/fakes/distributed_queue.py`). Download and YouTube Music search
+queueing is now per-guild Redis work, implemented by
+`discord_core/workers/redis_guild_queue.py` plus the pod-specific workers
+(`AsyncioDownloadWorker`/`RedisDownloadWorker` in `discord_downloader`,
+`AsyncioYoutubeMusicSearchWorker`/`RedisYoutubeMusicSearchWorker` in
+`discord_search`) — the "Asyncio" variants are single-process/test doubles,
+the "Redis" variants are what actually runs in HA mode.
 
 ### **Standard `Queue`**
 - Simple FIFO (First In, First Out) queue
 - Single queue for all items
-- Used for: player play queue (`_play_queue`), history queue, single immutable messages
-- Located in `discord_bot/utils/queue.py`
+- Used for: player play queue (`_play_queue`), history queue
+- Located in `discord_core/types/queue.py`
 
 ---
 
@@ -188,7 +209,7 @@ Tracks progress of each `MediaRequest` through the system:
 - One-off messages sent once and optionally deleted after timeout
 - Examples: error messages, command confirmations
 - Not edited after sending
-- Queued in `single_immutable_queue`
+- Dispatched via `MessageDispatcher.send_message()`/`delete_message()`, enqueued under the `send:`/`delete:` member-key prefixes (there is no separate `single_immutable_queue` — see [Message dispatcher](../message_dispatcher.md#work-item-types))
 
 ### **`MessageType.MULTIPLE_MUTABLE`**
 - Bundles of messages that update in-place via edits
@@ -200,31 +221,28 @@ Tracks progress of each `MediaRequest` through the system:
 
 ## Background Loops
 
-All loops run continuously in the background and are managed by the Discord bot's event loop.
+There is no single-process "Send Messages Loop" any more — dispatch is HTTP
+to the `discord-dispatcher` pod (see [Message dispatcher](../message_dispatcher.md)).
+Download and YouTube Music search each run as their own loop too, but in
+their own pods (`discord-downloader`, `discord-search`), not the gateway.
+The loops that actually run inside the gateway (`discord_gateway/cogs/music.py`)
+today:
 
-### **Send Messages Loop**
-- **Purpose**: Dispatch all Discord messages (progress updates, errors, queue displays)
-- **Processes**: `MessageDispatcher` queue items
-
-### **Download Files Loop**
-- **Purpose**: Download media files via yt-dlp
-- **Processes**: `download_queue` items (DistributedQueue)
-
-### **YouTube Music Search Loop**
-- **Purpose**: Convert text searches to YouTube URLs
-- **Processes**: `youtube_music_search_queue` items (DistributedQueue)
-
-### **Cleanup Players Loop**
+### **Cleanup Players Loop** (`cleanup_players`)
 - **Purpose**: Disconnect from empty voice channels
 - **Processes**: Checks all active players
 
-### **Cache Cleanup Loop**
-- **Purpose**: Remove old cached files when limit exceeded, backup to S3
-- **Processes**: Database queries for cache files
+### **Process Download Results Loop** (`process_download_results`)
+- **Purpose**: Pull completed downloads back from the `discord-downloader`/broker pipeline and hand them to the player queue
+- **Processes**: Results polled via `download_client`/`broker_client`
 
-### **Playlist History Update Loop**
-- **Purpose**: Record playback history to database, update analytics
-- **Processes**: `history_playlist_queue` items
+### **Process Search Results Loop** (`process_search_results`)
+- **Purpose**: Pull completed YouTube Music search resolutions back from the `discord-search` pipeline
+- **Processes**: Results polled via `youtube_music_search_client`/`broker_client`
+
+### **Post-Play Processing Loop** (`post_play_processing`)
+- **Purpose**: Record playback history/analytics to the `discord-db` pod and run cache cleanup after each track finishes — this merges what used to be a separate "Cache Cleanup Loop" and "Playlist History Update Loop"
+- **Processes**: `history_playlist_queue` items; evicts stale cached files via the broker
 
 See the [background documentation](./background.md) for detailed explanation of background loops.
 

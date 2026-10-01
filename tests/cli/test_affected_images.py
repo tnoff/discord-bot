@@ -6,9 +6,9 @@ so the cases that matter -- a deletion, a test-only dependency bump, a file no
 image claims -- are stated directly instead of being staged as commits.
 
 The closure fixtures are deliberately tiny and hand-written. Using the real
-docs/image-closure.json would make these tests restate whatever the tree happens
-to look like today, so a regression would change the fixture and the expectation
-together and assert nothing.
+tests/cli/image-closure.json would make these tests restate whatever the tree
+happens to look like today, so a regression would change the fixture and the
+expectation together and assert nothing.
 '''
 import json
 from fnmatch import fnmatch
@@ -23,7 +23,7 @@ from tests.cli._roots import LEGACY_ROOT, ROOTS
 
 
 CLOSURE = {'images': [
-    {'image': 'bot', 'entrypoint': 'discord_bot.cli.bot', 'dockerfile': 'docker/Dockerfile',
+    {'image': 'bot', 'entrypoint': 'discord_bot.cli.bot', 'dockerfile': 'docker/Dockerfile.gateway',
      'modules': ['discord_bot', 'discord_bot.cogs.music', 'discord_bot.shared']},
     {'image': 'db', 'entrypoint': 'discord_bot.cli.database', 'dockerfile': 'docker/Dockerfile.db',
      'modules': ['discord_bot', 'discord_bot.shared', 'discord_bot.store']},
@@ -42,9 +42,10 @@ def _affected(files, base_closure=None, deleted=()):
     ('discord_bot/data.txt', None),
     ('README.md', None),
     # The post-split layout (criterion 7). These are not hypothetical spellings:
-    # the folder classes are generated into docs/module-layout.md, and keeping
-    # `discord_bot` as the import root is what lets one rule serve both layouts
-    # while the tree is half-moved.
+    # the folder classes are enforced by test_every_module_lives_where_its_closure_says
+    # in test_import_boundaries.py (no longer documented in a generated prose doc,
+    # just checked), and keeping `discord_bot` as the import root is what lets one
+    # rule serve both layouts while the tree is half-moved.
     ('discord_bot/core/utils/otel.py', 'discord_bot.core.utils.otel'),
     ('discord_bot/core/__init__.py', 'discord_bot.core'),
     ('discord_bot/seams/database/routes.py', 'discord_bot.seams.database.routes'),
@@ -136,7 +137,7 @@ def test_a_shared_module_builds_every_image_that_claims_it():
 
 def test_documentation_builds_nothing():
     '''A file no image consumes yields no images rather than defaulting to all.'''
-    images, orphans = _affected(['README.md', 'docs/ha.md'])
+    images, orphans = _affected(['README.md', 'docs/architecture.md'])
     assert images == set()
     assert not orphans
 
@@ -161,7 +162,7 @@ def test_a_deleted_module_is_attributed_to_its_old_owners():
     image claims. The base closure is what tells them apart.
     '''
     base = {'images': [
-        {'image': 'bot', 'entrypoint': 'discord_bot.cli.bot', 'dockerfile': 'docker/Dockerfile',
+        {'image': 'bot', 'entrypoint': 'discord_bot.cli.bot', 'dockerfile': 'docker/Dockerfile.gateway',
          'modules': ['discord_bot', 'discord_bot.gone']},
         {'image': 'db', 'entrypoint': 'discord_bot.cli.database', 'dockerfile': 'docker/Dockerfile.db',
          'modules': ['discord_bot']},
@@ -227,7 +228,7 @@ def test_a_packages_own_pyproject_bump_builds_only_its_image():
     measured closure claims a module under that root -- the same rule a .py
     change under it already gets, not a separate mechanism.'''
     closure = {'images': [
-        {'image': 'bot', 'entrypoint': 'discord_gateway.cli.bot', 'dockerfile': 'docker/Dockerfile',
+        {'image': 'bot', 'entrypoint': 'discord_gateway.cli.bot', 'dockerfile': 'docker/Dockerfile.gateway',
          'modules': ['discord_core.shared', 'discord_gateway.cogs.music']},
         {'image': 'db', 'entrypoint': 'discord_db.cli.database', 'dockerfile': 'docker/Dockerfile.db',
          'modules': ['discord_core.shared', 'discord_db.store']},
@@ -241,7 +242,7 @@ def test_discord_cores_own_pyproject_bump_reaches_every_image_that_installs_it()
     the same measured-cost shape boto3 already accepted in the seam-fold
     reversal, not a special case for this function.'''
     closure = {'images': [
-        {'image': 'bot', 'entrypoint': 'discord_gateway.cli.bot', 'dockerfile': 'docker/Dockerfile',
+        {'image': 'bot', 'entrypoint': 'discord_gateway.cli.bot', 'dockerfile': 'docker/Dockerfile.gateway',
          'modules': ['discord_core.shared', 'discord_gateway.cogs.music']},
         {'image': 'db', 'entrypoint': 'discord_db.cli.database', 'dockerfile': 'docker/Dockerfile.db',
          'modules': ['discord_core.shared', 'discord_db.store']},

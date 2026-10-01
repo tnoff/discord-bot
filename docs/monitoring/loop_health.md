@@ -3,7 +3,7 @@
 Every background loop in every process — the music cog's consumers, the markov
 and delete-messages loops, the dispatcher worker pool, the downloader's worker
 driver — registers a `LoopHealth` in a process-wide registry
-(`discord_bot/utils/loop_health.py`).
+(`discord_core/utils/loop_health.py`).
 
 That registry is the **single source of truth for "is this process effectively
 down"**, and both consumers of health read from it:
@@ -66,8 +66,8 @@ general:
 |---|---|---|---|
 | `stale_after_seconds` | float | `300` | How long a loop may go without a successful iteration before it is reported unhealthy |
 
-Applied at startup by `setup_observability()`, so every entrypoint (bot,
-dispatcher, broker, downloader, full) picks it up.
+Applied at startup by `setup_observability()`, so every pod's entrypoint
+(bot, dispatcher, broker, db, downloader, search) picks it up.
 
 **This is also the "how long before we restart the pod" knob.** The Kubernetes
 `livenessProbe` consumes the same bit, so a stalled loop gets the pod killed.

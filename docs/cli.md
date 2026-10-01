@@ -12,14 +12,22 @@ discord-bot /path/to/config.yml
 
 ### Configuration File
 
-The configuration file should be in YAML format and contain at minimum:
+The configuration file should be in YAML format. `discord_token` alone is not
+enough to start: `discord_gateway/cli/bot.py::run()` also hard-requires
+`dispatch_http_url` and `database_http_url` (pointing at the
+`discord-dispatcher` and `discord-db` pods) and raises `DiscordBotException`
+at startup if either is missing — there is no standalone mode.
 
 ```yaml
 general:
   discord_token: YOUR_TOKEN_HERE
+  dispatch_http_url: "http://dispatcher:8082"
+  database_http_url: "http://db:8085"
 ```
 
-See individual cog documentation for additional configuration options.
+See individual cog documentation for additional configuration options, and
+[docs/configuration.md](configuration.md#database) / [docs/architecture.md](architecture.md) for
+what each pod does.
 
 ## Graceful Shutdown
 
@@ -50,25 +58,27 @@ When a shutdown signal is received, the following sequence occurs:
 Each cog performs specific cleanup during `cog_unload()`:
 
 #### Music Cog
-- Cancels 6 background tasks:
-  - Message sending loop
-  - Player cleanup loop
-  - Download file loop
-  - Cache cleanup loop (if enabled)
-  - Playlist history update loop (if database enabled)
-  - YouTube Music search loop (if enabled)
-- Disconnects all active voice clients
-- Cleans up player resources for all guilds
-- Removes temporary download directories
-- Clears in-progress request bundles
+- Cleans up all active guilds first — terminates state machines, drops
+  queues, sends a shutdown message, cancels player tasks
+- Cancels its own loop-health-tracked loops: `cleanup_players`,
+  `process_download_results`, `process_search_results`,
+  `post_play_processing`, plus internal init/cleanup tasks
+- There is no message-sending loop or download-file loop to cancel any
+  more — dispatch is HTTP-based (see
+  [Message dispatcher](message_dispatcher.md)) and downloads run in the
+  standalone `discord-downloader` pod. Instead this cog stops its HTTP
+  status pollers and closes their sessions (`download_client.stop()`,
+  `youtube_music_search_client.stop()`)
+- Removes temporary download/player directories
 
 #### Markov Cog
-- Cancels message checking background task
-- Ensures no database transactions are pending
+- Cancels its init/check/result background tasks and marks their loop
+  health stopped
+- Holds no database connection to worry about — persistence goes through
+  an HTTP store client to the `discord-db` pod, not a local session
 
 #### Delete Messages Cog
-- Cancels message deletion background task
-- Completes any in-progress deletions
+- Cancels its init/result background tasks
 
 ### Logging During Shutdown
 
@@ -112,8 +122,16 @@ docker stop --time 30 my-discord-bot
 
 ### Dockerfile Considerations
 
-The bot runs as PID 1 in the container, so it directly receives signals from Docker. No init system (tini, dumb-init) is required.
+The real `docker/Dockerfile.gateway` uses a shared `entrypoint.sh`, not a direct
+`CMD`, so the console script can be selected by `DISCORD_BOT_CMD` (the same
+entrypoint script is reused across all six pods' Dockerfiles) and so an
+opt-in heaptrack wrapper can be inserted:
 
 ```dockerfile
-CMD ["discord-bot", "/opt/discord/cnf/discord.cnf"]
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/opt/discord/cnf/discord.cnf"]
 ```
+
+`entrypoint.sh` `exec`s the selected command (`discord-bot` by default) as
+the final step, so it still becomes PID 1 and receives signals directly from
+Docker — no init system (tini, dumb-init) is required.

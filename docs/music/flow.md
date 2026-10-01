@@ -4,7 +4,50 @@
 
 This document traces the complete flow from user commands (`!play`, `!playlist queue`) through the various system components until audio starts playing through the `MusicPlayer`. Understanding this flow is critical for debugging issues and adding new features.
 
-Please consult this diagram for a visual reference: ![](./../images/download-flow.png)
+The diagram below traces a `MediaRequest` from the command that created it
+through to the moment it's added to the player queue — the cache check,
+`discord-search` (for text/Spotify input), and `discord-downloader` (for
+anything not already cached) are the three places the request can take a
+different path. Part 2 below covers the same ground step by step.
+
+```mermaid
+flowchart TD
+    CMD["User command<br/>!play or !playlist queue"] --> CONVERGE["Command-specific processing<br/>Path A / Path B — produces MediaRequest list"]
+    CONVERGE --> BUNDLE["Create broker-owned bundle<br/>discord-broker: BundleState + BundleRenderer"]
+    BUNDLE --> ROUTE{"For each MediaRequest —<br/>search_type?"}
+
+    ROUTE -->|"DIRECT / YOUTUBE"| CACHE1{"Cache hit?"}
+    CACHE1 -->|HIT| PLAYQ(["Add to player._play_queue<br/>mark COMPLETED"])
+    CACHE1 -->|MISS| DLSUBMIT["Submit to discord-downloader over HTTP<br/>mark QUEUED"]
+
+    ROUTE -->|"Spotify / text search"| SEARCHSUBMIT["Submit to discord-search over HTTP"]
+
+    subgraph SEARCH["discord-search pod"]
+        SEARCHSUBMIT --> YTMSEARCH["YouTube Music Search worker<br/>resolve via YouTube Music API"]
+        YTMSEARCH --> POSTSEARCH["Post resolution to broker"]
+    end
+
+    POSTSEARCH --> PSRLOOP["Bot pod: Process Search Results Loop<br/>poll broker for resolved search"]
+    PSRLOOP --> CACHE2{"Cache hit?"}
+    CACHE2 -->|HIT| PLAYQ
+    CACHE2 -->|MISS| DLSUBMIT
+
+    subgraph DOWNLOAD["discord-downloader pod"]
+        DLLOOP["Download Files Loop<br/>pop from per-guild Redis queue"]
+        DLSUBMIT --> DLLOOP
+        DLLOOP --> BACKOFF["Wait for YouTube rate-limit backoff"]
+        BACKOFF --> YTDLP["yt-dlp downloads the file"]
+        YTDLP -->|success| UPLOAD["Audio processing ·<br/>upload to S3 via broker"]
+        YTDLP -->|retryable error| RETRY["Re-queue within retry budget,<br/>else post terminal failure"]
+        RETRY --> DLLOOP
+        UPLOAD --> POSTRESULT["Post DownloadResult to broker"]
+    end
+
+    POSTRESULT --> PDRLOOP["Bot pod: Process Download Results Loop<br/>poll broker for finished result"]
+    PDRLOOP -->|terminal failure| FAIL(["Notify user<br/>mark FAILED or REJECTED"])
+    PDRLOOP -->|success| CHECKOUT["Check out file from broker<br/>mark COMPLETED"]
+    CHECKOUT --> PLAYQ
+```
 
 See [terminology.md](./terminology.md) for definitions of all components, types, and concepts referenced in this document.
 
@@ -170,20 +213,19 @@ For each SearchResult:
         channel_id=ctx.channel.id,
         requester_name=ctx.author.display_name,
         requester_id=ctx.author.id,
-        search_string=item.resolved_search_string,
-        raw_search_string=item.raw_search_string,
-        search_type=item.search_type
+        search_result=item,   -- the SearchResult itself, embedded, not flattened
     )
     ↓
 Add to media_requests list
 ```
 
-**MediaRequest Fields**:
+**MediaRequest Fields** (`discord_core/types/media_request.py`):
 - `guild_id`, `channel_id` - Where to send updates
 - `requester_name`, `requester_id` - Who requested
-- `search_string` - Processed search (may be YouTube URL after YT Music search)
-- `raw_search_string` - Original input
-- `search_type` - SPOTIFY, DIRECT, SEARCH, YOUTUBE, etc.
+- `search_result` - A `SearchResult` (`discord_core/types/search.py`), not
+  flat fields: `search_type`, `raw_search_string` (original input),
+  `youtube_music_search_string` (set after YT Music search resolves it —
+  there is no `search_string` field to overwrite in place any more), `proper_name`
 - `uuid` - Unique identifier (auto-generated)
 - `bundle_uuid` - Set later when added to bundle
 
@@ -240,26 +282,29 @@ Returns (playlist_id, is_history)
 ```
 __playlist_queue(ctx, player, playlist_id, shuffle, max_num, is_history)
     ↓
-database_functions.list_playlist_items(db_session, playlist_id)
+self.playlist_store.get_playlist(playlist_id)   -- HTTP call to discord-db
+self.playlist_store.list_items(playlist_id)     -- HTTP call to discord-db
     ↓
-For each PlaylistItem:
+For each item:
     Create MediaRequest(
         guild_id=ctx.guild.id,
         channel_id=ctx.channel.id,
         requester_name=ctx.author.display_name,
         requester_id=ctx.author.id,
-        search_string=item.video_url,
-        raw_search_string=item.video_url,
-        search_type=YOUTUBE or DIRECT,
-        collection_name=playlist_name,
-        proper_name=item.title,
+        search_result=SearchResult(
+            search_type=YOUTUBE if check_youtube_video(item.video_url) else DIRECT,
+            raw_search_string=item.video_url,
+            proper_name=item.title,
+        ),
         added_from_history=is_history,
         history_playlist_item_id=item.id,
     )
 ```
 
-**Key Differences from `!play`**:
-- `search_string` is already a YouTube URL (from database)
+**Key Differences from `!play`**: the reads happen over HTTP against
+`discord-db` rather than a local session (the bot holds no database
+connection at all), and:
+- `raw_search_string` is already a YouTube URL (from the stored playlist item)
 - `added_from_history` flag prevents re-adding to history
 - `proper_name` on `SearchResult` uses stored title instead of search string for display
 - `history_playlist_item_id` tracks which history item to delete if requested
@@ -299,22 +344,30 @@ At this point, both commands have produced a list of `MediaRequest` objects that
 
 ---
 
+> **This whole section (Part 2) was rewritten against current source**
+> (`discord_gateway/cogs/music.py`, `discord_gateway/cogs/music_helpers/music_player.py`)
+> rather than patched — the original described an entirely in-process
+> pipeline (a local `download_queue`/`youtube_music_search_queue`, bundles
+> stored in `self.multirequest_bundles`, `FFmpegPCMAudio`) that predates the
+> HA pod split. The overall shape (bundle → enqueue → background processing
+> → player queue) is unchanged; almost every mechanism underneath it is not.
+
 ### **Phase 1: Create Progress Bundle**
 
 **Step 1.1: Initialize Message Bundle**
 
-Before searching/downloading, create a bundle to track progress:
+Before searching/downloading, create a bundle to track progress. Bundle
+state is not stored on the cog any more — it is owned by the broker pod
+(`discord-broker`), so it survives independently of any one bot process:
 
 ```
-Create MultiMediaRequestBundle
+self.create_bundle(guild_id, channel_id, ...)
     ↓
-Set bundle.uuid (unique identifier)
+self.broker_client.create_bundle(...)  -- HTTP call to discord-broker
     ↓
-Store in self.multirequest_bundles[uuid]
+Broker creates a BundleState + BundleRenderer, returns bundle_uuid
     ↓
-Call bundle.set_initial_search(search)
-    ↓
-Register bundle with MessageDispatcher
+Queues initial message: "Processing search '<search>'"
 ```
 
 **What This Does**:
@@ -341,52 +394,51 @@ Message: "Processing '<playlist name>'"
 **Step 2.1: Route to Appropriate Queue**
 
 ```
-enqueue_media_requests(ctx, media_requests, bundle, player)
+enqueue_media_requests(ctx, entries, bundle_uuid, player)
     ↓
 For each MediaRequest:
     ↓
-Check search_type:
+    Set media_request.bundle_uuid; register it with the broker
+    (broker_client.register_request() -- HTTP call, auto-attaches to the bundle)
     ↓
-    ├─ SPOTIFY or SEARCH?
+Check media_request.search_result.search_type:
+    ↓
+    ├─ NOT DIRECT or YOUTUBE (i.e. Spotify or a text search)?
     │   ↓
-    │   Add to youtube_music_search_queue
+    │   Submit to the discord-search pod over HTTP
+    │   (youtube_music_search_client.submit(), which enqueues per-guild Redis work)
     │   ↓
-    │   bundle.add_media_request(stage=SEARCHING)
-    │   ↓
-    │   YouTube Music Search Loop will:
-    │       - Convert to YouTube URL
-    │       - Check cache
-    │       - Add to download_queue
+    │   discord-search's Process Search Results Loop, running in the bot pod,
+    │   will later pick up the resolution -- see background.md
     │
-    └─ DIRECT, YOUTUBE, or YOUTUBE_PLAYLIST?
+    └─ DIRECT or YOUTUBE?
         ↓
         Check cache via _enqueue_media_download_from_cache()
         ↓
         ├─ Cache HIT?
         │   ↓
-        │   Create MediaDownload from cache
+        │   Create MediaDownload from cache, add to player._play_queue
         │   ↓
-        │   Add to player._play_queue
-        │   ↓
-        │   bundle.add_media_request(stage=COMPLETED)
+        │   Push a COMPLETED lifecycle event (the broker's bundle counts it)
         │
         └─ Cache MISS?
             ↓
-            Add to download_queue
+            Submit to the discord-downloader pod over HTTP
+            (download_client.submit())
             ↓
-            bundle.add_media_request(stage=QUEUED)
+            Push a QUEUED lifecycle event
 ```
+
+On `PutsBlocked` (shutdown in progress) the whole bundle is deleted and the
+enqueue aborts; on `QueueFull` the individual request is marked `DISCARDED`
+and enqueue continues with the rest.
 
 **Step 2.2: Finalize Bundle**
 
 ```
-bundle.all_requests_added()
+broker_client.finalize_bundle(bundle_uuid)  -- HTTP call to discord-broker
     ↓
-Freeze pagination structure
-    ↓
-Build static row index mapping
-    ↓
-Update message queue
+Broker locks the bundle's pagination and triggers a final render
 ```
 
 **Messages Sent**:
@@ -401,72 +453,68 @@ Media request queued for download: "Track 2"
 
 ### **Phase 3: Background Processing**
 
-Now the request enters background loops (see [background.md](./background.md) for details).
+The request now crosses pod boundaries. This is the biggest structural
+change from the pre-HA design: search and download run as their own pods,
+not background tasks in the bot's own process (see
+[background.md](./background.md) for the full loop reference).
 
-**For SPOTIFY/SEARCH requests**:
+**For Spotify/text-search requests — in the `discord-search` pod, then back in the bot pod**:
 
 ```
-YouTube Music Search Loop
+discord-search pod: YouTube Music Search worker
     ↓
-Get (MediaRequest, channel) from youtube_music_search_queue
-    ↓
-search_client.search_youtube_music(raw_search_string)
+Resolve search string via YouTube Music API
     ↓
 Convert result to YouTube URL: https://youtube.com/watch?v=...
     ↓
-Update media_request.search_string = youtube_url
+Post the resolution back to the broker
+    ↓
+--- pod boundary ---
+    ↓
+Bot pod: Process Search Results Loop (process_search_results)
+    ↓
+Poll the broker for the next resolved search
     ↓
 Check cache again
     ↓
 ├─ Cache HIT: Add to player queue, mark COMPLETED
-└─ Cache MISS: Add to download_queue, mark QUEUED
+└─ Cache MISS: Submit to discord-downloader over HTTP, mark QUEUED
 ```
 
-**For all requests that need downloading**:
+**For all requests that need downloading — in the `discord-downloader` pod, then back in the bot pod**:
 
 ```
-Download Files Loop
+discord-downloader pod: Download Files Loop
     ↓
-Get MediaRequest from download_queue
+Pop next request from its per-guild Redis queue
     ↓
-Check if player still exists
+Wait for YouTube rate-limit backoff
+Message (via broker): "Waiting for youtube backoff..."
     ↓
-bundle.update_request_status(BACKOFF)
-Message: "Waiting for youtube backoff..."
-    ↓
-Wait 30-40 seconds (rate limiting)
-    ↓
-bundle.update_request_status(IN_PROGRESS)
 Message: "Downloading and processing: Track 1"
     ↓
-download_client.download(search_string)
+yt-dlp downloads the file
     ↓
 ├─ SUCCESS:
-│   ├─ yt-dlp downloads file
 │   ├─ Audio processing (if enabled)
-│   ├─ Move to guild directory
-│   └─ Add to cache database
-│       ↓
-│   Create MediaDownload object
-│       ↓
-│   ready_file() - Copy to guild-specific path with UUID name
-│       ↓
-│   Add to player._play_queue
-│       ↓
-│   bundle.update_request_status(COMPLETED)
-│   Message: "" (row cleared)
+│   ├─ Upload to S3 via the broker (or keep local, depending on config)
+│   └─ Post the completed DownloadResult back to the broker
 │
 └─ RETRYABLE ERROR (timeout, TLS error):
-    ├─ Increment media_request.retry_count
-    ├─ Check if retry_count < max_download_retries
-    └─ If yes:
-        ├─ bundle.update_request_status(RETRY)
-        ├─ Message: "Failed, will retry: Track 1"
-        ├─ Re-queue to download_queue
-        └─ Process again later
-    └─ If no:
-        ├─ bundle.update_request_status(FAILED)
-        └─ Message: "Media request failed download: <reason>"
+    ├─ Handled inside the downloader's own worker/retry budget
+    ├─ Re-queued for another attempt if under the retry budget
+    └─ Otherwise posted back as a terminal failure
+    ↓
+--- pod boundary ---
+    ↓
+Bot pod: Process Download Results Loop (process_download_results)
+    ↓
+Poll the broker for the next finished result
+    ↓
+├─ Terminal failure: distinguish a rejection (video declined) from a
+│  genuine fault, notify the user, mark FAILED
+└─ Success: check out the file from the broker (S3 or local), add to
+   player._play_queue, mark COMPLETED
 ```
 
 ---
@@ -495,13 +543,20 @@ Wait for next track:
     - If timeout: Disconnect and cleanup
     - If item available: Continue
     ↓
-source = await _play_queue.get()
+media_download = await _play_queue.get()
     ↓
-Set current_source = source
+Check out the file from the broker (self.broker.checkout) -- S3 fetch or
+local copy, resolved to a local file_path; skip the track if no file
+resolves (e.g. broker has no entry yet)
     ↓
-Create FFmpegPCMAudio from source.file_path
+Read the whole file into memory: BytesIO(open(file_path, 'rb').read())
     ↓
-guild.voice_client.play(audio_source, after=set_next)
+audio_source = PCMAudio(audio_data)   -- NOT FFmpegPCMAudio; no ffmpeg
+                                          subprocess, no streaming from disk
+    ↓
+Set current_audio_source = audio_source
+    ↓
+voice_client.play(audio_source, after=set_next)
     ↓
 Update "Now Playing" message
     ↓
@@ -509,9 +564,7 @@ Add to history queue (for analytics)
     ↓
 Wait for track to finish (self.next.wait())
     ↓
-Add to _history queue
-    ↓
-Delete temp file (source.delete())
+Release the file from the broker (self.broker.release)
     ↓
 Loop to next track
 ```
@@ -538,13 +591,13 @@ Happens at multiple stages:
 ```
 Is search a Spotify URL or plain text?
     ↓
-YES: Route to youtube_music_search_queue
+YES: Submit to the discord-search pod
     ↓
     Search converts to YouTube URL
     ↓
-    Then routes to download_queue
+    Bot's Process Search Results Loop then submits to discord-downloader
 
-NO: Route directly to download_queue
+NO: Submit directly to the discord-downloader pod
     ↓
     Download immediately (after cache check)
 ```
@@ -653,7 +706,7 @@ Completed processing of "Playlist Name"
 (deleted after 5 minutes)
 ```
 
-See MESSAGING.md for details on how these messages are efficiently edited/deleted.
+See [messaging.md](../messaging.md) for details on how these messages are efficiently edited/deleted.
 
 ---
 
@@ -678,36 +731,35 @@ Bundle marked finished
 
 ### **Download Failed**
 
-**Retryable Errors** (network timeouts, TLS errors):
+**Retryable Errors** (network timeouts, TLS errors) — handled entirely
+inside the `discord-downloader` pod's own worker, not by the bot:
 ```
-download_client.download() raises RetryableException
+yt-dlp raises RetryableException
     ↓
-media_request.retry_count is incremented
+retry_count is incremented (see retry_backoff.md for the budget math)
     ↓
 Check: retry_count < max_download_retries?
     ↓
-YES: Re-queue the request
+YES: Re-queued for another attempt inside the downloader pod
     ↓
-    bundle.update_request_status(RETRY)
-    ↓
-    Message: "Failed, will retry: <track name>"
-    ↓
-    Add back to download_queue
-    ↓
-    Process again later
+    Message (via broker): "Failed, will retry: <track name>"
 
-NO: Treat as permanent failure
-    ↓
-    bundle.update_request_status(FAILED, failure_reason=...)
+NO: Posted back to the broker as a terminal failure
     ↓
     Message: "Media request failed download: <reason>"
 ```
 
+Only successes and terminal failures ever reach the bot's
+`process_download_results` loop; retryable errors never leave the
+downloader pod.
+
 **Non-Retryable Errors** (age restriction, private video, video unavailable):
 ```
-download_client.download() raises DownloadClientException
+yt-dlp raises a rejection-class exception
     ↓
-bundle.update_request_status(FAILED, failure_reason=..., rejected=True)
+Posted back to the broker as a terminal failure, tagged as a rejection
+    ↓
+Bot pod: process_download_results distinguishes rejection from fault
     ↓
 Message: "Media request rejected: <name>"
     ↓
@@ -724,7 +776,7 @@ error-rate alert doesn't page on ordinary user input.
 ```
 _play_queue.put_nowait() raises QueueFull
     ↓
-bundle.update_request_status(FAILED, "play queue is full")
+self._push_state(media_request, LifecycleEvent.DISCARDED)  -- notifies the broker's bundle
     ↓
 Stop adding more items to queue
 ```
@@ -733,7 +785,7 @@ Stop adding more items to queue
 ```
 Player no longer exists when download completes
     ↓
-bundle.update_request_status(DISCARDED)
+self._push_state(media_request, LifecycleEvent.DISCARDED)
     ↓
 Skip adding to queue
 ```
@@ -763,32 +815,35 @@ User Command (!play or !playlist queue)
 │ SHARED PROCESSING PIPELINE                                │
 └───────────────────────────────────────────────────────────┘
     ↓
-Create MultiMediaRequestBundle for progress tracking
+Create a broker-owned bundle (BundleState/BundleRenderer) for progress tracking
     ↓
 Enqueue each MediaRequest:
     ├─ Check cache first
     │   └─ HIT: Add directly to player._play_queue
-    ├─ SPOTIFY/SEARCH: Add to youtube_music_search_queue
-    │   └─ Search Loop converts to YouTube URL → download_queue
-    └─ DIRECT/YOUTUBE: Add to download_queue
+    ├─ Spotify/text search: submit to the discord-search pod over HTTP
+    │   └─ Search worker converts to YouTube URL → posts to broker →
+    │      bot's Process Search Results Loop submits to discord-downloader
+    └─ Direct/YouTube URL: submit to the discord-downloader pod over HTTP
     ↓
-Download Loop processes downloads:
+discord-downloader pod processes downloads:
     ├─ Wait for rate limit (30s+)
     ├─ Download via yt-dlp
     ├─ Process audio (if enabled)
-    ├─ Add to cache
-    └─ Create MediaDownload object
+    ├─ Upload to S3 / hand off to the broker
+    └─ Post the DownloadResult back to the broker
     ↓
-Add MediaDownload to player._play_queue
+Bot pod: Process Download Results Loop checks out the file from the broker,
+adds MediaDownload to player._play_queue
     ↓
 Player Loop:
     ├─ Get next item from _play_queue
-    ├─ Create FFmpegPCMAudio source
+    ├─ Check out the file from the broker, read into memory
+    ├─ Create PCMAudio source (not FFmpegPCMAudio)
     ├─ voice_client.play(audio_source)
     ├─ Update "Now Playing" message
     ├─ Wait for track to finish
     ├─ Add to history
-    ├─ Delete temp file
+    ├─ Release the file back to the broker
     └─ Loop to next track
 ```
 
@@ -797,7 +852,7 @@ Player Loop:
 ## Key Takeaways
 
 1. **Two Entry Points, One Pipeline**: `!play` and `!playlist queue` differ only in how they obtain tracks, then merge into identical processing
-2. **Two-Queue System**: YouTube Music search queue → Download queue → Player queue
+2. **Three Pods, Not One Process**: search (discord-search) → download (discord-downloader) → player (the bot), coordinated through the broker (discord-broker), not in-process queues
 3. **Cache-First**: Always check cache before downloading
 4. **Background Processing**: User commands return immediately, loops handle heavy work
 5. **Progress Tracking**: Bundles track multi-request operations with real-time updates
