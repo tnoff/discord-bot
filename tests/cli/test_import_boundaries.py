@@ -48,8 +48,8 @@ import pytest
 from tests.cli._image_deps import (
     ALL_SIX, CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, IMAGE_NAMES, NOT_YET_SPLIT,
     REPO_ROOT, PACKAGE, VOCABULARY,
-    codeless_inits, declared_home, declared_scripts, layout_violations, measure, measured_owners,
-    render_closure,
+    codeless_inits, declared_home, declared_scripts, dockerfile_copy_roots, layout_violations,
+    measure, measured_owners, render_closure,
 )
 from tests.cli._roots import (
     CORE_ROOT, LEGACY_ROOT, ROOTS, SERVICE_ROOTS,
@@ -341,6 +341,40 @@ def test_every_dockerfile_exists():
         f'two images share a Dockerfile: {sorted(IMAGE_DOCKERFILES.values())}. '
         f'The build matrix keys on it, so they would build the same thing twice.'
     )
+
+
+# Everything a Dockerfile may legally COPY from the build context besides its
+# own package and CORE_ROOT. `docker` is docker/entrypoint.sh, shared by all
+# six; `alembic`/`alembic.ini` are discord-db only, but allowing them for every
+# image is cheap and the per-image check below is what actually has teeth.
+_ALWAYS_ALLOWED_COPY_ROOTS = frozenset({'VERSION', 'docker', 'alembic', 'alembic.ini'})
+
+
+def test_dockerfile_copies_only_its_own_closure():
+    '''
+    Criterion 4 of per-image-code-split (tnoff/discord-bot#1011): each image's
+    Dockerfile COPYs only its own package, CORE_ROOT, and the small, shared
+    non-package files every image needs -- never another pod's package.
+
+    Measured, not just read, before this test existed: building all six from a
+    clean cache, then touching one file exclusive to discord_search and
+    rebuilding all six, left the other five images byte-identical (same image
+    id, every layer CACHED) and rebuilt only discord-search. This test is the
+    cheap, permanent half of that proof -- it reruns on every change without a
+    single `docker build`, and catches the day a Dockerfile's COPY list
+    drifts from the guarantee the measurement found true, without anyone
+    needing to read a build log to notice.
+    '''
+    all_roots = set(SERVICE_ROOTS.values())
+    for entrypoint, dockerfile in IMAGE_DOCKERFILES.items():
+        own_root = entrypoint.split('.', maxsplit=1)[0]
+        copied = dockerfile_copy_roots(dockerfile)
+        foreign = copied & (all_roots - {own_root})
+        assert not foreign, f'{dockerfile} COPYs another pod\'s package: {foreign}'
+        assert own_root in copied, f'{dockerfile} never COPYs its own package {own_root}'
+        assert CORE_ROOT in copied, f'{dockerfile} never COPYs {CORE_ROOT}'
+        unexpected = copied - {own_root, CORE_ROOT} - _ALWAYS_ALLOWED_COPY_ROOTS
+        assert not unexpected, f'{dockerfile} COPYs something unrecognised: {unexpected}'
 
 
 def test_image_closure_is_current():
