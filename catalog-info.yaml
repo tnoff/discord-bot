@@ -2,8 +2,9 @@
 #
 # This is the case the project spec called the modeling stress test: ONE repo
 # builds SIX images, deployed as six Deployments in the `discord` namespace and
-# released together. A location may hold many documents, so the System, its six
-# Components and the database it owns all live here -- and because every entity
+# released together. A location may hold many documents, so the six Components and
+# the database they use live here (the System itself is declared in tnoff/docker-apps,
+# next to the manifests that define it, and these reach it through spec.system) -- and because every entity
 # is read from this one location, the derived github.com/project-slug is right
 # for all of them without being written once.
 #
@@ -20,16 +21,6 @@
 # the two websites, which collide on `app=website` and need new labels, every
 # tier here already carries `app: discord` plus a unique `tier:`, so
 # `app=discord,tier=<tier>` is unambiguous today.
----
-apiVersion: backstage.io/v1alpha1
-kind: System
-metadata:
-  name: discord
-  description: >-
-    The Discord bot and the five tiers it was split into. One repo, six images, six
-    Deployments in the `discord` namespace, rolled together because they share a build.
-spec:
-  owner: group:default/admin
 ---
 apiVersion: backstage.io/v1alpha1
 kind: Component
