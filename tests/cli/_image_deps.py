@@ -179,6 +179,26 @@ def short_name(entrypoint: str) -> str:
     return IMAGE_NAMES[entrypoint].replace('discord-', '')
 
 
+def dockerfile_copy_roots(dockerfile: str) -> set:
+    '''First path segment of every build-context COPY source in `dockerfile`.
+
+    `COPY --from=<stage> ...` lines copy between build stages, not from the
+    build context, so they carry no repo path to check and are skipped. Every
+    other `COPY` names something under REPO_ROOT; the first segment (e.g.
+    `discord_core/pyproject.toml` -> `discord_core`, `VERSION` -> `VERSION`)
+    is enough to tell a pod's own package from someone else's.
+    '''
+    text = (REPO_ROOT / dockerfile).read_text(encoding='utf-8')
+    roots = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith('COPY ') or '--from=' in stripped:
+            continue
+        source = next(token for token in stripped.split()[1:] if not token.startswith('--'))
+        roots.add(source.split('/')[0])
+    return roots
+
+
 def render_closure() -> str:
     '''
     Render the per-image closure CI keys its build filter on.
