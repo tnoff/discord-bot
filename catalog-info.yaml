@@ -50,6 +50,7 @@ spec:
     - api:default/broker
     - api:default/database
     - api:default/dispatch
+    - api:default/image-bump
     - api:default/media-search
     - api:default/queue-worker-downloads
     - api:default/queue-worker-ytmusic
