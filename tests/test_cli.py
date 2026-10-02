@@ -976,14 +976,14 @@ def test_setup_db_survives_postgres_dropping_every_connection(pg_test_db_url):
     assert asyncio.run(_serve()) == 42
 
 
-def test_setup_db_rejects_non_postgres():
-    '''Only postgresql drivers are supported; everything else raises.'''
+def test_setup_db_rejects_unsupported_backends():
+    '''Only postgresql and sqlite are supported; everything else raises.'''
     from discord_db.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
     from discord_core.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
     with pytest.raises(ValueError, match='Unsupported database driver'):
         setup_db(GeneralConfig(discord_token='foo', sql_connection_statement='mysql://u:p@h/db'))
     with pytest.raises(ValueError, match='Unsupported database driver'):
-        setup_db(GeneralConfig(discord_token='foo', sql_connection_statement='sqlite:///local.db'))
+        setup_db(GeneralConfig(discord_token='foo', sql_connection_statement='oracle://u:p@h/db'))
 
 
 def test_bot_run_raises_when_dispatch_http_url_missing():

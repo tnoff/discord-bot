@@ -159,8 +159,9 @@ Configure with:
 
 ```
 Configure with:
-    general.sql_connection_statement — PostgreSQL DSN (required; no engine means
-                                       no pod, so this raises rather than warns)
+    general.sql_connection_statement — postgresql:// or sqlite:/// DSN (required; no
+                                       engine means no pod, so this raises
+                                       rather than warns)
     general.database_server          — {host, port} for the HTTP server
                                        (default 0.0.0.0:8085)
     general.monitoring               — optional OTLP / health-server config
@@ -203,7 +204,7 @@ general:
   database_http_url: http://db:8085
 ```
 
-`discord-db` is the pod that actually opens a PostgreSQL connection, and it
+`discord-db` is the pod that actually opens a database connection, and it
 is configured separately, in its own config file. It doesn't require a real
 Discord token — only the bot and dispatcher pods do:
 
@@ -213,9 +214,35 @@ general:
   sql_connection_statement: postgresql://user:pass@host:5432/discord_bot
 ```
 
-`discord-db` rewrites the URL to `postgresql+asyncpg://` at startup, so the
-config uses the standard `postgresql://` form. Non-postgres URLs are
-rejected at boot.
+PostgreSQL and SQLite are both supported. For SQLite, point the DSN at a file
+and nothing else needs to run:
+
+```
+---
+general:
+  sql_connection_statement: sqlite:////var/lib/discord/discord.db
+  run_migrations: true
+```
+
+`discord-db` rewrites the URL to the async driver at startup
+(`postgresql+asyncpg://` or `sqlite+aiosqlite://`), so the config uses the
+standard `postgresql://` / `sqlite:///` form. Any other backend is rejected at
+boot.
+
+SQLite notes:
+
+- **Schema.** With `run_migrations: true`, a SQLite file that has never been
+  migrated is built directly from the current models and stamped at the latest
+  revision, rather than replaying the alembic chain (which was written for
+  postgres and uses `ALTER COLUMN`, which SQLite cannot do). Later migrations
+  run against that file as usual, so they must be written to work on SQLite
+  (use `op.batch_alter_table`). `run_migrations` cannot be used with an
+  in-memory database.
+- **One pod, one file.** SQLite is a single-writer file database. Run a single
+  `discord-db` replica against a persistent volume; the file is opened in WAL
+  mode with foreign keys enforced and a 30s busy timeout.
+- **Not interchangeable in place.** There is no tool to copy data between a
+  postgres database and a SQLite file; pick one per deployment.
 
 The database uses [alembic](https://alembic.sqlalchemy.org/en/latest/) to run
 the migrations. To upgrade to the latest changes use:

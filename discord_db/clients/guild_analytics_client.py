@@ -12,13 +12,16 @@ holding open across a Discord dispatch. The store opens the session, does the
 work and closes it, so the connection is held for the query rather than for
 however long the caller had other things to do.
 
-`record_play` also takes a row lock, which the old code did not. Today that
-changes nothing -- the bot is a singleton and one loop does all the writing, so
-there is no second writer to lose an update to. It matters at the other end of
-this project: the point of a db pod is that more than one caller can talk to it,
-and read-modify-write under postgres' default READ COMMITTED lets two of them
-read the same totals and write back the same increment. A shorter transaction
-narrows that window; it does not close it. `FOR UPDATE` closes it.
+`record_play` increments in a single UPDATE rather than reading the totals,
+adding in python and writing them back. Today that changes nothing -- the bot is
+a singleton and one loop does all the writing, so there is no second writer to
+lose an update to. It matters at the other end of this project: the point of a
+db pod is that more than one caller can talk to it, and read-modify-write under
+postgres' default READ COMMITTED lets two of them read the same totals and write
+back the same increment. A shorter transaction narrows that window; it does not
+close it. This used to be `SELECT ... FOR UPDATE`, which closes it on postgres
+and is silently dropped on SQLite, where the same race lost seven of eight
+increments in test. The arithmetic done by the database is correct on both.
 
 `get_analytics` and `record_play` both create the rows when they are missing,
 which is what `ensure_guild` / `ensure_guild_video_analytics` did -- except that
@@ -28,7 +31,7 @@ guild was two ensures plus an update rather than one call.
 from datetime import datetime, timezone
 
 from opentelemetry.trace import SpanKind
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.otel import async_otel_span_wrapper
@@ -54,8 +57,7 @@ class GuildAnalyticsClient(SessionStoreBase):
                         AsyncSession
     '''
 
-    async def __ensure_rows(self, db_session, guild_id: int,
-                            lock: bool = False) -> GuildVideoAnalytics:
+    async def __ensure_rows(self, db_session, guild_id: int) -> GuildVideoAnalytics:
         '''
         Return the analytics row for a guild, creating it and the guild row.
 
@@ -64,7 +66,6 @@ class GuildAnalyticsClient(SessionStoreBase):
 
         db_session : Open session to run against
         guild_id : Discord guild id
-        lock : Take a row lock, for callers that read-modify-write
         '''
         guild = (await db_session.execute(
             select(Guild).where(Guild.server_id == guild_id)
@@ -73,10 +74,9 @@ class GuildAnalyticsClient(SessionStoreBase):
             guild = Guild(server_id=guild_id)
             db_session.add(guild)
             await db_session.flush()
-        statement = select(GuildVideoAnalytics).where(GuildVideoAnalytics.guild_id == guild.id)
-        if lock:
-            statement = statement.with_for_update()
-        existing = (await db_session.execute(statement)).scalars().first()
+        existing = (await db_session.execute(
+            select(GuildVideoAnalytics).where(GuildVideoAnalytics.guild_id == guild.id)
+        )).scalars().first()
         if existing:
             return existing
         now_timestamp = datetime.now(timezone.utc)
@@ -125,14 +125,24 @@ class GuildAnalyticsClient(SessionStoreBase):
                                            kind=SpanKind.INTERNAL, attributes=attributes):
             async with self.session_generator() as db_session:
                 async def apply_play():
-                    row = await self.__ensure_rows(db_session, guild_id, lock=True)
-                    row.total_plays += 1
-                    total_seconds = row.total_duration_seconds + duration_seconds
-                    row.total_duration_days += total_seconds // _SECONDS_PER_DAY
-                    row.total_duration_seconds = total_seconds % _SECONDS_PER_DAY
+                    row = await self.__ensure_rows(db_session, guild_id)
+                    # Every right-hand side reads the pre-update row, so the
+                    # carry into days uses the old seconds on both backends.
+                    total_seconds = GuildVideoAnalytics.total_duration_seconds + duration_seconds
+                    values = {
+                        'total_plays': GuildVideoAnalytics.total_plays + 1,
+                        'total_duration_days': (GuildVideoAnalytics.total_duration_days
+                                                + total_seconds // _SECONDS_PER_DAY),
+                        'total_duration_seconds': total_seconds % _SECONDS_PER_DAY,
+                        'updated_at': datetime.now(timezone.utc),
+                    }
                     if cache_hit:
-                        row.cached_plays += 1
-                    row.updated_at = datetime.now(timezone.utc)
+                        values['cached_plays'] = GuildVideoAnalytics.cached_plays + 1
+                    await db_session.execute(
+                        update(GuildVideoAnalytics)
+                        .where(GuildVideoAnalytics.id == row.id)
+                        .values(**values)
+                        .execution_options(synchronize_session=False))
                     await db_session.commit()
                     return True
 

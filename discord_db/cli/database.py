@@ -1,7 +1,7 @@
 '''
 Standalone persistence process — the discord-db pod.
 
-One process owns postgres. The bot and the broker reach markov, playlists, guild
+One process owns the database (postgres or sqlite). The bot and the broker reach markov, playlists, guild
 analytics and the video-cache catalog through HttpDatabaseClient instead of
 holding an engine of their own, which is what lets `database` leave `[bot]` and
 `[broker]` at the cutover. MR 3 of projects/discord-db-tier-extraction.
@@ -27,8 +27,9 @@ dependency, the way the search tier's credential-free property was worth
 protecting until media_search ended it.
 
 Configure with:
-    general.sql_connection_statement — PostgreSQL DSN (required; no engine means
-                                       no pod, so this raises rather than warns)
+    general.sql_connection_statement — postgresql:// or sqlite:/// DSN (required; no
+                                       engine means no pod, so this raises
+                                       rather than warns)
     general.database_server          — {host, port} for the HTTP server
                                        (default 0.0.0.0:8085)
     general.monitoring               — optional OTLP / health-server config
@@ -68,7 +69,7 @@ logger = logging.getLogger(__name__)
 @click.command()
 @click.argument('config_file', type=click.Path(dir_okay=False))
 def main(config_file):
-    '''Run the standalone persistence process (HTTP server over PostgreSQL).'''
+    '''Run the standalone persistence process (HTTP server over postgres or sqlite).'''
     settings, general_config = parse_and_validate_config(config_file)
     run(settings, general_config)
 

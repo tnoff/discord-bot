@@ -103,6 +103,22 @@ def pg_test_db_url(postgresql_proc):  # pylint: disable=redefined-outer-name
         asyncio.run(_drop_database(postgresql_proc))
 
 
+@pytest.fixture(scope="function", params=['sqlite', 'postgres'])
+def fake_db_dsn(request, tmp_path) -> str:
+    '''The configured-form DSN of a test database, one per supported backend.
+
+    Sync on purpose: the postgres leg resolves `pg_test_db_url`, which drives its
+    own event loop, and a fixture cannot be requested from inside a running one.
+    The postgres server is only started when that leg runs, so `-k sqlite`
+    needs nothing installed.
+    '''
+    if request.param == 'sqlite':
+        return f'sqlite:///{tmp_path / "test.db"}'
+    # The session fixture's URL carries the asyncpg driver already; setup_db
+    # takes the configured form and adds the driver itself.
+    return request.getfixturevalue('pg_test_db_url').replace('+asyncpg', '')
+
+
 # protocol=2 forces RESP2 on every FakeRedis in the test suite (here and in test
 # files that construct one directly). fakeredis 2.36.0 + redis-py 8.0.0 returns
 # RESP3 wire shape from stream commands but never decodes the bytes — the new

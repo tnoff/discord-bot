@@ -2,9 +2,34 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import BigInteger, Column, DateTime, Integer, String, Boolean
+from sqlalchemy.types import TypeDecorator
 from sqlalchemy import ForeignKey, UniqueConstraint
 
 BASE = declarative_base()
+
+
+class UTCDateTime(TypeDecorator):  # pylint: disable=too-many-ancestors,abstract-method
+    '''Timezone-aware DateTime that reads back as UTC on every backend.
+
+    Postgres' timestamptz hands back aware datetimes. SQLite has no such type:
+    SQLAlchemy stores the wall-clock text and returns a *naive* datetime, which
+    then fails to compare against an aware one and serializes without an offset
+    over the db pod's HTTP API. Normalizing to UTC on the way in and re-attaching
+    it on the way out makes the two behave the same. The DDL is unchanged --
+    this renders as the plain DateTime(timezone=True) it wraps.
+    '''
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is not None and value.tzinfo is not None:
+            return value.astimezone(timezone.utc)
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
 #
 # Markov Tables
@@ -33,7 +58,7 @@ class MarkovRelation(BASE):
     channel_id = Column(Integer, ForeignKey('markov_channel.id'))  # FK to markov_channel.id (int32)
     leader_word = Column(String(255))
     follower_word = Column(String(255))
-    created_at = Column(DateTime(timezone=True))
+    created_at = Column(UTCDateTime())
 
 #
 # Music Tables
@@ -62,11 +87,11 @@ class Playlist(BASE):
     id = Column(Integer, primary_key=True)
     name = Column(String(256))
     server_id = Column(BigInteger)
-    last_queued = Column(DateTime(timezone=True), nullable=True)
+    last_queued = Column(UTCDateTime(), nullable=True)
     # Defaulted at the model rather than at each construction site: nothing that
     # built a Playlist ever passed it, so every row in the table has a NULL here
     # and every `ORDER BY created_at` over them is unordered.
-    created_at = Column(DateTime(timezone=True), default=utcnow)
+    created_at = Column(UTCDateTime(), default=utcnow)
     is_history = Column(Boolean)
 
 
@@ -86,7 +111,7 @@ class PlaylistItem(BASE):
     playlist_id = Column(Integer, ForeignKey('playlist.id'))
     # Same as Playlist.created_at, and it matters more here: the history
     # playlist's eviction deletes "the oldest" items by this column.
-    created_at = Column(DateTime(timezone=True), default=utcnow)
+    created_at = Column(UTCDateTime(), default=utcnow)
 
 
 class VideoCache(BASE):
@@ -103,8 +128,8 @@ class VideoCache(BASE):
     duration = Column(Integer) # In seconds
     extractor = Column(String(256))
     # Other metadata
-    last_iterated_at = Column(DateTime(timezone=True))
-    created_at = Column(DateTime(timezone=True))
+    last_iterated_at = Column(UTCDateTime())
+    created_at = Column(UTCDateTime())
     count = Column(Integer)
     ready_for_deletion = Column(Boolean)
     file_size_bytes = Column(Integer, nullable=True)
@@ -132,5 +157,5 @@ class GuildVideoAnalytics(BASE):
     cached_plays = Column(Integer, default=0)
     total_duration_days = Column(Integer, default=0)
     total_duration_seconds = Column(Integer, default=0)
-    created_at = Column(DateTime(timezone=True))
-    updated_at = Column(DateTime(timezone=True))
+    created_at = Column(UTCDateTime())
+    updated_at = Column(UTCDateTime())

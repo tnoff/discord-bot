@@ -24,11 +24,17 @@ import logging
 import os
 from pathlib import Path
 
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.engine.url import make_url
+
 from alembic import command
 from alembic.config import Config
 
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig
+
+from discord_db.cli._lib.db_url import SQLITE, backend_name, is_in_memory_sqlite
+from discord_db.database import BASE
 
 # alembic.ini sets `script_location = %(here)s/alembic`, so the ini's own
 # directory decides where the revisions are read from. Relative by design: it
@@ -40,6 +46,37 @@ DEFAULT_CONFIG_FILENAME = 'alembic.ini'
 
 def _config_path() -> Path:
     return Path(os.environ.get('ALEMBIC_CONFIG', DEFAULT_CONFIG_FILENAME)).resolve()
+
+
+def _bootstrap_sqlite(dsn: str, config: Config) -> bool:
+    '''Build a never-migrated SQLite file from the models and stamp it at head.
+
+    Returns whether it did; False means the file already carries a version, so
+    the normal upgrade path applies.
+
+    The alembic chain is not replayed on SQLite. It was written against
+    postgres and its revisions use ALTER COLUMN ... TYPE, which SQLite cannot
+    do, so a fresh file replayed from base fails partway. There is also nothing
+    to migrate: a SQLite database starts at the current models, which is the
+    same schema the chain ends in (test_alembic_chain.py holds the chain to that
+    for postgres). Stamping head then means a later `alembic upgrade head`
+    applies only revisions written after this one -- and those must be
+    SQLite-safe (batch operations), because they run against this file.
+
+    dsn : Configured SQLite DSN
+    config : Alembic config, already carrying the DSN
+    '''
+    # Sync driver, deliberately: this runs before the serving loop exists, and
+    # create_all against a throwaway engine needs no loop at all.
+    engine = create_engine(make_url(dsn).set(drivername='sqlite'))
+    try:
+        if inspect(engine).has_table('alembic_version'):
+            return False
+        BASE.metadata.create_all(engine)
+    finally:
+        engine.dispose()
+    command.stamp(config, 'head')
+    return True
 
 
 def run_pending_migrations(general_config: GeneralConfig) -> bool:
@@ -83,5 +120,15 @@ def run_pending_migrations(general_config: GeneralConfig) -> bool:
     # this logger so it reaches Loki through the handler the app already
     # installed, rather than only stdout the way it did before.
     logging.getLogger('alembic').setLevel(logging.INFO)
+    dsn = general_config.sql_connection_statement
+    if backend_name(dsn) == SQLITE:
+        if is_in_memory_sqlite(make_url(dsn)):
+            # A separate engine would build the schema in a different database
+            # from the one the pod then serves.
+            raise DiscordBotException(
+                'general.run_migrations cannot be used with an in-memory sqlite database'
+            )
+        if _bootstrap_sqlite(dsn, config):
+            return True
     command.upgrade(config, 'head')
     return True

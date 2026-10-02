@@ -1,10 +1,12 @@
 # Persistence config — for docker/docker-compose.multiprocess.yml (db service).
-# Entrypoint: discord-db. Owns postgres and serves the store routes to the bot
+# Entrypoint: discord-db. Owns the database (postgres or sqlite) and serves the store routes to the bot
 # and the broker; no Discord gateway (placeholder token only, for config
 # validation) and no Redis — this pod needs neither.
 general:
   discord_token: placeholder-not-used
   sql_connection_statement: postgresql://discord:discord@postgres:5432/discord
+  # No postgres to run? A single db replica can use a file instead:
+  # sql_connection_statement: sqlite:////var/lib/discord/discord.db
   database_server:
     host: 0.0.0.0
     port: 8085

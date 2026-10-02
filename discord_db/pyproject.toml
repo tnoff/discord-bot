@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "discord-db"
 dynamic = ["version"]
-description = "discord-bot: owns the postgres schema and the engine"
+description = "discord-bot: owns the database schema and the engine (postgres or sqlite)"
 authors = [
     {name = "Tyler D. North", email = "me@tyler-north.com"},
 ]
@@ -23,6 +23,9 @@ dependencies = [
     # No import site. SQLAlchemy's async driver, named in the URL cli/_lib/db
     # builds ("postgresql+asyncpg"); absent, nothing can open the database.
     "asyncpg==0.31.0",
+    # No import site. SQLAlchemy's async SQLite driver, named in the URL
+    # cli/_lib/db_url builds ("sqlite+aiosqlite") for a sqlite DSN.
+    "aiosqlite==0.22.1",
     # No import site. The migration CLI; this is the only image that COPYs
     # alembic/ and alembic.ini and can run `alembic upgrade head`.
     "alembic==1.19.2",
