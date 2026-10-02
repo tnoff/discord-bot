@@ -14,6 +14,11 @@ requires-python = ">=3.11"
 # in discord_core/utils/integrations/s3.py, reached transitively. dappertable
 # is real -- workers/media_bundle.py renders bundles with it.
 dependencies = [
+    # discord_core, pinned to a real released tag rather than the local
+    # checkout path -- criterion 8 step 7. All six pods pin the IDENTICAL tag
+    # string; tests/cli/test_package_pins.py enforces that they never drift
+    # apart.
+    "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v2.5.158.tar.gz#subdirectory=discord_core",
     "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.8.tar.gz",
 ]
 

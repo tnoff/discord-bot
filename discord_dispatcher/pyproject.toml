@@ -14,6 +14,11 @@ requires-python = ">=3.11"
 # imports Message, Bot and NotFound at runtime. No voice -- the dispatcher
 # never joins a voice channel, which is why it does not also carry PyNaCl/davey.
 dependencies = [
+    # discord_core, pinned to a real released tag rather than the local
+    # checkout path -- criterion 8 step 7. All six pods pin the IDENTICAL tag
+    # string; tests/cli/test_package_pins.py enforces that they never drift
+    # apart.
+    "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v2.5.158.tar.gz#subdirectory=discord_core",
     "discord.py==2.7.1",
 ]
 

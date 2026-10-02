@@ -32,13 +32,14 @@ RUN groupadd -g 1000 discord && \
 # the broker and 146.5s on the downloader, while the bot image -- which already
 # did this -- cost 10s.
 #
-# Two packages now, not one: criterion 8 step 5 gave discord_core and each pod
-# its own pyproject.toml. setuptools resolves each one's version via
-# `[tool.setuptools.dynamic]` and will not build without a VERSION file present
-# in ITS OWN directory (setuptools refuses to read outside a package's own
-# root), so a STUB package plus a placeholder VERSION satisfies each. The real
-# ones arrive in the source layer below.
-COPY discord_core/pyproject.toml "${APPDIR}/discord_core/pyproject.toml"
+# One stub package now, not two: criterion 8 step 7 gave discord_dispatcher a
+# real, declared `discord-core @ <tagged tarball>` dependency in its own
+# pyproject.toml, so installing the stub below pulls discord_core in
+# transitively from that pinned release. setuptools resolves the version via
+# `[tool.setuptools.dynamic]` and will not build without a VERSION file
+# present in the package's own directory (setuptools refuses to read outside
+# a package's own root), so a STUB package plus a placeholder VERSION
+# satisfies it. The real one arrives in the source layer below.
 COPY discord_dispatcher/pyproject.toml "${APPDIR}/discord_dispatcher/pyproject.toml"
 
 # INSTALL_HEAPTRACK bakes the native heap profiler in for a diagnostic build
@@ -51,38 +52,37 @@ RUN if [ "$INSTALL_HEAPTRACK" = "true" ]; then \
     fi
 
 # No git needed: the dispatcher's own package has no `git+https` VCS dep
-# (that's discord_gateway's dappertable). Installs discord_core (the shared
-# set) plus discord_dispatcher's own (discord.py only) -- both path installs,
-# not extras: there is no longer one pyproject.toml with a [dispatcher] extra
-# to name.
-RUN mkdir -p "${APPDIR}/discord_core" "${APPDIR}/discord_dispatcher" && \
-    : > "${APPDIR}/discord_core/__init__.py" && \
+# (that's discord_gateway's dappertable). Installs discord_dispatcher's own
+# declared dependencies (discord.py, and now discord_core too, pulled from its
+# pinned tag rather than this checkout) -- a path install, not an extra:
+# there is no longer one pyproject.toml with a [dispatcher] extra to name.
+RUN mkdir -p "${APPDIR}/discord_dispatcher" && \
     : > "${APPDIR}/discord_dispatcher/__init__.py" && \
-    echo "0.0.0" > "${APPDIR}/discord_core/VERSION" && \
     echo "0.0.0" > "${APPDIR}/discord_dispatcher/VERSION" && \
-    pip install "${APPDIR}/discord_core" "${APPDIR}/discord_dispatcher" && \
-    pip uninstall -y discord-core discord-dispatcher
+    pip install "${APPDIR}/discord_dispatcher" && \
+    pip uninstall -y discord-dispatcher
 
-# ---- source layer: the actual packages ----
+# ---- source layer: the actual package ----
 # --no-deps because the layer above already resolved every third-party
-# requirement. The stubs are UNINSTALLED up there rather than overwritten here:
-# leaving them produced both a 0.0.0 dist-info and the real one, and
+# requirement -- including discord_core, pulled transitively from its pinned
+# tag. The stub is UNINSTALLED up there rather than overwritten here: leaving
+# it produced both a 0.0.0 dist-info and the real one, and
 # `importlib.metadata.version()` resolved to the 0.0.0. Nothing reads the
 # version at runtime today, but the image would have reported the wrong one.
-# discord_core/ is its own top-level package as of criterion 8 step 2, so it
-# needs its own line -- copying the legacy root no longer brings the core along.
-# One COPY per root rather than `COPY . ${APPDIR}` on purpose: the whole point
-# of the split is that an image carries the roots it reaches and no others.
+# discord_core is NOT installed here: it already arrived in the layer above
+# from the pinned release tarball named in discord_dispatcher's own
+# pyproject.toml, not from this checkout. There is no local-path install of
+# discord_core in this image any more, in any context (dev build, PR CI or a
+# real release push) -- see per-image-code-split.md criterion 8 step 7.
 # discord_dispatcher/ replaces the legacy root as of criterion 8 step 4: the
 # pod's own code no longer lives there at all, so this image drops that line
-# entirely rather than keeping it alongside the new one. Each COPY brings its
-# own real VERSION symlink (-> ../VERSION), which is why the plain `COPY
-# VERSION` below has to land before the install, not after: the symlink target
-# does not exist until it does.
+# entirely rather than keeping it alongside the new one. The real VERSION
+# symlink (-> ../VERSION) is why the plain `COPY VERSION` below has to land
+# before the install, not after: the symlink target does not exist until it
+# does.
 COPY discord_dispatcher/ "${APPDIR}/discord_dispatcher/"
-COPY discord_core/ "${APPDIR}/discord_core/"
 COPY VERSION "${APPDIR}/"
-RUN pip install --no-deps "${APPDIR}/discord_core" "${APPDIR}/discord_dispatcher"
+RUN pip install --no-deps "${APPDIR}/discord_dispatcher"
 
 # Set ownership of directories that need to be writable by the discord user
 # Must be done BEFORE switching to discord user

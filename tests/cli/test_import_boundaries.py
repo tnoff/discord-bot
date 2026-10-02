@@ -344,17 +344,24 @@ def test_every_dockerfile_exists():
 
 
 # Everything a Dockerfile may legally COPY from the build context besides its
-# own package and CORE_ROOT. `docker` is docker/entrypoint.sh, shared by all
-# six; `alembic`/`alembic.ini` are discord-db only, but allowing them for every
+# own package. `docker` is docker/entrypoint.sh, shared by all six;
+# `alembic`/`alembic.ini` are discord-db only, but allowing them for every
 # image is cheap and the per-image check below is what actually has teeth.
+#
+# CORE_ROOT is deliberately NOT in this set, and not in the per-image allowance
+# below either -- criterion 8 step 7 gave every pod a real, declared
+# `discord-core @ <tagged tarball>` dependency in its own pyproject.toml, so
+# discord_core now arrives through pip, resolved from that pin, in every
+# Dockerfile. There is no `COPY discord_core/` left anywhere to allow.
 _ALWAYS_ALLOWED_COPY_ROOTS = frozenset({'VERSION', 'docker', 'alembic', 'alembic.ini'})
 
 
 def test_dockerfile_copies_only_its_own_closure():
     '''
     Criterion 4 of per-image-code-split (tnoff/discord-bot#1011): each image's
-    Dockerfile COPYs only its own package, CORE_ROOT, and the small, shared
-    non-package files every image needs -- never another pod's package.
+    Dockerfile COPYs only its own package and the small, shared non-package
+    files every image needs -- never another pod's package, and (as of
+    criterion 8 step 7) never CORE_ROOT either.
 
     Measured, not just read, before this test existed: building all six from a
     clean cache, then touching one file exclusive to discord_search and
@@ -372,8 +379,12 @@ def test_dockerfile_copies_only_its_own_closure():
         foreign = copied & (all_roots - {own_root})
         assert not foreign, f'{dockerfile} COPYs another pod\'s package: {foreign}'
         assert own_root in copied, f'{dockerfile} never COPYs its own package {own_root}'
-        assert CORE_ROOT in copied, f'{dockerfile} never COPYs {CORE_ROOT}'
-        unexpected = copied - {own_root, CORE_ROOT} - _ALWAYS_ALLOWED_COPY_ROOTS
+        assert CORE_ROOT not in copied, (
+            f'{dockerfile} COPYs {CORE_ROOT} -- criterion 8 step 7 moved it to a '
+            "pinned pip dependency in every pod's own pyproject.toml instead; a "
+            'Dockerfile COPY of it is stale, not redundant.'
+        )
+        unexpected = copied - {own_root} - _ALWAYS_ALLOWED_COPY_ROOTS
         assert not unexpected, f'{dockerfile} COPYs something unrecognised: {unexpected}'
 
 
@@ -582,7 +593,17 @@ def test_every_dockerfile_copies_the_roots_its_image_reaches():
         text = dockerfile.read_text(encoding='utf-8')
         needed = {m.split('.')[0] for m in image['modules']} & ROOTS
         assert needed, f'{image["image"]} reaches no declared root -- the closure is wrong'
-        missing = sorted(root for root in needed if f'COPY {root}/' not in text)
+        # CORE_ROOT is carved out of the COPY check here, as of criterion 8
+        # step 7: every image reaches it (every pod imports discord_core), but
+        # no Dockerfile COPYs it any more -- it arrives through each pod's own
+        # pinned `discord-core @ <tag>` dependency instead (see each pod's
+        # pyproject.toml and tests/cli/_package_pins.py), resolved by pip, not
+        # COPYd from this checkout. Folding it into `copy_checked` below (the
+        # same set used for BOTH directions) means the converse check further
+        # down still asserts discord_core/ is never COPYd, needed or not --
+        # that COPY line is retired, unconditionally, not merely optional.
+        copy_checked = needed - {CORE_ROOT}
+        missing = sorted(root for root in copy_checked if f'COPY {root}/' not in text)
         assert not missing, (
             f'{image["dockerfile"]} does not COPY {missing}, which '
             f'{image["image"]} reaches. The image would build green and fail on '
@@ -590,9 +611,11 @@ def test_every_dockerfile_copies_the_roots_its_image_reaches():
             'absent package.'
         )
         # And the converse, so the COPYs do not quietly become universal again.
-        extra = sorted(root for root in ROOTS - needed if f'COPY {root}/' in text)
+        extra = sorted(root for root in ROOTS - copy_checked if f'COPY {root}/' in text)
         assert not extra, (
             f'{image["dockerfile"]} COPYs {extra}, which {image["image"]} does '
-            'not reach. Shipping a root an image has no route to is what the '
+            'not reach by COPY any more (CORE_ROOT arrives via its pip pin) or '
+            'does not reach at all. Shipping a root an image has no route to, '
+            'or copying one that no longer ships that way, is what the '
             'packaging split exists to stop.'
         )

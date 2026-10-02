@@ -28,37 +28,44 @@ RUN curl -fsSL https://deno.land/install.sh | sh && mv /root/.deno /opt/deno
 # against a STUB package, so this layer is invalidated by a dependency change
 # and nothing else.
 #
-# Two packages now, not one: criterion 8 step 5 gave discord_core and each pod
-# its own pyproject.toml. The stub is what keeps VERSION out of this layer.
-# setuptools resolves each one's version via `[tool.setuptools.dynamic]` and
-# will not build without a VERSION file present in ITS OWN directory
-# (setuptools refuses to read outside a package's own root), but VERSION is
-# bumped by *every* MR (the changelog.d workflow), so copying the real one
-# here would bust the dep install on every change and defeat the split
-# entirely.  A placeholder satisfies each build; the real versions are
-# installed by the source layer below.
-COPY discord_core/pyproject.toml "${APPDIR}/discord_core/pyproject.toml"
+# One stub package now, not two: criterion 8 step 7 gave discord_gateway a
+# real, declared `discord-core @ <tagged tarball>` dependency in its own
+# pyproject.toml (the same shape `dappertable` already used below it), so
+# installing the stub below pulls discord_core in transitively from that
+# pinned release, exactly the way it already pulls dappertable. There is no
+# longer a separate discord_core stub to keep in step with this one.
+#
+# The stub is what keeps VERSION out of this layer. setuptools resolves the
+# version via `[tool.setuptools.dynamic]` and will not build without a
+# VERSION file present in the package's own directory (setuptools refuses to
+# read outside a package's own root), but VERSION is bumped by *every* MR
+# (the changelog.d workflow), so copying the real one here would bust the dep
+# install on every change and defeat the split entirely.  A placeholder
+# satisfies the build; the real version is installed by the source layer
+# below.
 COPY discord_gateway/pyproject.toml "${APPDIR}/discord_gateway/pyproject.toml"
-RUN mkdir -p "${APPDIR}/discord_core" "${APPDIR}/discord_gateway" && \
-    : > "${APPDIR}/discord_core/__init__.py" && \
+RUN mkdir -p "${APPDIR}/discord_gateway" && \
     : > "${APPDIR}/discord_gateway/__init__.py" && \
-    echo "0.0.0" > "${APPDIR}/discord_core/VERSION" && \
     echo "0.0.0" > "${APPDIR}/discord_gateway/VERSION" && \
     pip install --no-cache-dir --prefix=/install \
-        "${APPDIR}/discord_core" "${APPDIR}/discord_gateway" && \
-    rm -rf /install/lib/python*/site-packages/discord_core \
-           /install/lib/python*/site-packages/discord_core-0.0.0.dist-info \
-           /install/lib/python*/site-packages/discord_gateway \
+        "${APPDIR}/discord_gateway" && \
+    rm -rf /install/lib/python*/site-packages/discord_gateway \
            /install/lib/python*/site-packages/discord_gateway-0.0.0.dist-info
 
-# ---- source layer: the actual packages ----
+# ---- source layer: the actual package ----
 # --no-deps because the layer above already resolved and installed every
-# third-party requirement; this installs our own packages only.
+# third-party requirement -- including discord_core, pulled transitively from
+# its pinned tag -- so this installs our own package only. discord_core is NOT
+# installed here: it already arrived in the layer above from the pinned
+# release tarball named in discord_gateway's own pyproject.toml, not from this
+# checkout. There is no local-path install of discord_core in this image any
+# more, in any context (dev build, PR CI or a real release push) -- see
+# per-image-code-split.md criterion 8 step 7.
 #
-# The stub installs are torn down in the layer above rather than overwritten
-# here: pip cannot reliably uninstall from a `--prefix` tree, so leaving them in
+# The stub install is torn down in the layer above rather than overwritten
+# here: pip cannot reliably uninstall from a `--prefix` tree, so leaving it in
 # place produced BOTH a 0.0.0.dist-info and the real
-# <package>-<VERSION>.dist-info for each, and `importlib.metadata.version()`
+# <package>-<VERSION>.dist-info, and `importlib.metadata.version()`
 # resolved to the 0.0.0 one. Nothing reads the version at runtime today, but
 # the image would have reported the wrong one.
 #
@@ -68,20 +75,15 @@ RUN mkdir -p "${APPDIR}/discord_core" "${APPDIR}/discord_gateway" && \
 # them here would put ~474 MB of dependencies into a layer that our own package
 # rewrites on every commit, and buildkit would recompress and re-upload all of
 # it per build (measured: `exporting layers` 270.9s of a 283.3s export step).
-# discord_core/ is its own top-level package as of criterion 8 step 2, so it
-# needs its own line -- copying the legacy root no longer brings the core along.
-# One COPY per root rather than `COPY . ${APPDIR}` on purpose: the whole point
-# of the split is that an image carries the roots it reaches and no others.
 # discord_gateway/ replaces the legacy root as of criterion 8 step 4: the
 # pod's own code no longer lives there at all, so this image drops that line
 # entirely rather than keeping it alongside the new one. This is the internal
 # package rename -- the image, the console script and the deployed contract
 # all stay `discord-bot`; only the import root the source lives under changed.
-# Each COPY brings its own real VERSION symlink (-> ../VERSION), which is why
-# the plain `COPY VERSION` below has to land before the install, not after:
-# the symlink target does not exist until it does.
+# The real VERSION symlink (-> ../VERSION) is why the plain `COPY VERSION`
+# below has to land before the install, not after: the symlink target does
+# not exist until it does.
 COPY discord_gateway/ "${APPDIR}/discord_gateway/"
-COPY discord_core/ "${APPDIR}/discord_core/"
 # No alembic/ or alembic.ini. Both were COPYd here until the MR 4 cutover
 # (#928) took [database] -- and with it the alembic CLI -- out of [bot]. They
 # only ever landed in this builder stage, since the final stage copies the two
@@ -90,7 +92,7 @@ COPY discord_core/ "${APPDIR}/discord_core/"
 # now cannot. Same correction #917 made on the dispatcher.
 COPY VERSION "${APPDIR}/"
 RUN pip install --no-cache-dir --no-deps --prefix=/install-app \
-    "${APPDIR}/discord_core" "${APPDIR}/discord_gateway"
+    "${APPDIR}/discord_gateway"
 
 
 # ---------- final: runtime only ----------
