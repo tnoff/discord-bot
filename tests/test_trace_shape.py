@@ -18,7 +18,7 @@ prod-side alert on SERVER spans with no descendants remains the other half of
 the check.
 
 The route under test is a real client -> real aiohttp server -> real store on
-real postgres, because the seam is where connectivity is actually at risk: the
+real SQLite database, because the seam is where connectivity is actually at risk: the
 parent link crosses a process boundary as a W3C `traceparent` header, and
 nothing in-process would notice if it stopped being injected.
 '''

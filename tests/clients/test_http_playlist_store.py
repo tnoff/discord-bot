@@ -2,7 +2,7 @@
 
 Same shape and same reasoning as the guild-analytics and markov HTTP tests: both
 halves go through aiohttp's TestServer + TestClient, and the store behind the
-server is the real PlaylistClient on real postgres, so what is asserted is that
+server is the real PlaylistClient on a real SQLite database, so what is asserted is that
 the two implementations of one Protocol are interchangeable rather than that a
 fake agrees with itself.
 

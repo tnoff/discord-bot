@@ -65,11 +65,7 @@ installs `discord_core` from the live checkout path rather than a pinned
 release, so there is nothing downstream to re-pin.
 
 Database tests run on SQLite (see `fake_engine` below), so the suite needs no
-database server. The few tests marked `@pytest.mark.postgres` (the alembic
-chain replay and the postgres pool behaviour) are skipped unless
-`POSTGRES_TEST_HOST` is set; point it at a running server
-(`POSTGRES_TEST_PORT`, `POSTGRES_TEST_USER`, `POSTGRES_TEST_PASSWORD`) to
-include them. CI sets it, so the production backend is still covered there.
+database server and nothing to start before running it.
 
 ## Running the bot
 

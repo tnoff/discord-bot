@@ -45,8 +45,6 @@ test = [
     "pytest-cov==7.1.0",
     "pytest-freezegun==0.4.2",
     "pytest-mock==3.15.1",
-    "pytest-postgresql==9.0.0",
-    "psycopg[binary]==3.3.4",
     "requests-mock==1.12.1",
     # Currently required for pytest-freezegun, can remove once they have that fixed
     "setuptools==84.0.0",
@@ -72,9 +70,6 @@ packages = []
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
-markers = [
-    "postgres: needs a real postgres server; skipped unless POSTGRES_TEST_HOST is set",
-]
 asyncio_default_fixture_loop_scope = "function"
 python_files = ["tests/*.py"]
 filterwarnings = [

@@ -2,7 +2,7 @@
 
 Same shape and reasoning as the three store groups before it: both halves go
 through aiohttp's TestServer + TestClient, and the store behind the server is
-the real VideoCacheClient on real postgres, so what is asserted is that the two
+the real VideoCacheClient on a real SQLite database, so what is asserted is that the two
 implementations of one Protocol are interchangeable rather than that a fake
 agrees with itself.
 
@@ -69,7 +69,7 @@ def _media_download(tmp_path: Path, media_request: MediaRequest,
 
 
 def _live_store(fake_engine, max_cache_files: int = MAX_CACHE_FILES) -> VideoCacheClient:  #pylint:disable=redefined-outer-name
-    '''The in-process store the server delegates to, on real postgres.'''
+    '''The in-process store the server delegates to, on a real SQLite database.'''
     return VideoCacheClient(max_cache_files, partial(async_mock_session, fake_engine))
 
 

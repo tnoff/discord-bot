@@ -2,7 +2,7 @@
 
 Same shape and same reasoning as tests/clients/test_http_guild_analytics_store:
 both halves go through aiohttp's TestServer + TestClient, and the store behind
-the server is the real MarkovClient on real postgres, so what is asserted is that
+the server is the real MarkovClient on a real SQLite database, so what is asserted is that
 the two implementations of one Protocol are interchangeable rather than that a
 fake agrees with itself.
 '''
