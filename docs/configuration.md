@@ -241,8 +241,25 @@ SQLite notes:
 - **One pod, one file.** SQLite is a single-writer file database. Run a single
   `discord-db` replica against a persistent volume; the file is opened in WAL
   mode with foreign keys enforced and a 30s busy timeout.
-- **Not interchangeable in place.** There is no tool to copy data between a
-  postgres database and a SQLite file; pick one per deployment.
+- **Moving from postgres to SQLite.** `discord-db <config> --copy-to-sqlite
+  <path>` copies a postgres database into a new SQLite file instead of serving.
+  The source is the config's own `sql_connection_statement`, so the password
+  stays in whatever that config already reads it from. Stop the `discord-db`
+  pod first: the copy takes no lock, and it fails if any table's row count
+  changed under it (it cannot see a row edited in place). It then:
+  - refuses to run if `<path>` already exists, and builds the copy at
+    `<path>.partial`, renaming it into place only after everything below passes;
+  - refuses if any table or column differs from the models (rows are copied
+    through the models, so a column they do not know would be lost), and if the
+    source has tables the models do not know, unless `--allow-extra-tables`;
+  - copies `alembic_version` verbatim, so the file is stamped at the revision
+    the data was written at and the next `alembic upgrade head` carries on;
+  - reads every table back from the file and compares row count and a SHA-256
+    over the rows in primary-key order with what it read from the source.
+
+  Point `sql_connection_statement` at the new file afterwards. Postgres is left
+  untouched, so keep it until the SQLite pod has served for a while. Going the
+  other way (SQLite to postgres) is not supported.
 
 The database uses [alembic](https://alembic.sqlalchemy.org/en/latest/) to run
 the migrations. To upgrade to the latest changes use:

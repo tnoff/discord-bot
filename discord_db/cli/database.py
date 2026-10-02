@@ -54,6 +54,7 @@ from discord_core.utils.common import GeneralConfig, resolve_tracing_config
 
 from discord_core.types.video_cache import MusicCacheConfig
 
+from discord_db.cli._lib.copy_data import copy_from_config
 from discord_db.cli._lib.db import instrument_sqlalchemy, managed_db
 from discord_db.cli._lib.migrations import run_pending_migrations
 from discord_db.clients.guild_analytics_client import GuildAnalyticsClient
@@ -68,10 +69,36 @@ logger = logging.getLogger(__name__)
 
 @click.command()
 @click.argument('config_file', type=click.Path(dir_okay=False))
-def main(config_file):
+@click.option('--copy-to-sqlite', 'copy_to', type=click.Path(dir_okay=False), default=None,
+              help='Instead of serving, copy the configured database into a NEW SQLite file at '
+                   'this path, verify it, and exit. Stop the db pod first.')
+@click.option('--allow-extra-tables', is_flag=True,
+              help='With --copy-to-sqlite: leave behind source tables the models do not '
+                   'describe instead of refusing.')
+def main(config_file, copy_to, allow_extra_tables):
     '''Run the standalone persistence process (HTTP server over postgres or sqlite).'''
+    if allow_extra_tables and not copy_to:
+        raise click.UsageError('--allow-extra-tables only applies with --copy-to-sqlite')
     settings, general_config = parse_and_validate_config(config_file)
+    if copy_to:
+        copy_to_sqlite(general_config, copy_to, allow_extra_tables)
+        return
     run(settings, general_config)
+
+
+def copy_to_sqlite(general_config: GeneralConfig, dest: str, allow_extra_tables: bool) -> None:
+    '''Run the one-off copy and print what it verified; used in place of serving.
+
+    A refusal or a mismatch becomes a one-line error and a non-zero exit, not a
+    traceback: this runs once, by hand, in the middle of a cutover.
+    '''
+    try:
+        report = copy_from_config(general_config, dest, allow_extra_tables)
+    except DiscordBotException as error:
+        raise click.ClickException(str(error)) from error
+    for name, (rows, digest) in report.items():
+        click.echo(f'{name}: {rows} rows, sha256 {digest[:16]}')
+    click.echo(f'Verified and wrote {dest}')
 
 
 def build_session_generator(db_engine):
