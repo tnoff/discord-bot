@@ -64,11 +64,12 @@ does not require bumping every pod's `VERSION` too, since every pod still
 installs `discord_core` from the live checkout path rather than a pinned
 release, so there is nothing downstream to re-pin.
 
-Database tests run against both SQLite and PostgreSQL (see `fake_engine`
-below). `pytest -k sqlite` needs nothing installed. The postgres half uses
-`pytest-postgresql`, which expects `pg_ctl` and friends on `PATH`. Install the system postgres binaries (`apt install postgresql`
-or `brew install postgresql`) or run `docker compose -f docker/docker-compose.multiprocess.yml up -d postgres`
-before running the suite.
+Database tests run on SQLite (see `fake_engine` below), so the suite needs no
+database server. The few tests marked `@pytest.mark.postgres` (the alembic
+chain replay and the postgres pool behaviour) are skipped unless
+`POSTGRES_TEST_HOST` is set; point it at a running server
+(`POSTGRES_TEST_PORT`, `POSTGRES_TEST_USER`, `POSTGRES_TEST_PASSWORD`) to
+include them. CI sets it, so the production backend is still covered there.
 
 ## Running the bot
 
@@ -344,7 +345,7 @@ Shared fixtures and fakes are in `tests/helpers.py`:
 | Name | Kind | What it provides |
 |------|------|------------------|
 | `fake_context` | fixture | dict with `bot/guild/author/channel/context` |
-| `fake_engine` | fixture | `AsyncEngine` built by `setup_db`, parametrized over `sqlite` (fresh temp file) and `postgres` (session-scoped, via `pytest-postgresql`; tables truncated per test) — each test using it runs once per backend |
+| `fake_engine` | fixture | SQLite `AsyncEngine` built by `setup_db` over a fresh temp file, schema from `create_all` |
 | `async_mock_session` | async ctx mgr | `AsyncSession` bound to `fake_engine` |
 | `fake_bot_yielder` | factory | `fake_bot_yielder(channels=[...])() → FakeBot` |
 | `generate_fake_context` | non-fixture | inline equivalent of `fake_context` |

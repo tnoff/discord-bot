@@ -14,9 +14,7 @@ from discord import ChannelType
 from discord.errors import NotFound
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
-from sqlalchemy.pool import NullPool
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, AsyncEngine
 
 from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.utils.common import GeneralConfig
@@ -164,24 +162,17 @@ def fake_media_download(file_dir: Path, media_request: Optional[MediaRequest] = 
         media_request)
         yield media_download
 
-_TRUNCATE_TABLES = ', '.join(f'"{t.name}"' for t in BASE.metadata.sorted_tables)
-
 
 @pytest_asyncio.fixture(scope="function")
 async def fake_engine(fake_db_dsn) -> AsyncGenerator[AsyncEngine, None]:  #pylint:disable=redefined-outer-name
-    '''Async engine with the bot schema, fresh for each test, on each backend.
+    '''Async SQLite engine with the bot schema, fresh for each test.
 
-    Every test that takes this fixture runs twice, once per supported database.
-    Both legs go through `setup_db`, so the engine under test is the one the db
-    pod builds, pragmas and all.
+    Built by `setup_db`, so the engine under test is the one the db pod builds,
+    pragmas and all.
     '''
     engine = setup_db(GeneralConfig(sql_connection_statement=fake_db_dsn))
-    if fake_db_dsn.startswith('sqlite'):
-        async with engine.begin() as conn:
-            await conn.run_sync(BASE.metadata.create_all)
-    elif _TRUNCATE_TABLES:
-        async with engine.begin() as conn:
-            await conn.execute(text(f'TRUNCATE {_TRUNCATE_TABLES} RESTART IDENTITY CASCADE'))
+    async with engine.begin() as conn:
+        await conn.run_sync(BASE.metadata.create_all)
     try:
         yield engine
     finally:

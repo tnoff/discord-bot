@@ -72,6 +72,9 @@ packages = []
 
 [tool.pytest.ini_options]
 asyncio_mode = "strict"
+markers = [
+    "postgres: needs a real postgres server; skipped unless POSTGRES_TEST_HOST is set",
+]
 asyncio_default_fixture_loop_scope = "function"
 python_files = ["tests/*.py"]
 filterwarnings = [

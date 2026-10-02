@@ -1,7 +1,7 @@
 '''SQLite as a supported backend for the db pod.
 
-The store clients are exercised on both backends by the `fake_engine` fixture
-(conftest.py parametrizes it), so what is left here is the plumbing around them:
+The store clients are exercised on SQLite by the `fake_engine` fixture, so what
+is left here is the plumbing around them:
 which DSNs are accepted, how the engine is configured, and how a SQLite file
 gets its schema.
 '''
@@ -84,7 +84,7 @@ async def test_in_memory_sqlite_engine_builds():
 async def test_datetimes_read_back_aware_and_in_utc(fake_engine):  # pylint:disable=redefined-outer-name
     '''An aware, non-UTC datetime comes back as the same instant, in UTC.
 
-    Runs on both backends. SQLite stores wall-clock text and would return a naive
+    SQLite stores wall-clock text and would return a naive
     value, which neither compares with an aware one nor serializes with an
     offset; UTCDateTime is what closes that gap.
     '''

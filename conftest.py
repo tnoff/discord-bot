@@ -103,20 +103,29 @@ def pg_test_db_url(postgresql_proc):  # pylint: disable=redefined-outer-name
         asyncio.run(_drop_database(postgresql_proc))
 
 
-@pytest.fixture(scope="function", params=['sqlite', 'postgres'])
-def fake_db_dsn(request, tmp_path) -> str:
-    '''The configured-form DSN of a test database, one per supported backend.
+@pytest.fixture(scope="function")
+def fake_db_dsn(tmp_path) -> str:
+    '''The configured-form DSN of a fresh SQLite test database.
 
-    Sync on purpose: the postgres leg resolves `pg_test_db_url`, which drives its
-    own event loop, and a fixture cannot be requested from inside a running one.
-    The postgres server is only started when that leg runs, so `-k sqlite`
-    needs nothing installed.
+    Tests run on SQLite so nothing has to be installed or started. The few that
+    exist to exercise postgres itself are marked `postgres` and need a server.
     '''
-    if request.param == 'sqlite':
-        return f'sqlite:///{tmp_path / "test.db"}'
-    # The session fixture's URL carries the asyncpg driver already; setup_db
-    # takes the configured form and adds the driver itself.
-    return request.getfixturevalue('pg_test_db_url').replace('+asyncpg', '')
+    return f'sqlite:///{tmp_path / "test.db"}'
+
+
+def pytest_collection_modifyitems(config, items):  # pylint: disable=unused-argument
+    '''Skip `postgres`-marked tests unless a postgres server was asked for.
+
+    POSTGRES_TEST_HOST is the opt-in. Without it these would fall back to
+    starting a postgres process of their own, which is exactly what the default
+    run should not need.
+    '''
+    if os.environ.get('POSTGRES_TEST_HOST'):
+        return
+    skip = pytest.mark.skip(reason='needs postgres: set POSTGRES_TEST_HOST')
+    for item in items:
+        if 'postgres' in item.keywords:
+            item.add_marker(skip)
 
 
 # protocol=2 forces RESP2 on every FakeRedis in the test suite (here and in test

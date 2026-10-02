@@ -860,6 +860,7 @@ def test_managed_db_rewrites_the_url_and_disposes_without_a_loop(mocker):
     mock_async_engine.dispose.assert_awaited_once_with(close=False)
 
 
+@pytest.mark.postgres
 def test_setup_db_opens_no_connection(pg_test_db_url):
     """setup_db hands back a cold engine, and the serving loop is the first to use it.
 
@@ -906,6 +907,7 @@ def test_setup_db_opens_no_connection(pg_test_db_url):
     assert asyncio.run(_serve()) == [42, 42]
 
 
+@pytest.mark.postgres
 def test_setup_db_reuses_pooled_connections(pg_test_db_url):
     """A second session reuses the first one's connection instead of dialling again.
 
@@ -937,6 +939,7 @@ def test_setup_db_reuses_pooled_connections(pg_test_db_url):
     assert asyncio.run(_serve()) == (1, 1)
 
 
+@pytest.mark.postgres
 def test_setup_db_survives_postgres_dropping_every_connection(pg_test_db_url):
     """A pooled connection killed server-side is replaced, not raised.
 

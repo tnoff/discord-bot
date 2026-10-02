@@ -41,6 +41,9 @@ from discord_db.cli._lib.db import setup_db
 from discord_db.cli._lib.migrations import run_pending_migrations
 from discord_db.database import BASE
 
+# Replaying the chain is a postgres property (the revisions use ALTER COLUMN).
+pytestmark = pytest.mark.postgres
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 REPLAY_DB = 'discord_bot_alembic_replay'

@@ -21,7 +21,7 @@ def _failing_engine(error):
 
 
 @pytest.mark.asyncio
-async def test_check_ok_against_real_postgres(fake_engine):  # pylint: disable=redefined-outer-name
+async def test_check_ok_against_a_real_database(fake_engine):  # pylint: disable=redefined-outer-name
     '''
     The ok path runs against a REAL engine, not a mock that returns True.
 
