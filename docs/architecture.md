@@ -37,7 +37,7 @@ flowchart LR
     DOWNLOADER["Downloader<br/>discord_downloader"]
     SEARCH["Search<br/>discord_search"]
     REDIS["Redis"]
-    POSTGRES["Postgres"]
+    DATABASE["Postgres or SQLite"]
 
     BOT -->|dispatch| DISPATCHER
     BOT -->|media broker| BROKER
@@ -53,7 +53,7 @@ flowchart LR
     BROKER -.-> REDIS
     DOWNLOADER -.-> REDIS
     SEARCH -.-> REDIS
-    DB -.-> POSTGRES
+    DB -.-> DATABASE
 ```
 
 Every solid arrow is an unconditional `Http*Client` the source pod always
@@ -86,7 +86,7 @@ missing:
   `[database]` extra was removed along with its SQLAlchemy/asyncpg imports.
 
 This is the only pod-to-pod picture — it's hand-drawn, but every edge on it
-was checked against the code above, and it adds Redis/Postgres and the
+was checked against the code above, and it adds Redis, the database and the
 solid/dashed unconditional-vs-config-gated distinction that a measurement
 can't see. The measured detail behind it — exact route counts per edge,
 straight from the `SEAM`/`ROUTES_CALLED` registries, so it cannot drift, not
@@ -440,9 +440,9 @@ local — there's no need to push them to the registry.
 
 ### No database driver in the bot image
 
-The bot image (`docker/Dockerfile.gateway`) carries no PostgreSQL driver —
-SQLAlchemy and asyncpg are not among `discord_core`'s or `discord_gateway`'s
-dependencies, since the bot talks to the database exclusively over HTTP (see
+The bot image (`docker/Dockerfile.gateway`) carries no database driver
+(PostgreSQL or SQLite) — SQLAlchemy, asyncpg and aiosqlite are not among
+`discord_core`'s or `discord_gateway`'s dependencies, since the bot talks to the database exclusively over HTTP (see
 [Database](./configuration.md#database)). The driver is installed only in
 the `discord-db` image (`docker/Dockerfile.db`), the sole image that opens a
 real database connection and runs the alembic migrations.
