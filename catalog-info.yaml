@@ -155,8 +155,9 @@ metadata:
   description: >-
     The only tier that speaks SQL. Serves markov, playlists, guild analytics and the
     video-cache catalog over HTTP, so no other tier needs a database engine in its image.
-    One replica, load-bearing: the migration runner is on this entrypoint and two of it
-    could race into `alembic upgrade head`.
+    Runs on SQLite, a file on a ReadWriteOnce volume, so one replica is a hard limit as well
+    as a rule: the migration runner is on this entrypoint, and a second pod could neither
+    mount the volume nor safely write the file.
   # Deployment label `tier: db`, Service port 8085
 spec:
   type: service
@@ -164,7 +165,7 @@ spec:
   lifecycle: production
   system: discord
   dependsOn:
-    - resource:default/discord-postgres
+    - resource:default/discord-sqlite
   providesApis:
     - api:default/database
 
@@ -172,11 +173,12 @@ spec:
 # The nightly backup, declared here rather than in docker-apps where its CronJob
 # manifest lives.
 #
-# The manifest is apps/discord/backup-cronjob.yaml over there, and it runs an
-# image built by neither repo (iad.ocir.io/tnoff/database_backup). The datastores
-# it reads and writes (discord-postgres, discord-database-backups-bucket) are now
-# declared in docker-apps with the rest of the discord System's infrastructure;
-# this Component is left here for now and could follow them.
+# The manifest is apps/discord/db-sqlite-backup-cronjob.yaml over there, and it
+# runs an image built by neither repo (iad.ocir.io/tnoff/database_backup). The
+# datastores it reads and writes (discord-sqlite, discord-database-backups-bucket)
+# are declared in docker-apps with the rest of the discord System's infrastructure;
+# this Component is left here for now and could follow them. It replaced
+# `discord-database-backup`, the pg_dump of the retired discord-pg Postgres.
 #
 # Known wrinkle, pre-existing rather than new: AnnotateScmSlugEntityProcessor
 # derives the slug from the location a file was fetched from, so this Component
@@ -187,14 +189,12 @@ spec:
 apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
-  name: discord-database-backup
+  name: discord-db-sqlite-backup
   description: >-
-    Nightly `pg_dump` of discord-pg to object storage, 11:00 UTC, in the `discord`
-    namespace. Runs iad.ocir.io/tnoff/database_backup and connects as the `discord.discord`
-    role, carrying the `postgres-access: "true"` label the NetworkPolicy requires.
-  # Pinned at 233d7e8 while the backstage CronJob on the same image runs c46d8c2.
-  # Nothing holds the two together -- worth knowing before assuming a fix in one is
-  # live in both.
+    Nightly backup of discord-db's SQLite file to object storage, 11:30 UTC, in the `discord`
+    namespace. Runs iad.ocir.io/tnoff/database_backup with `DATABASE_TYPE=sqlite`, which takes
+    a consistent online copy, integrity-checks it and uploads it as `<timestamp>.sqlite.gz`. A
+    CronJob pinned to the db pod's node (the volume is ReadWriteOnce), not a sidecar.
 spec:
   type: service
   owner: group:default/admin
@@ -203,7 +203,7 @@ spec:
   dependsOn:
     - component:default/database-backup
     - resource:default/discord-database-backups-bucket
-    - resource:default/discord-postgres
+    - resource:default/discord-sqlite
 ---
 # The six API entities, one per SERVED SURFACE, and the OpenAPI documents behind
 # them are generated -- tests/routes/test_openapi_docs.py reads each server's
