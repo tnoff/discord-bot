@@ -46,6 +46,24 @@ SQLAlchemy/asyncpg/alembic). `discord_core` is the one every pod installs
 alongside its own — it carries the shared set (aiohttp, redis, pydantic, the
 OTel stack, boto3, etc.).
 
+### Per-package versions
+
+Each of the seven packages also has its own `VERSION` file now
+(`discord_core/VERSION`, `discord_gateway/VERSION`, …), tracked
+independently of the root `VERSION`. The root file is unrelated and untouched
+by this — it still drives the one repo-wide release/changelog/tag process
+(`assemble-changelog`, `CHANGELOG.md`, the single `vX.Y.Z` tag), unchanged
+since before this split. A PR that touches a package bumps that package's own
+`VERSION` by hand, the same way the root `VERSION` has always been bumped by
+hand as part of the PR that needed it — touching a package's nested `tests/`
+counts as touching the package, no exemptions. `ci.yml`'s "Detect package
+version bumps" job (`tests/cli/_package_versions.py`) enforces this: it fails
+a PR that changes a package without also changing that package's `VERSION`.
+There is no dependency-propagation rule yet — a `discord_core`-only change
+does not require bumping every pod's `VERSION` too, since every pod still
+installs `discord_core` from the live checkout path rather than a pinned
+release, so there is nothing downstream to re-pin.
+
 The test suite uses `pytest-postgresql`, which expects `pg_ctl` and friends
 on `PATH`. Install the system postgres binaries (`apt install postgresql`
 or `brew install postgresql`) or run `docker compose -f docker/docker-compose.multiprocess.yml up -d postgres`

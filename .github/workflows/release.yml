@@ -131,6 +131,84 @@ jobs:
       app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
       app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
 
+  # Per-package tags, one `<short>-v<version>` tag per package, driven off
+  # each package's own VERSION file (criterion 8 step 6 -- see DEVELOPMENT.md's
+  # "Per-package versions"). This is deliberately ONE job with a loop over a
+  # declared list, not seven near-identical copies: #922's push-db gap --
+  # discord-db added to five of six hand-copied per-image lists and missed
+  # release.yml, building green while shipping nothing for four days -- is the
+  # exact failure mode a per-package copy-paste here would repeat, and the
+  # lesson this repo already paid for is "loop over one declared source",
+  # not "copy carefully". The short-name table is PACKAGE_ROOTS in
+  # tests/cli/_package_versions.py, the same module the `package-versions`
+  # job in ci.yml imports -- not a second table hand-written here.
+  #
+  # Cannot reuse the shared tag.yml workflow this file's own `tag:` job calls:
+  # that workflow's tag format is hardcoded to a literal `v{VERSION}` prefix
+  # with no namespace input, so two packages at the same numeric version would
+  # collide on an identical tag string and the second call would silently
+  # no-op (tag.yml treats an existing tag as already-done). So this pushes
+  # tags directly instead, idempotently (git ls-remote first, skip if already
+  # there), using the same GitHub App credentials already passed to every
+  # other job in this file, via actions/create-github-app-token rather than a
+  # reusable workflow, since this job runs the git plumbing itself.
+  #
+  # needs assemble-changelog (not changes): tags are not gated on whether an
+  # image needs rebuilding, the same independence the `tag:` job above has
+  # from `changes` -- a docs-only merge still gets its per-package tags if a
+  # package's own VERSION moved. It still waits on assemble-changelog, the
+  # same dependency `tag:` has, so this runs after the changelog fold rather
+  # than racing it.
+  package-tags:
+    name: Tag packages
+    needs: assemble-changelog
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Mint app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          client-id: ${{ secrets.CI_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
+      - name: Tag each package that needs one
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # short-name -> import-root, read straight from the one place this
+          # repo declares it (PACKAGE_ROOTS in tests/cli/_package_versions.py)
+          # rather than a second copy here. Standard library only, no install
+          # step needed, same property _package_versions.py itself relies on.
+          python3 <<'PY' > /tmp/package-roots.txt
+          from tests.cli._package_versions import PACKAGE_ROOTS
+          for short, root in sorted(PACKAGE_ROOTS.items()):
+              print(f'{short} {root}')
+          PY
+
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          remote="https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          while read -r short root; do
+            version="$(cat "${root}/VERSION")"
+            tag="${short}-v${version}"
+            if git ls-remote --exit-code --tags "${remote}" "refs/tags/${tag}" >/dev/null 2>&1; then
+              echo "${tag}: already exists, skipping"
+              continue
+            fi
+            echo "${tag}: creating"
+            git tag "${tag}" "${GITHUB_SHA}"
+            git push "${remote}" "refs/tags/${tag}"
+          done < /tmp/package-roots.txt
+
   push-bot:
     name: Push bot image
     needs: changes

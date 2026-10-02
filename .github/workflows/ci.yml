@@ -176,6 +176,39 @@ jobs:
     with:
       dockerfile: ${{ matrix.dockerfile }}
 
+  # Each of the seven packages (discord_core plus the six pods) now tracks its
+  # own VERSION independently -- see DEVELOPMENT.md's "Per-package versions".
+  # Nothing bumps it automatically; this job only catches the PR that forgets
+  # to, the same shape as the `changes` job above and for the same reason:
+  # tests/cli/_package_versions.py reads the diff and tests/cli/_roots.py's
+  # declared roots rather than a second hand-maintained list, so a package
+  # cannot silently fall out of the check the way a hardcoded per-image list
+  # has dropped one entry in this repo before.
+  #
+  # Standard library only, and no install step, matching `changes` above:
+  # diagnostics go to stderr, the pass/fail message to stderr too, and the
+  # exit code is the whole contract.
+  package-versions:
+    name: Detect package version bumps
+    needs: metadata
+    if: needs.metadata.outputs.only != 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Check
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet origin "${BASE_REF}"
+          python3 -m tests.cli._package_versions --base "origin/${BASE_REF}"
+
   bump-version:
     name: Bump version
     if: startsWith(github.head_ref, 'renovate/dev-')
@@ -220,19 +253,20 @@ jobs:
     # This job always runs and its name never changes, so the ruleset requires
     # exactly one context and the jobs underneath stay free to change.
     if: always()
-    needs: [secrets, tox, changes, build, contracts, metadata]
+    needs: [secrets, tox, changes, build, contracts, metadata, package-versions]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
       - name: Summarise
         run: |
-          echo "secrets:   ${{ needs.secrets.result }}"
-          echo "metadata:  ${{ needs.metadata.result }}"
-          echo "tox:       ${{ needs.tox.result }}"
-          echo "changes:   ${{ needs.changes.result }}"
-          echo "build:     ${{ needs.build.result }}"
-          echo "contracts: ${{ needs.contracts.result }}"
+          echo "secrets:           ${{ needs.secrets.result }}"
+          echo "metadata:          ${{ needs.metadata.result }}"
+          echo "tox:               ${{ needs.tox.result }}"
+          echo "changes:           ${{ needs.changes.result }}"
+          echo "build:             ${{ needs.build.result }}"
+          echo "contracts:         ${{ needs.contracts.result }}"
+          echo "package-versions:  ${{ needs.package-versions.result }}"
 
       - name: Fail if any job failed
         # `skipped` is deliberately allowed: with allow_fork_prs false a fork
@@ -243,7 +277,8 @@ jobs:
           needs.changes.result == 'failure' || needs.changes.result == 'cancelled' ||
           needs.build.result == 'failure' || needs.build.result == 'cancelled' ||
           needs.contracts.result == 'failure' || needs.contracts.result == 'cancelled' ||
-          needs.metadata.result == 'failure' || needs.metadata.result == 'cancelled'
+          needs.metadata.result == 'failure' || needs.metadata.result == 'cancelled' ||
+          needs.package-versions.result == 'failure' || needs.package-versions.result == 'cancelled'
         run: |
           echo "::error::One or more CI jobs did not pass."
           exit 1
