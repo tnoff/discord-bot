@@ -9,10 +9,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from alembic.script import ScriptDirectory
-from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from alembic.script import ScriptDirectory
+from alembic.config import Config
 
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig

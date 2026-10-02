@@ -12,7 +12,6 @@ import asyncio
 import logging
 from pathlib import Path
 
-import pytest
 from sqlalchemy import create_engine, inspect
 
 from discord_core.utils.common import GeneralConfig

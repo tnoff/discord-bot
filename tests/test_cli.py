@@ -6,8 +6,6 @@ from unittest.mock import MagicMock, AsyncMock
 
 from click.testing import CliRunner
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine
-from sqlalchemy.pool import NullPool
 from yaml import dump
 
 from discord_core.cli._lib.common import read_config
