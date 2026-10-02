@@ -89,8 +89,23 @@ COPY discord_core/ "${APPDIR}/discord_core/"
 # a build step that implied the bot could run `alembic upgrade head`, which it
 # now cannot. Same correction #917 made on the dispatcher.
 COPY VERSION "${APPDIR}/"
-RUN pip install --no-cache-dir --no-deps --prefix=/install-app \
-    "${APPDIR}/discord_core" "${APPDIR}/discord_gateway"
+# CORE_TAG pins discord_core to a tagged release tarball instead of the local
+# checkout (criterion 8 step 7 / #1011). Default empty means every existing
+# build path -- a plain `docker build`, docker compose, and the PR-time
+# docker-build-check.yml job -- is unaffected: none of them ever pass this
+# arg, so they keep installing discord_core from ${APPDIR} like today. A PR
+# needs to build an image containing its own uncommitted discord_core
+# changes, so the path install has to stay the default; only a real release
+# build (release.yml, after package-tags has pushed the tag) passes CORE_TAG.
+ARG CORE_TAG=""
+RUN if [ -n "$CORE_TAG" ]; then \
+      pip install --no-cache-dir --no-deps --prefix=/install-app \
+        "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/${CORE_TAG}.tar.gz#subdirectory=discord_core" \
+        "${APPDIR}/discord_gateway"; \
+    else \
+      pip install --no-cache-dir --no-deps --prefix=/install-app \
+        "${APPDIR}/discord_core" "${APPDIR}/discord_gateway"; \
+    fi
 
 
 # ---------- final: runtime only ----------

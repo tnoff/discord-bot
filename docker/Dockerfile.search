@@ -76,7 +76,22 @@ RUN mkdir -p "${APPDIR}/discord_core" "${APPDIR}/discord_search" && \
 COPY discord_search/ "${APPDIR}/discord_search/"
 COPY discord_core/ "${APPDIR}/discord_core/"
 COPY VERSION "${APPDIR}/"
-RUN pip install --no-cache-dir --no-deps "${APPDIR}/discord_core" "${APPDIR}/discord_search" && \
+# CORE_TAG pins discord_core to a tagged release tarball instead of the local
+# checkout (criterion 8 step 7 / #1011). Default empty means every existing
+# build path -- a plain `docker build`, docker compose, and the PR-time
+# docker-build-check.yml job -- is unaffected: none of them ever pass this
+# arg, so they keep installing discord_core from ${APPDIR} like today. A PR
+# needs to build an image containing its own uncommitted discord_core
+# changes, so the path install has to stay the default; only a real release
+# build (release.yml, after package-tags has pushed the tag) passes CORE_TAG.
+ARG CORE_TAG=""
+RUN if [ -n "$CORE_TAG" ]; then \
+      pip install --no-cache-dir --no-deps \
+        "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/${CORE_TAG}.tar.gz#subdirectory=discord_core" \
+        "${APPDIR}/discord_search"; \
+    else \
+      pip install --no-cache-dir --no-deps "${APPDIR}/discord_core" "${APPDIR}/discord_search"; \
+    fi && \
     chown -R discord:discord "${WORKDIR}" "${LOGFILE}" && \
     rm -rf "${APPDIR}" /root/.cache
 

@@ -165,6 +165,13 @@ jobs:
     permissions:
       contents: write
     runs-on: ubuntu-24.04
+    outputs:
+      # core_tag: the discord_core tag the six push-* jobs pin CORE_TAG to
+      # (criterion 8 step 7 / #1011). Read straight from discord_core/VERSION
+      # on THIS run's checkout, so it reports the right tag whether or not it
+      # already existed before this run -- same source of truth the tagging
+      # step below uses, not a second derivation.
+      core_tag: ${{ steps.tag-packages.outputs.core_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -179,6 +186,7 @@ jobs:
           private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
 
       - name: Tag each package that needs one
+        id: tag-packages
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
@@ -209,9 +217,20 @@ jobs:
             git push "${remote}" "refs/tags/${tag}"
           done < /tmp/package-roots.txt
 
+          # core_tag feeds the six push-* jobs' CORE_TAG build arg (criterion 8
+          # step 7 / #1011). Just a read of discord_core/VERSION, same as every
+          # other package above -- correct whether this run just pushed that
+          # tag or it already existed.
+          echo "core_tag=core-v$(cat discord_core/VERSION)" >> "$GITHUB_OUTPUT"
+
   push-bot:
     name: Push bot image
-    needs: changes
+    # needs package-tags, not just changes: this build passes CORE_TAG, which
+    # fetches a `core-v<X>` tarball by tag. Without this dependency push-bot
+    # only waits on `changes` and can start -- and fail or, worse, fetch a
+    # stale pre-existing tag -- before package-tags has pushed (or confirmed)
+    # that exact tag in this same run (criterion 8 step 7 / #1011).
+    needs: [changes, package-tags]
     if: >-
       ${{ needs.changes.outputs.image == 'true'
           && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
@@ -221,13 +240,19 @@ jobs:
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_BOT }}
       dockerfile: docker/Dockerfile.gateway
+      build_args: CORE_TAG=${{ needs.package-tags.outputs.core_tag }}
     secrets:
       oci_username: ${{ secrets.OCI_USERNAME }}
       oci_token: ${{ secrets.OCI_TOKEN }}
 
   push-dispatcher:
     name: Push dispatcher image
-    needs: changes
+    # needs package-tags, not just changes: this build passes CORE_TAG, which
+    # fetches a `core-v<X>` tarball by tag. Without this dependency push-dispatcher
+    # only waits on `changes` and can start -- and fail or, worse, fetch a
+    # stale pre-existing tag -- before package-tags has pushed (or confirmed)
+    # that exact tag in this same run (criterion 8 step 7 / #1011).
+    needs: [changes, package-tags]
     if: >-
       ${{ needs.changes.outputs.image == 'true'
           && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
@@ -237,13 +262,19 @@ jobs:
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_DISPATCHER }}
       dockerfile: docker/Dockerfile.dispatcher
+      build_args: CORE_TAG=${{ needs.package-tags.outputs.core_tag }}
     secrets:
       oci_username: ${{ secrets.OCI_USERNAME }}
       oci_token: ${{ secrets.OCI_TOKEN }}
 
   push-broker:
     name: Push broker image
-    needs: changes
+    # needs package-tags, not just changes: this build passes CORE_TAG, which
+    # fetches a `core-v<X>` tarball by tag. Without this dependency push-broker
+    # only waits on `changes` and can start -- and fail or, worse, fetch a
+    # stale pre-existing tag -- before package-tags has pushed (or confirmed)
+    # that exact tag in this same run (criterion 8 step 7 / #1011).
+    needs: [changes, package-tags]
     if: >-
       ${{ needs.changes.outputs.image == 'true'
           && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
@@ -253,13 +284,19 @@ jobs:
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_BROKER }}
       dockerfile: docker/Dockerfile.broker
+      build_args: CORE_TAG=${{ needs.package-tags.outputs.core_tag }}
     secrets:
       oci_username: ${{ secrets.OCI_USERNAME }}
       oci_token: ${{ secrets.OCI_TOKEN }}
 
   push-downloader:
     name: Push downloader image
-    needs: changes
+    # needs package-tags, not just changes: this build passes CORE_TAG, which
+    # fetches a `core-v<X>` tarball by tag. Without this dependency push-downloader
+    # only waits on `changes` and can start -- and fail or, worse, fetch a
+    # stale pre-existing tag -- before package-tags has pushed (or confirmed)
+    # that exact tag in this same run (criterion 8 step 7 / #1011).
+    needs: [changes, package-tags]
     if: >-
       ${{ needs.changes.outputs.image == 'true'
           && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
@@ -269,13 +306,19 @@ jobs:
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_DOWNLOADER }}
       dockerfile: docker/Dockerfile.downloader
+      build_args: CORE_TAG=${{ needs.package-tags.outputs.core_tag }}
     secrets:
       oci_username: ${{ secrets.OCI_USERNAME }}
       oci_token: ${{ secrets.OCI_TOKEN }}
 
   push-search:
     name: Push search image
-    needs: changes
+    # needs package-tags, not just changes: this build passes CORE_TAG, which
+    # fetches a `core-v<X>` tarball by tag. Without this dependency push-search
+    # only waits on `changes` and can start -- and fail or, worse, fetch a
+    # stale pre-existing tag -- before package-tags has pushed (or confirmed)
+    # that exact tag in this same run (criterion 8 step 7 / #1011).
+    needs: [changes, package-tags]
     if: >-
       ${{ needs.changes.outputs.image == 'true'
           && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
@@ -285,6 +328,7 @@ jobs:
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_SEARCH }}
       dockerfile: docker/Dockerfile.search
+      build_args: CORE_TAG=${{ needs.package-tags.outputs.core_tag }}
     secrets:
       oci_username: ${{ secrets.OCI_USERNAME }}
       oci_token: ${{ secrets.OCI_TOKEN }}
@@ -304,7 +348,12 @@ jobs:
   # landed as docker-apps!1668 and pinned the tag this job produced.
   push-db:
     name: Push db image
-    needs: changes
+    # needs package-tags, not just changes: this build passes CORE_TAG, which
+    # fetches a `core-v<X>` tarball by tag. Without this dependency push-db
+    # only waits on `changes` and can start -- and fail or, worse, fetch a
+    # stale pre-existing tag -- before package-tags has pushed (or confirmed)
+    # that exact tag in this same run (criterion 8 step 7 / #1011).
+    needs: [changes, package-tags]
     if: >-
       ${{ needs.changes.outputs.image == 'true'
           && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
@@ -314,6 +363,7 @@ jobs:
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_DB }}
       dockerfile: docker/Dockerfile.db
+      build_args: CORE_TAG=${{ needs.package-tags.outputs.core_tag }}
     secrets:
       oci_username: ${{ secrets.OCI_USERNAME }}
       oci_token: ${{ secrets.OCI_TOKEN }}
