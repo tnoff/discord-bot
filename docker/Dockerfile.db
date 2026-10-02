@@ -42,13 +42,16 @@ RUN groupadd -g 1000 discord && \
 # and the expensive install re-runs for a version string. Measured on the
 # dispatcher before and after this split: 24.4s -> 9.6s on a VERSION-only bump.
 #
-# Two packages now, not one: criterion 8 step 5 gave discord_core and each pod
-# its own pyproject.toml. setuptools resolves each one's version via
-# `[tool.setuptools.dynamic]` and will not build without a VERSION file present
-# in ITS OWN directory (setuptools refuses to read outside a package's own
-# root), so a STUB package plus a placeholder VERSION satisfies each. The real
-# ones arrive in the source layer below.
-COPY discord_core/pyproject.toml "${APPDIR}/discord_core/pyproject.toml"
+# One stub package now, not two: criterion 8 step 7 gave discord_db a real,
+# declared `discord-core @ <tagged tarball>` dependency in its own
+# pyproject.toml (the same shape `dappertable` already uses below it), so
+# installing the stub below pulls discord_core in transitively from that
+# pinned release, the same way it already pulls dappertable. setuptools
+# resolves the version via `[tool.setuptools.dynamic]` and will not build
+# without a VERSION file present in the package's own directory (setuptools
+# refuses to read outside a package's own root), so a STUB package plus a
+# placeholder VERSION satisfies it. The real one arrives in the source layer
+# below.
 COPY discord_db/pyproject.toml "${APPDIR}/discord_db/pyproject.toml"
 
 # INSTALL_HEAPTRACK bakes the native heap profiler in for a diagnostic build
@@ -60,33 +63,31 @@ RUN if [ "$INSTALL_HEAPTRACK" = "true" ]; then \
         rm -rf /var/lib/apt/lists/*; \
     fi
 
-RUN mkdir -p "${APPDIR}/discord_core" "${APPDIR}/discord_db" && \
-    : > "${APPDIR}/discord_core/__init__.py" && \
+RUN mkdir -p "${APPDIR}/discord_db" && \
     : > "${APPDIR}/discord_db/__init__.py" && \
-    echo "0.0.0" > "${APPDIR}/discord_core/VERSION" && \
     echo "0.0.0" > "${APPDIR}/discord_db/VERSION" && \
-    pip install --no-cache-dir "${APPDIR}/discord_core" "${APPDIR}/discord_db" && \
-    pip uninstall -y discord-core discord-db
+    pip install --no-cache-dir "${APPDIR}/discord_db" && \
+    pip uninstall -y discord-db
 
-# ---- source layer: the actual packages ----
+# ---- source layer: the actual package ----
 # --no-deps because the layer above already resolved every third-party
-# requirement. The stubs are UNINSTALLED up there rather than overwritten here:
-# leaving them produced both a 0.0.0 dist-info and the real one, and
+# requirement -- including discord_core, pulled transitively from its pinned
+# tag. The stub is UNINSTALLED up there rather than overwritten here: leaving
+# it produced both a 0.0.0 dist-info and the real one, and
 # `importlib.metadata.version()` resolved to the 0.0.0.
-# discord_core/ is its own top-level package as of criterion 8 step 2, so it
-# needs its own line -- copying the legacy root no longer brings the core along.
-# One COPY per root rather than `COPY . ${APPDIR}` on purpose: the whole point
-# of the split is that an image carries the roots it reaches and no others.
+# discord_core is NOT installed here: it already arrived in the layer above
+# from the pinned release tarball named in discord_db's own pyproject.toml,
+# not from this checkout. There is no local-path install of discord_core in
+# this image any more, in any context (dev build, PR CI or a real release
+# push) -- see per-image-code-split.md criterion 8 step 7.
 # discord_db/ replaces the legacy root as of criterion 8 step 4: the pod's own
 # code no longer lives there at all, so this image drops that line entirely
-# rather than keeping it alongside the new one. Each COPY brings its own real
-# VERSION symlink (-> ../VERSION), which is why the plain `COPY VERSION` below
-# has to land before the install, not after: the symlink target does not exist
-# until it does.
+# rather than keeping it alongside the new one. The real VERSION symlink
+# (-> ../VERSION) is why the plain `COPY VERSION` below has to land before the
+# install, not after: the symlink target does not exist until it does.
 COPY discord_db/ "${APPDIR}/discord_db/"
-COPY discord_core/ "${APPDIR}/discord_core/"
 COPY VERSION "${APPDIR}/"
-RUN pip install --no-cache-dir --no-deps "${APPDIR}/discord_core" "${APPDIR}/discord_db" && \
+RUN pip install --no-cache-dir --no-deps "${APPDIR}/discord_db" && \
     chown -R discord:discord "${WORKDIR}" "${LOGFILE}" && \
     rm -rf "${APPDIR}" /root/.cache
 

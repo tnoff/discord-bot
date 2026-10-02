@@ -209,6 +209,32 @@ jobs:
           git fetch --no-tags --quiet origin "${BASE_REF}"
           python3 -m tests.cli._package_versions --base "origin/${BASE_REF}"
 
+  # Criterion 8 step 7: each of the six pods now pins discord_core to a real
+  # released tag in its own pyproject.toml (see tests/cli/_package_pins.py),
+  # rather than installing it from this checkout -- the same shape
+  # `dappertable` already used. Nothing stops a PR from bumping one pod's pin
+  # without the other five, which would leave six pods running different
+  # discord_core releases in production and nothing short of this check would
+  # notice before then. Same shape as `package-versions` above: standard
+  # library only, no install step, diagnostics to stderr, exit code is the
+  # whole contract. Unlike `package-versions`, this does not diff against the
+  # base branch -- it is not "did this PR bump a pin", it is "do the six pins
+  # agree right now", so it checks the working tree directly and needs no
+  # `--base`.
+  package-pins:
+    name: Detect discord_core pin drift
+    needs: metadata
+    if: needs.metadata.outputs.only != 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Check
+        run: python3 -m tests.cli._package_pins
+
   bump-version:
     name: Bump version
     if: startsWith(github.head_ref, 'renovate/dev-')
@@ -253,7 +279,7 @@ jobs:
     # This job always runs and its name never changes, so the ruleset requires
     # exactly one context and the jobs underneath stay free to change.
     if: always()
-    needs: [secrets, tox, changes, build, contracts, metadata, package-versions]
+    needs: [secrets, tox, changes, build, contracts, metadata, package-versions, package-pins]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -267,6 +293,7 @@ jobs:
           echo "build:             ${{ needs.build.result }}"
           echo "contracts:         ${{ needs.contracts.result }}"
           echo "package-versions:  ${{ needs.package-versions.result }}"
+          echo "package-pins:      ${{ needs.package-pins.result }}"
 
       - name: Fail if any job failed
         # `skipped` is deliberately allowed: with allow_fork_prs false a fork
@@ -278,7 +305,8 @@ jobs:
           needs.build.result == 'failure' || needs.build.result == 'cancelled' ||
           needs.contracts.result == 'failure' || needs.contracts.result == 'cancelled' ||
           needs.metadata.result == 'failure' || needs.metadata.result == 'cancelled' ||
-          needs.package-versions.result == 'failure' || needs.package-versions.result == 'cancelled'
+          needs.package-versions.result == 'failure' || needs.package-versions.result == 'cancelled' ||
+          needs.package-pins.result == 'failure' || needs.package-pins.result == 'cancelled'
         run: |
           echo "::error::One or more CI jobs did not pass."
           exit 1

@@ -28,24 +28,27 @@ RUN groupadd -g 1000 discord && \
 # and the expensive install re-runs for a version string. Measured on the
 # dispatcher before and after this split: 24.4s -> 9.6s on a VERSION-only bump.
 #
-# Two packages now, not one: criterion 8 step 5 gave discord_core and each pod
-# its own pyproject.toml. setuptools resolves each one's version via
-# `[tool.setuptools.dynamic]` and will not build without a VERSION file present
-# in ITS OWN directory (setuptools refuses to read outside a package's own
-# root), so a STUB package plus a placeholder VERSION satisfies each. The real
-# ones arrive in the source layer below.
-COPY discord_core/pyproject.toml "${APPDIR}/discord_core/pyproject.toml"
+# One stub package now, not two: criterion 8 step 7 gave discord_broker a
+# real, declared `discord-core @ <tagged tarball>` dependency in its own
+# pyproject.toml (the same shape `dappertable` already uses below it), so
+# installing the stub below pulls discord_core in transitively from that
+# pinned release, the same way it already pulls dappertable. setuptools
+# resolves the version via `[tool.setuptools.dynamic]` and will not build
+# without a VERSION file present in the package's own directory (setuptools
+# refuses to read outside a package's own root), so a STUB package plus a
+# placeholder VERSION satisfies it. The real one arrives in the source layer
+# below.
 COPY discord_broker/pyproject.toml "${APPDIR}/discord_broker/pyproject.toml"
 
-# Installs discord_core (the shared set: boto3 for the S3 checkout is here now,
-# not on this package) plus discord_broker's own (dappertable, for bundle
-# rendering) -- both path installs, not extras. NOT SQLAlchemy, asyncpg or
-# alembic -- the video-cache catalog is read over HTTP from the db pod as of
-# #927, so this image holds no database engine at all. It used to install
-# [bot], which meant carrying yt-dlp and all three search clients into a pod
-# that neither downloads nor searches. Both packages' own deps now match the
-# measured import set; the import boundary in
-# tests/cli/test_import_boundaries.py asserts the other direction.
+# Installs discord_broker's own declared dependencies -- dappertable, for
+# bundle rendering, and now discord_core too, pulled from its pinned tag
+# rather than this checkout. NOT SQLAlchemy, asyncpg or alembic -- the
+# video-cache catalog is read over HTTP from the db pod as of #927, so this
+# image holds no database engine at all. It used to install [bot], which
+# meant carrying yt-dlp and all three search clients into a pod that neither
+# downloads nor searches. This package's own deps now match the measured
+# import set; the import boundary in tests/cli/test_import_boundaries.py
+# asserts the other direction.
 # INSTALL_HEAPTRACK bakes the native heap profiler in for a diagnostic build
 # (default off) — see docker/entrypoint.sh + the :heaptrack CI job.
 ARG INSTALL_HEAPTRACK=false
@@ -55,37 +58,36 @@ RUN apt-get update && \
         apt-get install -y --no-install-recommends heaptrack; \
     fi && \
     rm -rf /var/lib/apt/lists/* && \
-    mkdir -p "${APPDIR}/discord_core" "${APPDIR}/discord_broker" && \
-    : > "${APPDIR}/discord_core/__init__.py" && \
+    mkdir -p "${APPDIR}/discord_broker" && \
     : > "${APPDIR}/discord_broker/__init__.py" && \
-    echo "0.0.0" > "${APPDIR}/discord_core/VERSION" && \
     echo "0.0.0" > "${APPDIR}/discord_broker/VERSION" && \
-    pip install "${APPDIR}/discord_core" "${APPDIR}/discord_broker" && \
-    pip uninstall -y discord-core discord-broker && \
+    pip install "${APPDIR}/discord_broker" && \
+    pip uninstall -y discord-broker && \
     apt-get remove -y git && apt-get autoremove -y
 
-# ---- source layer: the actual packages ----
+# ---- source layer: the actual package ----
 # --no-deps because the layer above already resolved every third-party
-# requirement. The stubs are UNINSTALLED up there rather than overwritten here:
-# leaving them produced both a 0.0.0 dist-info and the real one, and
+# requirement -- including discord_core, pulled transitively from its pinned
+# tag. The stub is UNINSTALLED up there rather than overwritten here: leaving
+# it produced both a 0.0.0 dist-info and the real one, and
 # `importlib.metadata.version()` resolved to the 0.0.0.
-# discord_core/ is its own top-level package as of criterion 8 step 2, so it
-# needs its own line -- copying the legacy root no longer brings the core along.
-# One COPY per root rather than `COPY . ${APPDIR}` on purpose: the whole point
-# of the split is that an image carries the roots it reaches and no others.
+# discord_core is NOT installed here: it already arrived in the layer above
+# from the pinned release tarball named in discord_broker's own
+# pyproject.toml, not from this checkout. There is no local-path install of
+# discord_core in this image any more, in any context (dev build, PR CI or a
+# real release push) -- see per-image-code-split.md criterion 8 step 7.
 # discord_broker/ replaces the legacy root as of criterion 8 step 4: the pod's
 # own code no longer lives there at all, so this image drops that line
 # entirely rather than keeping it alongside the new one. The broker SEAM
 # (the contract broker's own server implements) folded into discord_core/
-# as of criterion 8's seam-fold reversal, so there is no longer a separate
-# line for it here -- discord_core/ above already carries it. Each COPY brings
-# its own real VERSION symlink (-> ../VERSION), which is why the plain `COPY
-# VERSION` below has to land before the install, not after: the symlink target
-# does not exist until it does.
+# as of criterion 8's seam-fold reversal, so there is no separate line for it
+# here either -- the pinned discord_core install above already carries it.
+# The real VERSION symlink (-> ../VERSION) is why the plain `COPY VERSION`
+# below has to land before the install, not after: the symlink target does
+# not exist until it does.
 COPY discord_broker/ "${APPDIR}/discord_broker/"
-COPY discord_core/ "${APPDIR}/discord_core/"
 COPY VERSION "${APPDIR}/"
-RUN pip install --no-deps "${APPDIR}/discord_core" "${APPDIR}/discord_broker"
+RUN pip install --no-deps "${APPDIR}/discord_broker"
 
 # Set ownership of directories that need to be writable by the discord user
 # Must be done BEFORE switching to discord user
