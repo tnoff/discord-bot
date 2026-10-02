@@ -169,42 +169,6 @@ spec:
     - api:default/database
 
 ---
-# The nightly backup, declared here rather than in docker-apps where its CronJob
-# manifest lives.
-#
-# The manifest is apps/discord/db-sqlite-backup-cronjob.yaml over there (CronJob
-# discord-db-sqlite-backup), and it runs an image built by neither repo
-# (iad.ocir.io/tnoff/database_backup). The datastores it reads and writes
-# (discord-sqlite, discord-database-backups-bucket) are now declared in
-# docker-apps with the rest of the discord System's infrastructure; this
-# Component is left here for now and could follow them. The entity name predates
-# the move off Postgres and is kept so the dependsOn edges into it still resolve.
-#
-# Known wrinkle, pre-existing rather than new: AnnotateScmSlugEntityProcessor
-# derives the slug from the location a file was fetched from, so this Component
-# gets github.com/project-slug: tnoff/discord-bot even though its manifest and its
-# image come from elsewhere. Was also true of the discord datastore Resources,
-# before they moved to docker-apps. Worth knowing before the Kubernetes or GitHub plugins are pointed
-# at these.
-apiVersion: backstage.io/v1alpha1
-kind: Component
-metadata:
-  name: discord-database-backup
-  description: >-
-    Nightly SQLite backup of discord-db's `/data/discord.db` to object storage, 11:30 UTC, in
-    the `discord` namespace (CronJob `discord-db-sqlite-backup`). Runs
-    iad.ocir.io/tnoff/database_backup and mounts the discord-db-data volume on the db pod's
-    node. Until 2026-10-02 this was a `pg_dump` of the old discord Postgres.
-spec:
-  type: service
-  owner: group:default/admin
-  lifecycle: production
-  system: discord
-  dependsOn:
-    - component:default/database-backup
-    - resource:default/discord-database-backups-bucket
-    - resource:default/discord-sqlite
----
 # The six API entities, one per SERVED SURFACE, and the OpenAPI documents behind
 # them are generated -- tests/routes/test_openapi_docs.py reads each server's
 # built aiohttp router, the same source GET /_contract/routes reads. A pod and
