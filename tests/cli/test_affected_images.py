@@ -11,7 +11,6 @@ happens to look like today, so a regression would change the fixture and the
 expectation together and assert nothing.
 '''
 import json
-from fnmatch import fnmatch
 
 import pytest
 
@@ -283,32 +282,21 @@ def test_generated_closure_covers_every_image_the_matrix_needs():
         )
 
 
-def test_every_declared_root_matches_release_yml_glob():
-    """`release.yml`'s `case` glob has to recognise every declared root.
+def test_release_yml_gates_each_push_on_its_own_image():
+    """`release.yml` must ask `_affected_images` and gate every push per image.
 
-    It is a single boolean gating all six pushes, and a path it does not match
-    sets `image=false`: no release build, no error, nothing published. That is
-    the 2026-09-04 finding's shape -- a green run that shipped nothing for four
-    days because nothing was looking -- and it is the one path-keyed reader in
-    this repo whose failure mode is silence rather than an orphan.
-
-    Asserted against the pattern in the workflow rather than against a copy of
-    it here, so the two cannot drift.
+    It used to be one boolean over a `case` glob gating all six pushes, so a
+    change confined to discord_db (#1017) pushed and bumped all six images.
+    The pairing is read from the workflow rather than restated here, so adding
+    an image to the closure without a gated `push-<image>` job fails.
     """
     workflow = (REPO_ROOT / '.github/workflows/release.yml').read_text(encoding='utf-8')
-    patterns = [line.strip().rstrip(')').strip()
-                for line in workflow.splitlines()
-                if line.strip().endswith(')') and 'pyproject.toml|VERSION' in line]
-    assert len(patterns) == 1, f'expected one image-input case arm, found {patterns}'
-    arms = patterns[0].split('|')
-    assert len(arms) > 3, f'the case arm stopped looking like a glob list: {arms}'
-    for root in sorted(ROOTS):
-        path = f'{root}/anything.py'
-        assert any(fnmatch(path, arm) for arm in arms), (
-            f'release.yml would not build for a change to {path}.\n'
-            f'  case arms: {arms}\n'
-            'A root the release filter does not match publishes nothing, silently.'
-        )
+    assert 'tests.cli._affected_images' in workflow, 'release.yml no longer uses the shared filter'
+    assert "outputs.image ==" not in workflow, 'a single all-six boolean gate is back'
+    closure = json.loads(CLOSURE_DOC.read_text(encoding='utf-8'))
+    for image in (i['image'] for i in closure['images']):
+        gate = f"contains(fromJSON(needs.changes.outputs.images), '{image}')"
+        assert workflow.count(gate) == 1, f'push job for {image} is not gated on exactly its own image'
 
 
 def test_the_declared_roots_are_exactly_the_packages_on_disk():
