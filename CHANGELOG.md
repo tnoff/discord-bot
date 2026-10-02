@@ -26,7 +26,7 @@ First major release. Apart from the db pod's sqlite support (below), nothing new
 
 ### Changed
 
-- Each of the seven packages now carries its own `VERSION` and is tagged independently (`core-vX.Y.Z`, `bot-vX.Y.Z`, ...), and every pod pins `discord_core` to a released `core-v...` tag. All seven start the 3.x line at 3.0.0 together. The pods stay pinned to `core-v2.5.158` until the `core-v3.0.0` tag exists; re-pinning them is the first follow-up after this release.
+- Each of the seven packages now carries its own `VERSION` and is tagged independently (`core-vX.Y.Z`, `bot-vX.Y.Z`, ...), and every pod pins `discord_core` to a released `core-v...` tag. All seven start the 3.x line at 3.0.0 together, and the pods pin `core-v3.0.0`.
 
 ### Migrating from 2.x
 
