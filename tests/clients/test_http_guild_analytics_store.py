@@ -5,7 +5,7 @@ transport, because the risk in this seam is the wire, not the logic: a
 serialisation mismatch between the two sides passes every unit test and fails in
 prod. That is how the HttpBrokerClient guild_path bug shipped.
 
-The store behind the server is the real GuildAnalyticsClient on a real postgres
+The store behind the server is the real GuildAnalyticsClient on a real SQLite database
 for the round-trip tests, so what is being asserted is that the two
 implementations of one Protocol are actually interchangeable -- not that a fake
 agrees with itself. The failure paths use a stub, because raising

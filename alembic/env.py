@@ -3,18 +3,20 @@ import os
 from logging.config import fileConfig
 
 from sqlalchemy import pool
-from sqlalchemy.engine.url import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from alembic import context
 
+from discord_db.cli._lib.db_url import POSTGRES, async_url
 from discord_db.database import BASE
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
-# Convert the URL to the asyncpg driver. PostgreSQL is the only supported backend.
+# Convert the URL to the async driver. PostgreSQL and SQLite are supported; the
+# mapping lives in discord_db/cli/_lib/db_url.py so this and the serving engine
+# cannot disagree about which DSNs are valid.
 #
 # config.attributes first, then the environment. The in-process runner
 # (discord_db/cli/_lib/migrations.py) passes the DSN the pod is already
@@ -25,13 +27,8 @@ config = context.config
 # tests/test_alembic_chain.py) sets no attribute and keeps reading the variable.
 _database_url = config.attributes.get("database_url") or os.environ.get("DATABASE_URL")
 if not _database_url:
-    raise RuntimeError("DATABASE_URL must be set to a postgresql:// connection string")
-_raw_url = make_url(_database_url)
-if not _raw_url.drivername.startswith("postgresql"):
-    raise RuntimeError(
-        f"Unsupported database driver {_raw_url.drivername!r}; only postgresql is supported"
-    )
-_async_url = _raw_url.set(drivername="postgresql+asyncpg")
+    raise RuntimeError("DATABASE_URL must be set to a postgresql:// or sqlite:// connection string")
+_async_url = async_url(_database_url)
 
 # Interpret the config file for Python logging.
 #
@@ -100,7 +97,12 @@ def _do_run_migrations(connection):
         # read after acquiring the lock takes a fresh snapshot and sees the
         # winner's commit. Under REPEATABLE READ the loser would read a stale
         # version and try to re-apply what just landed.
-        connection.exec_driver_sql(f"SELECT pg_advisory_xact_lock({MIGRATION_LOCK_KEY})")
+        #
+        # Postgres only. SQLite has no advisory locks, and does not need one: it
+        # is a single-file database for a single pod, and its writer lock
+        # already serializes two upgrades.
+        if connection.dialect.name == POSTGRES:
+            connection.exec_driver_sql(f"SELECT pg_advisory_xact_lock({MIGRATION_LOCK_KEY})")
         context.run_migrations()
 
 

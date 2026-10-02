@@ -14,11 +14,10 @@ from discord import ChannelType
 from discord.errors import NotFound
 import pytest
 import pytest_asyncio
-from sqlalchemy import text
-from sqlalchemy.pool import NullPool
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker, AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, AsyncEngine
 
 from discord_core.cogs.music_helpers.common import SearchType
+from discord_core.utils.common import GeneralConfig
 from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchResult
@@ -37,6 +36,7 @@ from discord_core.types.fetched_message import FetchedMessage
 from discord_gateway.clients.database_stores import DatabaseStores
 from discord_search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
+from discord_db.cli._lib.db import setup_db
 from discord_db.clients.guild_analytics_client import GuildAnalyticsClient
 from discord_db.clients.markov_client import MarkovClient
 from discord_db.clients.playlist_client import PlaylistClient
@@ -162,16 +162,17 @@ def fake_media_download(file_dir: Path, media_request: Optional[MediaRequest] = 
         media_request)
         yield media_download
 
-_TRUNCATE_TABLES = ', '.join(f'"{t.name}"' for t in BASE.metadata.sorted_tables)
-
 
 @pytest_asyncio.fixture(scope="function")
-async def fake_engine(pg_test_db_url) -> AsyncGenerator[AsyncEngine, None]:
-    '''Async postgres engine with the bot schema, wiped clean before each test.'''
-    engine = create_async_engine(pg_test_db_url, poolclass=NullPool)
-    if _TRUNCATE_TABLES:
-        async with engine.begin() as conn:
-            await conn.execute(text(f'TRUNCATE {_TRUNCATE_TABLES} RESTART IDENTITY CASCADE'))
+async def fake_engine(fake_db_dsn) -> AsyncGenerator[AsyncEngine, None]:  #pylint:disable=redefined-outer-name
+    '''Async SQLite engine with the bot schema, fresh for each test.
+
+    Built by `setup_db`, so the engine under test is the one the db pod builds,
+    pragmas and all.
+    '''
+    engine = setup_db(GeneralConfig(sql_connection_statement=fake_db_dsn))
+    async with engine.begin() as conn:
+        await conn.run_sync(BASE.metadata.create_all)
     try:
         yield engine
     finally:

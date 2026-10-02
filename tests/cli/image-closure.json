@@ -259,6 +259,7 @@
         "discord_db.cli",
         "discord_db.cli._lib",
         "discord_db.cli._lib.db",
+        "discord_db.cli._lib.db_url",
         "discord_db.cli._lib.migrations",
         "discord_db.cli.database",
         "discord_db.clients",

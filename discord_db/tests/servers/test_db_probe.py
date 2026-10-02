@@ -35,7 +35,7 @@ def _engine(*, connect_error=None, execute_error=None):
 
 
 @pytest.mark.asyncio
-async def test_ping_true_against_real_postgres(fake_engine):  # pylint: disable=redefined-outer-name
+async def test_ping_true_against_a_real_database(fake_engine):  # pylint: disable=redefined-outer-name
     '''The success path runs against a real engine, not a mock returning True.'''
     assert await db_ping(fake_engine) is True
 

@@ -68,17 +68,6 @@ jobs:
     if: needs.metadata.outputs.only != 'true'
     uses: tnoff/github-workflows/.github/workflows/trufflehog.yml@dddd091a6a69e8bf070f63863d59c04bb4a5db63
 
-  # The suite has no sqlite fallback. tox.ini sets
-  # POSTGRES_TEST_HOST = {env:POSTGRES_TEST_HOST:localhost}, so the variable is
-  # always set under tox and conftest always takes its `noproc` branch --
-  # meaning it connects to a REAL server at localhost:5432 as postgres/postgres.
-  #
-  # extra_apt alone cannot deliver that: apt gives you a server, not one
-  # reachable over TCP with that password. tests/start_postgres_for_ci.sh does
-  # the cluster start and the ALTER USER, but it guards on `id -u` = 0 and
-  # exits 0 silently otherwise -- which was invisible on GitLab, where the
-  # runner was root inside python:*-slim, and would silently skip here. Hence
-  # pre_commands with sudo (github-workflows#38).
   tox:
     name: Tox
     needs: metadata
@@ -89,8 +78,7 @@ jobs:
       # ci-base-images base. Two tests shell out to it directly
       # (FileNotFoundError: 'ffmpeg'), which is what the first run of this
       # workflow caught: 2 failed, 2184 passed.
-      extra_apt: 'postgresql ffmpeg'
-      pre_commands: 'sudo sh tests/start_postgres_for_ci.sh'
+      extra_apt: 'ffmpeg'
 
   # Which images this PR can actually change.
   #

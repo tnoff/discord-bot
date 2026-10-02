@@ -64,10 +64,8 @@ does not require bumping every pod's `VERSION` too, since every pod still
 installs `discord_core` from the live checkout path rather than a pinned
 release, so there is nothing downstream to re-pin.
 
-The test suite uses `pytest-postgresql`, which expects `pg_ctl` and friends
-on `PATH`. Install the system postgres binaries (`apt install postgresql`
-or `brew install postgresql`) or run `docker compose -f docker/docker-compose.multiprocess.yml up -d postgres`
-before running the suite.
+Database tests run on SQLite (see `fake_engine` below), so the suite needs no
+database server and nothing to start before running it.
 
 ## Running the bot
 
@@ -284,8 +282,11 @@ engine at all. Cogs reach data through the HTTP store wrappers in
 which call the `discord-db` pod over HTTP.
 
 The only package with a real SQLAlchemy engine is `discord_db` itself.
-SQLAlchemy 2.x, fully async (`AsyncEngine`, asyncpg). PostgreSQL is the only
-supported backend. Code that runs inside `discord_db` opens a session via
+SQLAlchemy 2.x, fully async (`AsyncEngine`; asyncpg or aiosqlite). PostgreSQL
+and SQLite are both supported backends, so anything written inside `discord_db`
+has to behave the same on both: no `FOR UPDATE` for correctness (SQLite drops
+it; use an atomic `UPDATE`), no dialect-specific SQL, and use `UTCDateTime`
+(not `DateTime`) for timestamps so SQLite reads back aware UTC like postgres. Code that runs inside `discord_db` opens a session via
 `with_db_session()` (`discord_db/cli/database.py`):
 
 ```python
@@ -340,7 +341,7 @@ Shared fixtures and fakes are in `tests/helpers.py`:
 | Name | Kind | What it provides |
 |------|------|------------------|
 | `fake_context` | fixture | dict with `bot/guild/author/channel/context` |
-| `fake_engine` | fixture | `AsyncEngine` against a session-scoped postgres (via `pytest-postgresql`); tables truncated per test |
+| `fake_engine` | fixture | SQLite `AsyncEngine` built by `setup_db` over a fresh temp file, schema from `create_all` |
 | `async_mock_session` | async ctx mgr | `AsyncSession` bound to `fake_engine` |
 | `fake_bot_yielder` | factory | `fake_bot_yielder(channels=[...])() → FakeBot` |
 | `generate_fake_context` | non-fixture | inline equivalent of `fake_context` |

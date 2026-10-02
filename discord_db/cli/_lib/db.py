@@ -9,16 +9,18 @@ import sys
 
 from opentelemetry import trace
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-from sqlalchemy.engine.url import make_url
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from discord_core.utils.common import GeneralConfig
+
+from discord_db.cli._lib.db_url import SQLITE, async_url, backend_name, is_in_memory_sqlite
 
 
 def setup_db(general_config: GeneralConfig):
     '''Create the async DB engine and return it, or None when no DSN is set.
 
-    PostgreSQL is the only supported backend; non-postgres drivernames raise.
+    PostgreSQL and SQLite are supported; any other drivername raises.
 
     **It does not build a schema, and the docstring said it did for a long
     time.** This used to run BASE.metadata.create_all in a throwaway thread --
@@ -43,12 +45,10 @@ def setup_db(general_config: GeneralConfig):
     if not general_config.sql_connection_statement:
         print('Unable to find sql statement in settings, assuming no db', file=sys.stderr)
         return None
-    url = make_url(general_config.sql_connection_statement)
-    if not url.drivername.startswith('postgresql'):
-        raise ValueError(
-            f'Unsupported database driver {url.drivername!r}; only postgresql is supported'
-        )
-    url = url.set(drivername='postgresql+asyncpg')
+    backend = backend_name(general_config.sql_connection_statement)
+    url = async_url(general_config.sql_connection_statement)
+    if backend == SQLITE:
+        return _sqlite_engine(url)
     # Pooled. This was poolclass=NullPool, which opened and closed a physical
     # connection for every session -- prod span metrics show `connect` and
     # `SELECT` at the same rate on all three pods, one dial per statement.
@@ -89,6 +89,38 @@ def setup_db(general_config: GeneralConfig):
         pool_size=5,
         max_overflow=10,
     )
+    return engine
+
+
+def _sqlite_engine(url):
+    '''Build the engine for a SQLite file (or in-memory) database.
+
+    None of the postgres pool tuning applies. SQLAlchemy gives an in-memory
+    database a single shared connection and rejects pool_size/max_overflow for
+    it outright, and a file needs no pre-ping or recycle -- there is no server
+    to restart underneath a held connection.
+
+    Two things SQLite does not do by default, both set per connection:
+    foreign keys are not enforced until `PRAGMA foreign_keys=ON`, and a writer
+    that meets another writer fails at once instead of waiting. The db pod
+    serves requests concurrently, so the 30s busy timeout is what turns a brief
+    write overlap into a short wait rather than "database is locked". WAL lets
+    readers proceed during a write; it is meaningless for in-memory.
+
+    url : Async SQLite URL
+    '''
+    engine = create_async_engine(url)
+    in_memory = is_in_memory_sqlite(url)
+
+    @event.listens_for(engine.sync_engine, 'connect')
+    def _set_pragmas(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute('PRAGMA foreign_keys=ON')
+        cursor.execute('PRAGMA busy_timeout=30000')
+        if not in_memory:
+            cursor.execute('PRAGMA journal_mode=WAL')
+        cursor.close()
+
     return engine
 
 
