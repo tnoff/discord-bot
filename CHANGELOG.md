@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [3.0.0] - 2026-10-02
 
-First major release. Nothing new ships in it: every breaking change below already landed in 2.5.x, and prod has run on the HA topology since the 2026-07-01 broker cutover. 3.0.0 marks the line between the single-process era and the HA-only, per-package era, and collects the breaking changes in one place for anyone running an older config or importing the code.
+First major release. Apart from the db pod's sqlite support (below), nothing new ships in it: every breaking change below already landed in 2.5.x, and prod has run on the HA topology since the 2026-07-01 broker cutover. 3.0.0 marks the line between the single-process era and the HA-only, per-package era, and collects the breaking changes in one place for anyone running an older config or importing the code.
 
 ### Breaking
 
@@ -18,6 +18,10 @@ First major release. Nothing new ships in it: every breaking change below alread
 - **The `discord_bot` import root no longer exists** (2.5.150 - 2.5.153). The code now lives in seven packages: `discord_core`, plus the six pods `discord_gateway`, `discord_dispatcher`, `discord_broker`, `discord_db`, `discord_downloader` and `discord_search`. The deployed image names, OCI repo paths and console scripts are unchanged; only Python import paths moved. The five seam packages (`discord_seam_*`) were folded into `discord_core` along the way (2.5.154 - 2.5.158).
 - **Installed extras changed.** `[database]` left the bot and broker images (2.5.136, 2.5.137): SQLAlchemy, asyncpg and alembic are installed only in `discord-db`. Anything that relied on the bot holding a database connection must go through the `discord-db` HTTP API; cogs now receive a `DatabaseStores` bundle (`self.stores`) in place of `db_engine`.
 - **Metrics removed.** The bot-side `music.download_result_queue_depth` and `music.search_result_queue_depth` gauges are gone (2.5.92); query the broker's series (`job="discord-broker"`) instead.
+
+### Added
+
+- **The db pod can run on SQLite as well as postgres.** The DSN picks the backend: `postgresql://` (asyncpg) or `sqlite:///` (aiosqlite), and any other drivername is rejected at boot. A SQLite file that has never been migrated is built from the current models and stamped at head, since the alembic chain was written for postgres and cannot replay on SQLite. Run a single `discord-db` replica against a persistent volume for SQLite. There is no tool to move data between the two backends. Postgres deployments are unchanged. The test suite now runs on SQLite by default, so local runs and CI no longer need a postgres server (`pytest-postgresql` is dropped); the tests that exercise postgres itself are opt-in via `POSTGRES_TEST_HOST` (#1017).
 
 ### Changed
 
