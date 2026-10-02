@@ -82,7 +82,7 @@ missing:
   `RedisManager`; the bot and the db pod do not connect to Redis at all
   (the bot's `redis_manager` constructor param exists but is never wired to
   a real URL in `bot.py::run()`).
-- **DB → Postgres**: the only pod with a database engine; every other pod's
+- **DB → Postgres or SQLite**: the only pod with a database engine; every other pod's
   `[database]` extra was removed along with its SQLAlchemy/asyncpg imports.
 
 This is the only pod-to-pod picture — it's hand-drawn, but every edge on it

@@ -5,6 +5,37 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-10-02
+
+First major release. Apart from the db pod's sqlite support (below), nothing new ships in it: every breaking change below already landed in 2.5.x, and prod has run on the HA topology since the 2026-07-01 broker cutover. 3.0.0 marks the line between the single-process era and the HA-only, per-package era, and collects the breaking changes in one place for anyone running an older config or importing the code.
+
+### Breaking
+
+- **Single-process mode is gone** (2.5.89, 2.5.92). `discord-bot` starts the HA gateway process; `cli/full.py`, `docker/docker-compose.yml` and `docker/discord.cnf.example` are deleted, and `docker/docker-compose.multiprocess.yml` is the only supported way to run the bot locally. Nothing falls back to an in-process dispatcher, broker, download worker or search worker any more.
+- **Startup now fails without three config keys** instead of quietly switching to an in-process fallback: `general.dispatch_http_url` (bot), `general.database_http_url` (bot) and `music.broker_client.url` (music cog). The broker pod separately disables its video-cache catalog, with a warning, when `general.database_http_url` is missing (2.5.136).
+- **Inert config keys.** `music.broker_server` and `music.download.cache` in a **bot** config no longer do anything; the broker pod reads the cache keys from its own config (2.5.92).
+- **`discord-bot-min` is removed** (2.5.100). `discord-bot` is the only name for the gateway entrypoint; any manifest still setting `DISCORD_BOT_CMD=discord-bot-min` will CrashLoop on exec.
+- **The `discord_bot` import root no longer exists** (2.5.150 - 2.5.153). The code now lives in seven packages: `discord_core`, plus the six pods `discord_gateway`, `discord_dispatcher`, `discord_broker`, `discord_db`, `discord_downloader` and `discord_search`. The deployed image names, OCI repo paths and console scripts are unchanged; only Python import paths moved. The five seam packages (`discord_seam_*`) were folded into `discord_core` along the way (2.5.154 - 2.5.158).
+- **Installed extras changed.** `[database]` left the bot and broker images (2.5.136, 2.5.137): SQLAlchemy, asyncpg and alembic are installed only in `discord-db`. Anything that relied on the bot holding a database connection must go through the `discord-db` HTTP API; cogs now receive a `DatabaseStores` bundle (`self.stores`) in place of `db_engine`.
+- **Metrics removed.** The bot-side `music.download_result_queue_depth` and `music.search_result_queue_depth` gauges are gone (2.5.92); query the broker's series (`job="discord-broker"`) instead.
+
+### Added
+
+- **The db pod can run on SQLite as well as postgres.** The DSN picks the backend: `postgresql://` (asyncpg) or `sqlite:///` (aiosqlite), and any other drivername is rejected at boot. A SQLite file that has never been migrated is built from the current models and stamped at head, since the alembic chain was written for postgres and cannot replay on SQLite. Run a single `discord-db` replica against a persistent volume for SQLite. Postgres deployments are unchanged. The test suite now runs on SQLite by default, so local runs and CI no longer need a postgres server (`pytest-postgresql` is dropped); the tests that exercise postgres itself are opt-in via `POSTGRES_TEST_HOST` (#1017).
+- **`discord-db <config> --copy-to-sqlite <path>` moves a postgres database into a new SQLite file** instead of serving (#1020). The source is the config's own `sql_connection_statement`. Run it with the db pod stopped: it takes no lock, and fails if any table's row count changed during the copy. It refuses to overwrite an existing file, builds the copy at `<path>.partial` and renames it into place only once every check passes, refuses a source whose tables or columns differ from the models (unless `--allow-extra-tables` for tables the models don't know), copies `alembic_version` verbatim so the next `alembic upgrade head` carries on, and reads every table back to compare row counts and a SHA-256 over the rows in primary-key order. Postgres is left untouched. Going from SQLite back to postgres is not supported.
+
+### Changed
+
+- Each of the seven packages now carries its own `VERSION` and is tagged independently (`core-vX.Y.Z`, `bot-vX.Y.Z`, ...), and every pod pins `discord_core` to a released `core-v...` tag. All seven start the 3.x line at 3.0.0 together, and the pods pin `core-v3.0.0`.
+
+### Migrating from 2.x
+
+1. Deploy the multiprocess topology (gateway, dispatcher, broker, db, downloader, search); there is no single-process path to fall back to.
+2. Set `general.dispatch_http_url` and `general.database_http_url` in the bot config and `music.broker_client.url` in the music cog's config.
+3. Drop any `DISCORD_BOT_CMD=discord-bot-min` override.
+4. Re-point any dashboards that read the bot-side queue-depth gauges at the broker's series.
+5. Update any code importing `discord_bot.*` to the package that now owns the module.
+
 ## [2.5.158] - 2026-09-28
 
 ### Changed

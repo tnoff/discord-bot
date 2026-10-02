@@ -88,10 +88,13 @@ asyncio.get_running_loop().create_task(...)
 
 ### Database URL rewriting is automatic — and only in `discord_db`
 
-The `discord-db` CLI (`discord_db/cli/_lib/db.py`) rewrites `postgresql://` →
-`postgresql+asyncpg://` at startup. PostgreSQL is the only supported backend;
-non-postgres drivernames raise at boot. Config files use the standard
-`postgresql://` URL; don't write `+asyncpg` into config or the rewrite
+The DSN picks the backend. `discord_db/cli/_lib/db_url.py` rewrites
+`postgresql://` → `postgresql+asyncpg://` and `sqlite:///` →
+`sqlite+aiosqlite:///` at startup, shared by the serving engine
+(`discord_db/cli/_lib/db.py`) and `alembic/env.py` so the two cannot disagree.
+PostgreSQL and SQLite are the supported backends; any other drivername raises
+at boot. Config files use the standard `postgresql://` / `sqlite:///` form;
+don't write `+asyncpg` or `+aiosqlite` into config or the rewrite
 double-applies. No other pod does this rewrite, because no other pod opens a
 database connection — `sql_connection_statement` is `discord-db`'s own config
 key, read only there.
@@ -171,7 +174,7 @@ hand-maintained list here):
   `workers/redis_broker.py` / `broker_registry.py` are the Redis-backed
   broker itself.
 - **`discord_db/`** — the `discord-db` pod: the only one with a real
-  PostgreSQL connection. `database.py` holds the SQLAlchemy models;
+  database connection (postgres or sqlite). `database.py` holds the SQLAlchemy models;
   `cli/_lib/migrations.py` runs alembic; `clients/` and `cogs/music_helpers/`
   hold the store implementations the other pods reach over HTTP.
 - **`discord_downloader/`** — the `discord-downloader` pod: yt-dlp downloads.
