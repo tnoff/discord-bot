@@ -15,6 +15,7 @@ import asyncio
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
+from click.testing import CliRunner
 
 from discord_core.cli._lib import common as cli_common
 from discord_core.exceptions import DiscordBotException
@@ -338,7 +339,7 @@ def test_main_reads_config_then_runs(mocker):
                                 return_value=({'general': {}}, 'general-config'))
     run = mocker.patch.object(database_cli, 'run')
 
-    database_cli.main.callback('/etc/discord.cnf')
+    database_cli.main.callback('/etc/discord.cnf', None, False)
 
     parse.assert_called_once_with('/etc/discord.cnf')
     run.assert_called_once_with({'general': {}}, 'general-config')
@@ -390,3 +391,41 @@ def test_migration_failure_stops_the_pod_starting(mocker, fake_engine):  # pylin
 
     run_database.assert_not_called()
     managed.assert_not_called()
+
+
+def test_copy_to_sqlite_replaces_serving(mocker):
+    '''--copy-to-sqlite runs the copy and never starts the server.'''
+    mocker.patch.object(database_cli, 'parse_and_validate_config',
+                        return_value=({'general': {}}, 'general-config'))
+    run = mocker.patch.object(database_cli, 'run')
+    copy = mocker.patch.object(database_cli, 'copy_from_config',
+                               return_value={'guild': (3, 'ab' * 32)})
+    result = CliRunner().invoke(database_cli.main, ['/etc/discord.cnf', '--copy-to-sqlite',
+                                                    '/data/discord.db', '--allow-extra-tables'])
+    assert result.exit_code == 0, result.output
+    copy.assert_called_once_with('general-config', '/data/discord.db', True)
+    run.assert_not_called()
+    assert 'guild: 3 rows, sha256 abababababababab' in result.output
+    assert 'Verified and wrote /data/discord.db' in result.output
+
+
+def test_copy_to_sqlite_failure_is_a_clean_error(mocker):
+    '''A refusal prints one line and exits non-zero instead of a traceback.'''
+    mocker.patch.object(database_cli, 'parse_and_validate_config',
+                        return_value=({'general': {}}, 'general-config'))
+    mocker.patch.object(database_cli, 'copy_from_config',
+                        side_effect=DiscordBotException('/data/discord.db already exists'))
+    result = CliRunner().invoke(database_cli.main, ['/etc/discord.cnf', '--copy-to-sqlite',
+                                                    '/data/discord.db'])
+    assert result.exit_code == 1
+    assert 'Error: /data/discord.db already exists' in result.output
+    assert 'Traceback' not in result.output
+
+
+def test_allow_extra_tables_needs_the_copy_flag(mocker):
+    '''The modifier alone is a usage error, so it cannot be mistaken for doing something.'''
+    parse = mocker.patch.object(database_cli, 'parse_and_validate_config')
+    result = CliRunner().invoke(database_cli.main, ['/etc/discord.cnf', '--allow-extra-tables'])
+    assert result.exit_code == 2
+    assert 'only applies with --copy-to-sqlite' in result.output
+    parse.assert_not_called()
