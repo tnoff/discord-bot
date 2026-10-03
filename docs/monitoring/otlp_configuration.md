@@ -117,8 +117,8 @@ general:
     otlp:
       enabled: true
     tracing:
-      # servers/db_probe.py — the kubelet's postgres liveness probe. Was 100%
-      # of the discord-db pod's trace volume. Turn OFF while postgres is
+      # servers/db_probe.py — the kubelet's database liveness probe. Was 100%
+      # of the discord-db pod's trace volume. Turn OFF while the database is
       # flapping: these spans are the per-probe record of it, and the
       # database.ready_check alert in docker-apps has no detail view without
       # them.

@@ -178,7 +178,7 @@ Configure with:
 
 Every pod ships an image-level Docker `HEALTHCHECK`, but only the bot pod's
 config toggle below actually drives one that exercises real health-check
-logic (Redis ping, postgres `SELECT 1`, loop health) rather than a bare TCP
+logic (Redis ping, database `SELECT 1`, loop health) rather than a bare TCP
 probe — see [Health server documentation](./monitoring/health_server.md#docker-integration)
 for that distinction and the full endpoint reference.
 

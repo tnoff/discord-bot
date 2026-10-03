@@ -1,4 +1,4 @@
-'''Tests for db_ping — the database liveness probe both health servers run.
+'''Tests for db_ping — the database liveness probe the db pod's health server runs.
 
 Moved here from tests/servers/test_health_server.py when the eight duplicated
 lines were extracted: the behaviour is unchanged, it just lives where the code

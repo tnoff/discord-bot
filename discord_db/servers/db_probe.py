@@ -1,10 +1,10 @@
 '''
 The database liveness probe, shared by the health servers that run one.
 
-Two servers ping postgres to decide whether they are healthy: the bot's, where
-the database is one input alongside the gateway connection, and the db pod's,
-where it is the whole answer. The eight lines were identical and pylint's
-duplicate-code check caught the second copy -- correctly, because the part worth
+The db pod's health server pings its database (postgres or SQLite, whichever the
+DSN names) to decide whether it is healthy; it is the whole answer there. The bot
+used to run the same probe as one input alongside the gateway connection, until it
+stopped holding an engine. The probe is still its own module because the part worth
 getting right is the bare `except`: a probe that propagates instead of returning
 False kills the health server itself, and the kubelet then sees a hanging socket
 rather than a 503.
@@ -44,7 +44,7 @@ async def db_ping(db_engine, suppress_auto_instrumentation: bool = True) -> bool
 
     The suppression is now a toggle rather than a build-time decision, because
     the reason to suppress these spans is volume and the reason to want them
-    back is an incident: they are the per-probe record of postgres flapping, and
+    back is an incident: they are the per-probe record of the database flapping, and
     docker-apps alerts on exactly that condition. Restoring them used to mean an
     image build and a pod roll. Default True -- unchanged behaviour.
 
