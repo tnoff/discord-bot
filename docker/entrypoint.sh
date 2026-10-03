@@ -5,7 +5,7 @@ if [ -n "${EXTRA_PIP_PACKAGES}" ]; then
     pip install --user ${EXTRA_PIP_PACKAGES}
 fi
 
-cmd=("${DISCORD_BOT_CMD:-discord-bot}" "$@")
+cmd=("${DISCORD_BOT_CMD:-discord-gateway}" "$@")
 
 # Opt-in native heap profiling. tracemalloc only sees Python allocations; when
 # RSS climbs while the Python heap stays flat the leak is native/C-extension,

@@ -1,7 +1,7 @@
 # Setup
 
-This project is made up of six pods that work together: `discord-bot` (gateway,
-cogs, commands), `discord-dispatcher`, `discord-db`, `discord-broker`,
+This project is made up of six pods that work together: `discord-gateway` (Discord
+gateway, cogs, commands), `discord-dispatcher`, `discord-db`, `discord-broker`,
 `discord-downloader`, and `discord-search`. It is not a standalone install —
 assume all six need to be built and running. See [HA architecture](./architecture.md)
 for what each pod does and how they talk to each other.
