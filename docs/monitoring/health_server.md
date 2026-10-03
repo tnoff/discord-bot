@@ -9,7 +9,7 @@ implementations, not two:
 |---|---|---|
 | `discord-bot` (gateway) | `HealthServer` (`discord_gateway/servers/health_server.py`) | Discord connection + TCP probes of its `dispatch_http_url`/`database_http_url` peers |
 | `discord-dispatcher`, `discord-broker`, `discord-downloader`, `discord-search` | `RedisPingHealthServer` (`discord_core/servers/redis_health_server.py`, built via `discord_core/cli/_lib/worker_pod.py` for the two worker pods) | Redis ping |
-| `discord-db` | `DatabasePingHealthServer` (`discord_db/servers/database_health_server.py`) | Postgres `SELECT 1` |
+| `discord-db` | `DatabasePingHealthServer` (`discord_db/servers/database_health_server.py`) | Database `SELECT 1` (postgres or SQLite) |
 
 ## Bot (gateway) health server
 
@@ -82,11 +82,11 @@ Same path/port as the bot server.
 ## `discord-db` health server
 
 `DatabasePingHealthServer` (`discord_db/servers/database_health_server.py`)
-runs `SELECT 1` against postgres — this is the one pod in the fleet whose
+runs `SELECT 1` against its database (postgres or SQLite, per the DSN) — this is the one pod in the fleet whose
 liveness rests on the database alone, since it is the only pod that holds an
 engine at all.
 
-| Postgres state | HTTP status | Body |
+| Database state | HTTP status | Body |
 |---|---|---|
 | `SELECT 1` succeeds | `200 OK` | `{"status": "ok", "db": "ok"}` |
 | `SELECT 1` fails | `503 Service Unavailable` | `{"status": "unavailable", "db": "unavailable"}` |
@@ -134,7 +134,7 @@ The other five (`Dockerfile.dispatcher`, `.broker`, `.db`, `.downloader`,
 instead (8082, 8081, 8085, 8083, 8084 respectively) — e.g.
 `socket.create_connection(('localhost', 8082), timeout=5)` for the
 dispatcher. That confirms something is listening on the port; it does not
-exercise the health server's `/health`/`/ready` logic (Redis ping, postgres
+exercise the health server's `/health`/`/ready` logic (Redis ping, database
 `SELECT 1`, loop health) the way the bot image's check does.
 
 Port `8080` is declared with `EXPOSE 8080` on the bot image; each of the

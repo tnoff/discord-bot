@@ -1,7 +1,7 @@
 '''
 HTTP health server for the standalone persistence process.
 
-The db pod is healthy when postgres answers, and that is the whole check --
+The db pod is healthy when its database answers, and that is the whole check --
 there is no gateway connection, no Redis and no consumer loop to fold in. It is
 the first pod in the fleet whose liveness rests on the database alone, which is
 the point of the tier: the bot and broker stop holding an engine, so the thing
@@ -24,7 +24,7 @@ class DatabasePingHealthServer(HealthServerBase):
     '''
     Lightweight HTTP health endpoint for the persistence process.
 
-    Responds 200 {"status": "ok", "db": "ok"} when postgres answers SELECT 1,
+    Responds 200 {"status": "ok", "db": "ok"} when the database answers SELECT 1,
     503 {"status": "unavailable", "db": "unavailable"} otherwise.
 
     db_engine : AsyncEngine the pod serves its stores from
@@ -33,7 +33,7 @@ class DatabasePingHealthServer(HealthServerBase):
     suppress_db_probe_auto_instrumentation : passed to db_ping; False re-emits the
         probe's connect + SELECT spans. This pod is where the toggle matters most --
         the probe was 100% of its trace volume, so suppressing it left the
-        docker-apps postgres-reachability alert with nothing to drill into.
+        docker-apps database-reachability alert with nothing to drill into.
     '''
 
     POD_NAME: ClassVar[str] = 'database'
