@@ -7,7 +7,7 @@ implementations, not two:
 
 | Pod(s) | Class | What it checks |
 |---|---|---|
-| `discord-bot` (gateway) | `HealthServer` (`discord_gateway/servers/health_server.py`) | Discord connection + TCP probes of its `dispatch_http_url`/`database_http_url` peers |
+| `discord-gateway` | `HealthServer` (`discord_gateway/servers/health_server.py`) | Discord connection + TCP probes of its `dispatch_http_url`/`database_http_url` peers |
 | `discord-dispatcher`, `discord-broker`, `discord-downloader`, `discord-search` | `RedisPingHealthServer` (`discord_core/servers/redis_health_server.py`, built via `discord_core/cli/_lib/worker_pod.py` for the two worker pods) | Redis ping |
 | `discord-db` | `DatabasePingHealthServer` (`discord_db/servers/database_health_server.py`) | Postgres `SELECT 1` |
 
@@ -148,7 +148,7 @@ the port:
 docker run -d \
   -p 8080:8080 \
   -v /path/to/discord.cnf:/opt/discord/cnf/discord.cnf:ro \
-  discord-bot
+  discord-gateway
 ```
 
 ## Implementation notes

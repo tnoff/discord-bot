@@ -43,7 +43,7 @@ jobs:
   #
   # This used to be one boolean over `discord_*/*|alembic/*|docker/*|
   # pyproject.toml|VERSION` gating all six push jobs, so a change confined to
-  # discord_db (#1017) still pushed and bumped bot, dispatcher, broker,
+  # discord_db (#1017) still pushed and bumped gateway, dispatcher, broker,
   # downloader and search. ci.yml's `changes` job had already moved to a
   # per-image answer; this one was never wired to it, so the saving stopped at
   # the PR and the merge rebuilt everything anyway.
@@ -197,11 +197,11 @@ jobs:
             git push "${remote}" "refs/tags/${tag}"
           done < /tmp/package-roots.txt
 
-  push-bot:
-    name: Push bot image
+  push-gateway:
+    name: Push gateway image
     needs: changes
     if: >-
-      ${{ contains(fromJSON(needs.changes.outputs.images), 'bot')
+      ${{ contains(fromJSON(needs.changes.outputs.images), 'gateway')
           && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
     uses: tnoff/github-workflows/.github/workflows/docker-push.yml@dddd091a6a69e8bf070f63863d59c04bb4a5db63
     with:
@@ -306,14 +306,14 @@ jobs:
       oci_username: ${{ secrets.OCI_USERNAME }}
       oci_token: ${{ secrets.OCI_TOKEN }}
 
-  trigger-bump-bot:
-    name: Trigger docker-apps bump (bot)
-    needs: push-bot
+  trigger-bump-gateway:
+    name: Trigger docker-apps bump (gateway)
+    needs: push-gateway
     uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@dddd091a6a69e8bf070f63863d59c04bb4a5db63
     with:
-      bump_source: discord-bot
-      image: ${{ needs.push-bot.outputs.image }}
-      image_tag: ${{ needs.push-bot.outputs.secondary_tag }}
+      bump_source: discord-gateway
+      image: ${{ needs.push-gateway.outputs.image }}
+      image_tag: ${{ needs.push-gateway.outputs.secondary_tag }}
     secrets:
       app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
       app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}

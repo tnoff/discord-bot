@@ -87,7 +87,7 @@ IMAGE_IMPORTS = {
 }
 
 IMAGE_NAMES = {
-    'discord_gateway.cli.bot': 'discord-bot',
+    'discord_gateway.cli.bot': 'discord-gateway',
     'discord_dispatcher.cli.dispatcher': 'discord-dispatcher',
     'discord_broker.cli.broker': 'discord-broker',
     'discord_downloader.cli.downloader': 'discord-downloader',

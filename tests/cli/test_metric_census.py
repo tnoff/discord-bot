@@ -43,7 +43,7 @@ def test_heartbeat_is_emitted_by_every_pod_that_should():
     '''
     resolved, _exempt = measure()
     heartbeat_pods = {e.pod for e in resolved if e.name == 'heartbeat'}
-    assert heartbeat_pods == {'bot', 'broker', 'dispatcher', 'downloader', 'search'}
+    assert heartbeat_pods == {'gateway', 'broker', 'dispatcher', 'downloader', 'search'}
 
 
 def test_subclass_fanout_resolves_queue_worker_metrics_to_both_pods():

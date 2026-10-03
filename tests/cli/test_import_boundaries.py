@@ -495,7 +495,7 @@ def test_the_all_six_set_is_exactly_declared():
     # one from. The case this line tested -- home_of() resolving a hoisted
     # seam to ('seams', <name>) -- is not broken, it is out of population.
     (f'{CORE_ROOT}.utils.otel', ('core', None)),
-    (f'{SERVICE_ROOTS["bot"]}.cogs.music', ('services', 'bot')),
+    (f'{SERVICE_ROOTS["gateway"]}.cogs.music', ('services', 'gateway')),
     (CORE_ROOT, ('core', None)),
     # No home: the umbrella package, the aggregating folders that do not survive
     # the move, and anything outside a declared root.
@@ -552,8 +552,8 @@ def test_the_layout_rules_fail_the_same_way_under_the_criterion_8_spelling():
     # to a seam home any more -- it would be undeclared, which is a
     # different case than this test exists to check.
     cases = {
-        f'{CORE_ROOT}.thing': {'bot'},
-        f'{SERVICE_ROOTS["bot"]}.thing': {'bot', 'downloader'},
+        f'{CORE_ROOT}.thing': {'gateway'},
+        f'{SERVICE_ROOTS["gateway"]}.thing': {'gateway', 'downloader'},
     }
     for module, reached in cases.items():
         found = layout_violations({module: reached})
@@ -566,7 +566,7 @@ def test_the_layout_rules_fail_the_same_way_under_the_criterion_8_spelling():
     clean = {
         f'{CORE_ROOT}.thing': all_six,
         f'{CORE_ROOT}.subset_shared': set(images[:4]),
-        f'{SERVICE_ROOTS["bot"]}.thing': {'bot'},
+        f'{SERVICE_ROOTS["gateway"]}.thing': {'gateway'},
     }
     assert not layout_violations(clean), 'the respelled rules report a clean map as broken'
 

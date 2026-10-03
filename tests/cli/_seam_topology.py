@@ -207,7 +207,7 @@ def render_block() -> str:
         '**A seam is a route shape, not a pod.** Four of the five are served by exactly',
         'one pod, but `queue_worker` is an abstract base subclassed twice -- at',
         '`/downloads` on the downloader and `/search/ytmusic` on the search pod -- so',
-        '`discord-bot` has two separate dependencies there, not one. The search pod also',
+        '`discord-gateway` has two separate dependencies there, not one. The search pod also',
         'answers two different seams, `media_search` and `queue_worker`, behind one',
         'composite app.',
         '',

@@ -70,10 +70,10 @@ database server and nothing to start before running it.
 ## Running the bot
 
 ```bash
-discord-bot /path/to/config.yml
+discord-gateway /path/to/config.yml
 ```
 
-`discord-bot` (`discord_gateway.cli.bot`) is one of six pods and will not
+`discord-gateway` (`discord_gateway.cli.bot`) is one of six pods and will not
 start on its own — it hard-requires `general.dispatch_http_url` and
 `general.database_http_url` pointing at running `discord-dispatcher` and
 `discord-db` instances (see [docs/configuration.md](docs/configuration.md#database)

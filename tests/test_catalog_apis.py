@@ -68,7 +68,7 @@ NON_SEAM_CONSUMED_APIS = {
     # The release workflow's `bump-image-pin` repository_dispatch to
     # docker-apps -- a GitHub Actions cross-repo call, not an import/HTTP edge
     # any entrypoint measurement walks. See #1010.
-    'discord-bot': {api_ref('image-bump')},
+    'discord-gateway': {api_ref('image-bump')},
 }
 
 
@@ -98,7 +98,7 @@ def test_the_catalog_renders_the_seam_topology():
     Stated as the one edge the project spec names, so this test fails for the
     reason the criterion cares about rather than only on a structural mismatch.
     """
-    assert api_ref('broker') in COMPONENTS['discord-bot']['spec']['consumesApis']
+    assert api_ref('broker') in COMPONENTS['discord-gateway']['spec']['consumesApis']
     assert api_ref('broker') in COMPONENTS['discord-broker']['spec']['providesApis']
     assert api_ref('broker') not in COMPONENTS['discord-broker']['spec']['consumesApis']
 

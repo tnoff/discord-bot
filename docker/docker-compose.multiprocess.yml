@@ -187,7 +187,7 @@ services:
       dockerfile: docker/Dockerfile.gateway
     environment:
       <<: *aws-env
-      DISCORD_BOT_CMD: discord-bot
+      DISCORD_BOT_CMD: discord-gateway
       DISCORD_TOKEN: ${DISCORD_TOKEN}
       SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
       SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}

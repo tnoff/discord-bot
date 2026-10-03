@@ -46,7 +46,7 @@ hand-copied reference has before. Per-cog config (`music.*`, `markov.*`,
 `role.*`, `urban.*`, `delete_messages.*`) is named in the bot pod's block only
 as a pointer; each has its own page (docs/music.md, docs/markov.md, etc.).
 
-### discord-bot
+### discord-gateway
 
 ```
 Configure with:
