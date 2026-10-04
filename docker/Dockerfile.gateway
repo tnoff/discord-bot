@@ -78,8 +78,9 @@ RUN mkdir -p "${APPDIR}/discord_gateway" && \
 # discord_gateway/ replaces the legacy root as of criterion 8 step 4: the
 # pod's own code no longer lives there at all, so this image drops that line
 # entirely rather than keeping it alongside the new one. This is the internal
-# package rename -- the image, the console script and the deployed contract
-# all stay as they were then; only the import root the source lives under changed.
+# package rename -- at the time the image, the console script and the deployed
+# contract stayed `discord-bot` and only the import root changed. They have since
+# been renamed `discord-gateway` too (image repo discord_gateway).
 # The real VERSION symlink (-> ../VERSION) is why the plain `COPY VERSION`
 # below has to land before the install, not after: the symlink target does
 # not exist until it does.
