@@ -64,11 +64,11 @@ CORE_ROOT = 'discord_core'
 #: Service folder -> distribution import root. `bot` becomes `discord_gateway`:
 #: the pod is the Discord gateway connection, the whole cog surface and the HTTP
 #: client hub that fans out to the other five. Renaming the PACKAGE is internal.
-#: The IMAGE and the console script stay `discord-bot`, because that name is the
-#: deployed contract and changing it means a new OCI repo path, new docker-apps
+#: The IMAGE and the console script were renamed from `discord-bot` to
+#: `discord-gateway` afterwards, which meant a new OCI repo path, new docker-apps
 #: manifests and a cutover.
 SERVICE_ROOTS = {
-    'bot': 'discord_gateway',
+    'gateway': 'discord_gateway',
     'broker': 'discord_broker',
     'db': 'discord_db',
     'dispatcher': 'discord_dispatcher',

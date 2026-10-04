@@ -27,7 +27,7 @@ on:
         required: true
         type: choice
         options:
-          - bot
+          - gateway
           - dispatcher
           - broker
 
@@ -35,9 +35,9 @@ permissions:
   contents: read
 
 jobs:
-  bot:
-    name: Push bot heaptrack image
-    if: inputs.image == 'bot'
+  gateway:
+    name: Push gateway heaptrack image
+    if: inputs.image == 'gateway'
     uses: tnoff/github-workflows/.github/workflows/docker-push.yml@dddd091a6a69e8bf070f63863d59c04bb4a5db63
     with:
       registry: ${{ vars.OCI_REGISTRY }}
