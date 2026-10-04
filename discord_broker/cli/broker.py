@@ -64,7 +64,7 @@ DEFAULT_MESSAGE_DELETE_AFTER = 300
 @click.command()
 @click.argument('config_file', type=click.Path(dir_okay=False))
 def main(config_file):
-    '''Run the standalone media broker process (HTTP, Redis state, PostgreSQL).'''
+    '''Run the standalone media broker process (HTTP, Redis state, remote DB).'''
     settings, general_config = parse_and_validate_config(config_file)
     run(settings, general_config)
 

@@ -60,7 +60,7 @@ class MonitoringTracingConfig(BaseModel):
     spans meant editing code, building an image and rolling a pod. That is the
     wrong lifecycle for a control whose whole purpose is to be flipped during an
     incident -- the db probe is the sharp case, since suppressing its spans is
-    what left the postgres-reachability alert in docker-apps without a detail
+    what left the database-reachability alert in docker-apps without a detail
     view.
 
     Every default here reproduces the behaviour that shipped before this block
@@ -76,7 +76,7 @@ class MonitoringTracingConfig(BaseModel):
     # servers/db_probe.py: the kubelet reruns this on a fixed interval, so
     # SQLAlchemy's auto-instrumentation made it a trace stream at the probe
     # period rather than at the rate of real work. Turn off to get the per-probe
-    # record back while postgres is misbehaving.
+    # record back while the database is misbehaving.
     suppress_db_probe_auto_instrumentation: bool = True
     # utils/integrations/egress_probe.py: one requests-backed CLIENT span per
     # exit per tick, and a relay that cannot connect stamps it ERROR for a
