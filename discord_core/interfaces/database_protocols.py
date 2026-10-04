@@ -1,9 +1,9 @@
 '''
-Protocols for the persistence tier — one process owns postgres, callers become
+Protocols for the persistence tier — one process owns the database, callers become
 clients of it (projects/discord-db-tier-extraction).
 
-Postgres access is spread across two processes that were never designed to
-share it: the bot holds playlists, guild analytics and markov, the broker holds
+Database access was spread across two processes that were never designed to
+share it: the bot held playlists, guild analytics and markov, the broker held
 the video-cache catalog. Neither owns the schema. The end state is a
 `discord-db` pod that does, with both of today's holders talking to it over
 HTTP.
