@@ -2,7 +2,7 @@
 HTTP server for the persistence tier — the db pod's route family.
 
 Fronts the stores from interfaces/database_protocols.py so the bot and the
-broker can read and write postgres without either of them holding an engine.
+broker can read and write the database without either of them holding an engine.
 MR 2 of projects/discord-db-tier-extraction, and **inert**: nothing constructs
 this yet. The entrypoint that does is MR 3.
 
