@@ -20,7 +20,7 @@ assumptions about this repo, it's stale; check the current tree instead.
 
 | Topic | Location |
 |-------|----------|
-| Bot (gateway) entry-point — the `discord-bot` process: gateway connection + cogs, HTTP client of every other pod | `discord_gateway/cli/bot.py` (registered as `discord-bot`) |
+| Bot (gateway) entry-point — the `discord-gateway` process: gateway connection + cogs, HTTP client of every other pod | `discord_gateway/cli/bot.py` (registered as `discord-gateway`) |
 | Dispatcher entry-point — the `discord-dispatcher` process | `discord_dispatcher/cli/dispatcher.py` (registered as `discord-dispatcher`, a separate package, not a sibling module) |
 | `POSSIBLE_COGS` registry | `discord_gateway/cli/_lib/cog_registry.py` |
 | `CogHelperBase` + dispatch helpers | `discord_gateway/cogs/common.py` (see `DEVELOPMENT.md`'s Cog skeleton / Dispatch helpers sections). There is no separate `CogHelper` class with DB-session helpers — that was retired along with the bot's direct database connection; `CogHelperBase` takes an injected `dispatcher` and an optional remote `stores` bundle, not a `db_engine`. |
@@ -157,7 +157,7 @@ hand-maintained list here):
   a route shape here, not a package), `servers/` (shared aiohttp server
   base + health-server base), `types/`, `utils/` (config models, otel
   naming, loop health, retry helpers), `workers/`.
-- **`discord_gateway/`** — the `discord-bot` pod: gateway connection + all
+- **`discord_gateway/`** — the `discord-gateway` pod: gateway connection + all
   cogs. `cli/bot.py` is the entrypoint; `cli/_lib/cog_registry.py` holds
   `POSSIBLE_COGS`. `cogs/` holds every cog (`common.py` is `CogHelperBase`);
   `cogs/music_helpers/` holds the gateway-side pieces of the music

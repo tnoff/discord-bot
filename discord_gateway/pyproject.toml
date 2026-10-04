@@ -40,7 +40,7 @@ dependencies = [
 ]
 
 [project.scripts]
-discord-bot = "discord_gateway.cli.bot:main"
+discord-gateway = "discord_gateway.cli.bot:main"
 
 [tool.setuptools.dynamic]
 version = {file = "VERSION"}

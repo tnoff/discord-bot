@@ -25,11 +25,14 @@
 apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
-  name: discord-bot
+  name: discord-gateway
   description: >-
-    Hosts the cog logic -- music, markov, urban, delete_messages. Every Discord API call goes
-    to the dispatcher and every other capability is an HTTP call to the tier that holds it,
-    with one exception: the music player reads cached media out of object storage directly.
+    The gateway pod (formerly discord-bot): the only tier holding the Discord gateway connection (cli/bot.py calls
+    bot.start), and the host of every cog -- music, markov, urban, delete_messages, role,
+    general. The music player lives here because it needs the voice connection. Every Discord
+    API call goes to the dispatcher and every other capability is an HTTP call to the tier
+    that holds it, with one exception: the music player reads cached media out of object
+    storage directly.
     cogs/music.py passes download.storage.bucket_name into the broker client and
     cogs/music_helpers/music_player.py calls get_file() with the bucket the checkout stamped
     on its result, so this tier holds S3 credentials and a bucket name of its own.
@@ -62,8 +65,9 @@ metadata:
   name: discord-dispatcher
   description: >-
     Owns the Discord REST surface: the other tiers POST to it and it queues the work in
-    Redis before calling Discord. One replica with strategy Recreate, because it is the
-    single gateway holder and two of it would be two clients.
+    Redis before calling Discord. Logs in with the bot token for REST auth only (bot.login)
+    and holds no gateway connection -- that is discord-gateway's. One replica with strategy
+    Recreate.
   # Deployment label `tier: dispatcher`, Service port 8082
 spec:
   type: service

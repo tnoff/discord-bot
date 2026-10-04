@@ -114,7 +114,7 @@ where one seam is served by more than one pod.
 **A seam is a route shape, not a pod.** Four of the five are served by exactly
 one pod, but `queue_worker` is an abstract base subclassed twice -- at
 `/downloads` on the downloader and `/search/ytmusic` on the search pod -- so
-`discord-bot` has two separate dependencies there, not one. The search pod also
+`discord-gateway` has two separate dependencies there, not one. The search pod also
 answers two different seams, `media_search` and `queue_worker`, behind one
 composite app.
 
@@ -122,28 +122,28 @@ composite app.
 
 | caller | peer | seam | prefix | client | routes |
 |---|---|---|---|---|---|
-| `discord-bot` | `discord-broker` | broker | — | `HttpBrokerClient` | 22 |
-| `discord-bot` | `discord-db` | database | `/database/guild_analytics` | `HttpGuildAnalyticsStore` | 2 |
-| `discord-bot` | `discord-db` | database | `/database/markov` | `HttpMarkovStore` | 9 |
-| `discord-bot` | `discord-db` | database | `/database/playlist` | `HttpPlaylistStore` | 16 |
-| `discord-bot` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 8 |
-| `discord-bot` | `discord-search` | media_search | — | `HttpMediaSearchClient` | 2 |
-| `discord-bot` | `discord-downloader` | queue_worker | `/downloads` | `HttpDownloadClient` | 4 |
-| `discord-bot` | `discord-search` | queue_worker | `/search/ytmusic` | `HttpYoutubeMusicSearchClient` | 4 |
 | `discord-broker` | `discord-db` | database | `/database/video_cache` | `HttpVideoCacheStore` | 6 |
 | `discord-broker` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 8 |
 | `discord-downloader` | `discord-broker` | broker | — | `HttpBrokerClient` | 22 |
+| `discord-gateway` | `discord-broker` | broker | — | `HttpBrokerClient` | 22 |
+| `discord-gateway` | `discord-db` | database | `/database/guild_analytics` | `HttpGuildAnalyticsStore` | 2 |
+| `discord-gateway` | `discord-db` | database | `/database/markov` | `HttpMarkovStore` | 9 |
+| `discord-gateway` | `discord-db` | database | `/database/playlist` | `HttpPlaylistStore` | 16 |
+| `discord-gateway` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 8 |
+| `discord-gateway` | `discord-search` | media_search | — | `HttpMediaSearchClient` | 2 |
+| `discord-gateway` | `discord-downloader` | queue_worker | `/downloads` | `HttpDownloadClient` | 4 |
+| `discord-gateway` | `discord-search` | queue_worker | `/search/ytmusic` | `HttpYoutubeMusicSearchClient` | 4 |
 | `discord-search` | `discord-broker` | broker | — | `HttpBrokerClient` | 22 |
 
 #### Seams
 
 | seam | served by | called by | routes |
 |---|---|---|---|
-| broker | `discord-broker` | `discord-bot`, `discord-downloader`, `discord-search` | 22 |
-| database | `discord-db` | `discord-bot`, `discord-broker` | 33 |
-| dispatch | `discord-dispatcher` | `discord-bot`, `discord-broker` | 8 |
-| media_search | `discord-search` | `discord-bot` | 2 |
-| queue_worker | `discord-downloader`, `discord-search` | `discord-bot` | 8 |
+| broker | `discord-broker` | `discord-downloader`, `discord-gateway`, `discord-search` | 22 |
+| database | `discord-db` | `discord-broker`, `discord-gateway` | 33 |
+| dispatch | `discord-dispatcher` | `discord-broker`, `discord-gateway` | 8 |
+| media_search | `discord-search` | `discord-gateway` | 2 |
+| queue_worker | `discord-downloader`, `discord-search` | `discord-gateway` | 8 |
 
 #### Images that call no seam
 
@@ -432,7 +432,7 @@ config toggle.
 (default `false`) for memory-profiling sessions:
 
 ```bash
-docker build --build-arg INSTALL_HEAPTRACK=true -f docker/Dockerfile.gateway -t discord-bot:debug .
+docker build --build-arg INSTALL_HEAPTRACK=true -f docker/Dockerfile.gateway -t discord-gateway:debug .
 ```
 
 The production image excludes it to keep image size down; keep debug images

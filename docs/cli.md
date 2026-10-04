@@ -4,10 +4,10 @@ Documentation for the Discord bot command-line interface, application lifecycle,
 
 ## Running the Bot
 
-The bot is started using the `discord-bot` command with a configuration file:
+The gateway is started using the `discord-gateway` command with a configuration file:
 
 ```bash
-discord-bot /path/to/config.yml
+discord-gateway /path/to/config.yml
 ```
 
 ### Configuration File
@@ -132,6 +132,6 @@ ENTRYPOINT ["/entrypoint.sh"]
 CMD ["/opt/discord/cnf/discord.cnf"]
 ```
 
-`entrypoint.sh` `exec`s the selected command (`discord-bot` by default) as
+`entrypoint.sh` `exec`s the selected command (`discord-gateway` by default) as
 the final step, so it still becomes PID 1 and receives signals directly from
 Docker — no init system (tini, dumb-init) is required.
