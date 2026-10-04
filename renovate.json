@@ -5,6 +5,14 @@
     "github>tnoff/github-workflows//renovate/python"
   ],
   "enabledManagers": ["github-actions", "pep621", "dockerfile", "custom.regex"],
+  "packageRules": [
+    {
+      "description": "dappertable is a runtime dependency, so it must cut a release. The shared python preset only puts pep621 and dockerfile updates under the dev- prefix, and this pin is tracked by the custom.regex manager below, so without this rule it lands on renovate/tnoff-dappertable-1.x and ci.yml's bump-version job (gated on renovate/dev-*) is skipped.",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["tnoff/dappertable"],
+      "additionalBranchPrefix": "dev-"
+    }
+  ],
   "customManagers": [
     {
       "description": "Track the dappertable tarball pin (pep621 cannot version a plain archive URL)",
