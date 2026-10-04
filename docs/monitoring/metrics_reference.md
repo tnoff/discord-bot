@@ -275,7 +275,7 @@ The bot also exports distributed traces for:
 - **HTTP Requests** - Outbound requests (YouTube, Spotify APIs, etc.)
 - **Background Jobs** - Async task execution
 
-Traces use the service name configured in `OTEL_SERVICE_NAME` (default: `discord-bot`).
+Traces use the service name configured in `OTEL_SERVICE_NAME`. Each pod sets its own; the gateway pod uses `discord-gateway`.
 
 ### Trace Attributes
 
@@ -296,7 +296,7 @@ When OTLP is enabled, logs are forwarded to the configured OTLP log exporter wit
 
 Logs include OpenTelemetry resource attributes:
 
-- `service.name` - Service name (discord-bot)
+- `service.name` - Service name (e.g. `discord-gateway`)
 - `service.version` - Bot version (if configured)
 - `deployment.environment` - Environment (production, staging, etc.)
 - `host.name` - Container/pod hostname

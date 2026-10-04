@@ -159,7 +159,7 @@ The bot uses standard OpenTelemetry environment variables for endpoint configura
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 
 # Service Name
-export OTEL_SERVICE_NAME=discord-bot
+export OTEL_SERVICE_NAME=discord-gateway
 ```
 
 ### Optional Variables

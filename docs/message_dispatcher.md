@@ -158,8 +158,9 @@ All messages use the `message_dispatcher` logger at `DEBUG` level except warning
 ## HA mode: HTTP dispatch server
 
 In a multi-pod deployment, cog pods forward all dispatch calls to a dedicated
-dispatcher pod over HTTP. The dispatcher pod owns the Discord gateway connection
-and processes work from a shared Redis sorted-set queue.
+dispatcher pod over HTTP. The dispatcher pod owns the Discord REST surface (it logs in with the bot
+token but opens no gateway connection; the gateway pod holds that) and processes
+work from a shared Redis sorted-set queue.
 
 ### How it works
 
