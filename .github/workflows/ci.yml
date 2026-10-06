@@ -229,7 +229,7 @@ jobs:
     if: startsWith(github.head_ref, 'renovate/dev-')
     permissions:
       contents: write
-    uses: tnoff/github-workflows/.github/workflows/bump-version.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # bump-version-v1.0.0
+    uses: tnoff/github-workflows/.github/workflows/bump-version.yml@93f9034849dfd1d98ed72629241a503d29842205  # bump-version-v1.1.0
     with:
       # Bumps each touched package's own VERSION (and drops a fragment in that
       # package's changelog.d/), not a repo-wide file -- there is none. The

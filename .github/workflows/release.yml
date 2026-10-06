@@ -108,7 +108,7 @@ jobs:
     name: Assemble changelog
     permissions:
       contents: write
-    uses: tnoff/github-workflows/.github/workflows/assemble-changelog.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # assemble-changelog-v1.0.0
+    uses: tnoff/github-workflows/.github/workflows/assemble-changelog.yml@93f9034849dfd1d98ed72629241a503d29842205  # assemble-changelog-v1.1.0
     with:
       version_files_command: python3 -m tests.cli._package_versions --list-all
     secrets:
