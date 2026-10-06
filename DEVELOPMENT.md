@@ -48,21 +48,33 @@ OTel stack, boto3, etc.).
 
 ### Per-package versions
 
-Each of the seven packages also has its own `VERSION` file now
-(`discord_core/VERSION`, `discord_gateway/VERSION`, …), tracked
-independently of the root `VERSION`. The root file is unrelated and untouched
-by this — it still drives the one repo-wide release/changelog/tag process
-(`assemble-changelog`, `CHANGELOG.md`, the single `vX.Y.Z` tag), unchanged
-since before this split. A PR that touches a package bumps that package's own
-`VERSION` by hand, the same way the root `VERSION` has always been bumped by
-hand as part of the PR that needed it — touching a package's nested `tests/`
-counts as touching the package, no exemptions. `ci.yml`'s "Detect package
-version bumps" job (`tests/cli/_package_versions.py`) enforces this: it fails
-a PR that changes a package without also changing that package's `VERSION`.
-There is no dependency-propagation rule yet — a `discord_core`-only change
-does not require bumping every pod's `VERSION` too, since every pod still
-installs `discord_core` from the live checkout path rather than a pinned
-release, so there is nothing downstream to re-pin.
+Each of the seven packages has its own `VERSION` file
+(`discord_core/VERSION`, `discord_gateway/VERSION`, …) and its own
+`CHANGELOG.md`. There is no repo-wide `VERSION`, `vX.Y.Z` tag or release: a
+package is released by its own `<short>-vX.Y.Z` tag (`core-v…`, `gateway-v…`),
+cut by `release.yml`'s `package-tags` job. The root `CHANGELOG.md` is the
+history through 3.0.0 and is no longer written to.
+
+A PR that touches a package bumps that package's own `VERSION` — touching a
+package's nested `tests/` counts as touching the package, no exemptions.
+`ci.yml`'s "Detect package version bumps" job
+(`tests/cli/_package_versions.py`) fails a PR that changes a package without
+also changing that package's `VERSION`. Renovate's `dev-` PRs are bumped for
+you: the `bump-version` job runs the same module with `--list` to find the
+touched packages, bumps each one's `VERSION` (patch) and adds a fragment under
+that package's `changelog.d/`. Anything else bumps by hand, and may add a
+fragment (`<package>/changelog.d/<name>.md`) to describe the change.
+
+On merge, `release.yml` folds every package's fragments into its
+`CHANGELOG.md` in a single commit (`docs: assemble changelog …`), then tags
+each package whose `VERSION` is new. Tagging waits for that fold, so a tag
+points at the commit that carries its own changelog section.
+
+There is no dependency-propagation rule — a `discord_core`-only change does not
+require bumping every pod's `VERSION` too. Every pod installs `discord_core`
+from its own pinned `core-v…` tag, so a core change reaches a pod only when that
+pod's pin is bumped, which is a change to the pod's `pyproject.toml` and bumps
+its `VERSION` like any other.
 
 Database tests run on SQLite (see `fake_engine` below), so the suite needs no
 database server and nothing to start before running it.

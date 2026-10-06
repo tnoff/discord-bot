@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "discord-bot-repo"
-dynamic = ["version"]
+version = "0.0.0"
 description = "discord-bot: shared test tooling and cross-package checks"
 authors = [
     {name = "Tyler D. North", email = "me@tyler-north.com"},
@@ -24,9 +24,9 @@ requires-python = ">=3.11"
 # either. `pip install -e .[test]` plus a path install of all seven packages
 # is what the local CI gate and tox.ini both actually run.
 #
-# Versioning stays SHARED across all eight pyproject.toml files in this repo
-# for now (one VERSION/CHANGELOG.md) -- independent per-package tag series is
-# criterion 8 step 6, not this one.
+# This project is never published or installed into an image, so its version is
+# a fixed placeholder. There is no repo-wide VERSION any more: each of the
+# seven packages carries its own (see DEVELOPMENT.md, "Per-package versions").
 [project.optional-dependencies]
 test = [
     "bandit==1.9.4",
@@ -50,9 +50,6 @@ test = [
     "setuptools==84.0.0",
     "tox==4.61.1",
 ]
-
-[tool.setuptools.dynamic]
-version = {file = "VERSION"}
 
 [tool.setuptools]
 # Each console script moved to live on its own pod's pyproject.toml (discord-bot

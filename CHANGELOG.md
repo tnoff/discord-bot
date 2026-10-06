@@ -5,6 +5,11 @@ All notable changes to the Discord bot will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+This file is the repo-wide history through 3.0.0. There is no repo-wide version
+or `vX.Y.Z` tag after that: each of the seven packages is versioned and tagged
+on its own (`core-vX.Y.Z`, `gateway-vX.Y.Z`, ...), and records its changes in its
+own `<package>/CHANGELOG.md`, folded from `<package>/changelog.d/` on merge.
+
 ## [3.0.0] - 2026-10-02
 
 First major release. Apart from the db pod's sqlite support (below), nothing new ships in it: every breaking change below already landed in 2.5.x, and prod has run on the HA topology since the 2026-07-01 broker cutover. 3.0.0 marks the line between the single-process era and the HA-only, per-package era, and collects the breaking changes in one place for anyone running an older config or importing the code.

@@ -81,9 +81,6 @@ RUN mkdir -p "${APPDIR}/discord_gateway" && \
 # package rename -- at the time the image, the console script and the deployed
 # contract stayed `discord-bot` and only the import root changed. They have since
 # been renamed `discord-gateway` too (image repo discord_gateway).
-# The real VERSION symlink (-> ../VERSION) is why the plain `COPY VERSION`
-# below has to land before the install, not after: the symlink target does
-# not exist until it does.
 COPY discord_gateway/ "${APPDIR}/discord_gateway/"
 # No alembic/ or alembic.ini. Both were COPYd here until the MR 4 cutover
 # (#928) took [database] -- and with it the alembic CLI -- out of [bot]. They
@@ -91,7 +88,6 @@ COPY discord_gateway/ "${APPDIR}/discord_gateway/"
 # install prefixes and not ${APPDIR}, so this is not a size change: it removes
 # a build step that implied the bot could run `alembic upgrade head`, which it
 # now cannot. Same correction #917 made on the dispatcher.
-COPY VERSION "${APPDIR}/"
 RUN pip install --no-cache-dir --no-deps --prefix=/install-app \
     "${APPDIR}/discord_gateway"
 

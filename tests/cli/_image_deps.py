@@ -185,7 +185,7 @@ def dockerfile_copy_roots(dockerfile: str) -> set:
     `COPY --from=<stage> ...` lines copy between build stages, not from the
     build context, so they carry no repo path to check and are skipped. Every
     other `COPY` names something under REPO_ROOT; the first segment (e.g.
-    `discord_core/pyproject.toml` -> `discord_core`, `VERSION` -> `VERSION`)
+    `discord_core/pyproject.toml` -> `discord_core`, `alembic.ini` -> `alembic.ini`)
     is enough to tell a pod's own package from someone else's.
     '''
     text = (REPO_ROOT / dockerfile).read_text(encoding='utf-8')
