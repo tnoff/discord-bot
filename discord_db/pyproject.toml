@@ -29,7 +29,7 @@ dependencies = [
     # No import site. The migration CLI; this is the only image that COPYs
     # alembic/ and alembic.ini and can run `alembic upgrade head`.
     "alembic==1.19.2",
-    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.8.tar.gz",
+    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.9.tar.gz",
 ]
 
 [project.scripts]
