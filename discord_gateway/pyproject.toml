@@ -35,7 +35,7 @@ dependencies = [
     "PyNaCl==1.6.2",
     "davey==0.1.6",
     "async-timeout==5.0.1",
-    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.8.tar.gz",
+    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.9.tar.gz",
     "beautifulsoup4==4.15.0",
 ]
 
