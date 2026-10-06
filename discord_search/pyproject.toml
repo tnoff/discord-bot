@@ -17,7 +17,7 @@ dependencies = [
     # apart.
     "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.0.0.tar.gz#subdirectory=discord_core",
     "spotipy==2.26.0",
-    "google-api-python-client==2.199.0",
+    "google-api-python-client==2.200.0",
     "ytmusicapi==1.12.2",
 ]
 
