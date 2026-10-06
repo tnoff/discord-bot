@@ -19,7 +19,7 @@ dependencies = [
     # string; tests/cli/test_package_pins.py enforces that they never drift
     # apart.
     "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.0.0.tar.gz#subdirectory=discord_core",
-    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.8.tar.gz",
+    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.9.tar.gz",
 ]
 
 [project.scripts]
