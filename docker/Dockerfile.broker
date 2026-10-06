@@ -82,11 +82,7 @@ RUN apt-get update && \
 # (the contract broker's own server implements) folded into discord_core/
 # as of criterion 8's seam-fold reversal, so there is no separate line for it
 # here either -- the pinned discord_core install above already carries it.
-# The real VERSION symlink (-> ../VERSION) is why the plain `COPY VERSION`
-# below has to land before the install, not after: the symlink target does
-# not exist until it does.
 COPY discord_broker/ "${APPDIR}/discord_broker/"
-COPY VERSION "${APPDIR}/"
 RUN pip install --no-deps "${APPDIR}/discord_broker"
 
 # Set ownership of directories that need to be writable by the discord user

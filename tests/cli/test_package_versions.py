@@ -111,3 +111,62 @@ def test_main_requires_only_the_touched_packages_own_version(repo):  # pylint: d
     _git(tmp_path, 'commit', '-q', '-m', 'bump both')
 
     assert main(['--base', base_sha]) == 0
+
+
+def test_list_prints_each_touched_packages_version_file(repo, capsys):  # pylint: disable=redefined-outer-name
+    '''`--list` is what the bump job feeds the shared workflow: one VERSION path
+    per touched package, sorted, on stdout alone -- and exit 0 even though
+    nothing was bumped yet, since it reports rather than checks.'''
+    tmp_path, base_sha = repo
+    (tmp_path / 'discord_search' / 'clients.py').write_text('x = 1\n', encoding='utf-8')
+    (tmp_path / 'discord_core' / 'utils.py').write_text('x = 1\n', encoding='utf-8')
+    _git(tmp_path, 'add', '-A')
+    _git(tmp_path, 'commit', '-q', '-m', 'touch two, bump none')
+
+    assert main(['--base', base_sha, '--list']) == 0
+    captured = capsys.readouterr()
+    assert captured.out.splitlines() == ['discord_core/VERSION', 'discord_search/VERSION']
+    assert 'changed files:' in captured.err
+
+
+def test_list_is_empty_when_nothing_package_shaped_changed(repo, capsys):  # pylint: disable=redefined-outer-name
+    '''A doc-only PR lists nothing, which the shared workflow reads as "no bump".'''
+    tmp_path, base_sha = repo
+    (tmp_path / 'README.md').write_text('hello again\n', encoding='utf-8')
+    _git(tmp_path, 'add', '-A')
+    _git(tmp_path, 'commit', '-q', '-m', 'docs only')
+
+    assert main(['--base', base_sha, '--list']) == 0
+    assert capsys.readouterr().out == ''
+
+
+def test_list_and_check_agree_once_the_listed_files_are_bumped(repo):  # pylint: disable=redefined-outer-name
+    '''The point of sharing `touched_packages`: bumping exactly what `--list`
+    names is what makes the check pass.'''
+    tmp_path, base_sha = repo
+    (tmp_path / 'discord_search' / 'clients.py').write_text('x = 1\n', encoding='utf-8')
+    _git(tmp_path, 'add', '-A')
+    _git(tmp_path, 'commit', '-q', '-m', 'change')
+    assert main(['--base', base_sha]) == 1
+
+    (tmp_path / 'discord_search' / 'VERSION').write_text('1.0.1\n', encoding='utf-8')
+    _git(tmp_path, 'add', '-A')
+    _git(tmp_path, 'commit', '-q', '-m', 'bump what --list named')
+    assert main(['--base', base_sha]) == 0
+
+
+def test_list_all_names_every_package_without_a_diff(capsys):
+    '''`--list-all` needs no base ref and no git history: it is the declared
+    package set, which is what release.yml folds changelogs for.'''
+    assert main(['--list-all']) == 0
+    listed = capsys.readouterr().out.splitlines()
+    assert listed == sorted(f'{root}/VERSION' for root in package_versions.PACKAGE_ROOTS.values())
+    assert len(listed) == 7
+    assert 'discord_core/VERSION' in listed
+
+
+def test_base_is_required_unless_listing_everything():
+    '''The check and `--list` both diff, so a missing --base is a usage error.'''
+    with pytest.raises(SystemExit) as excinfo:
+        main(['--list'])
+    assert excinfo.value.code == 2

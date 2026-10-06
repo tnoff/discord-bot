@@ -76,12 +76,8 @@ RUN mkdir -p "${APPDIR}/discord_dispatcher" && \
 # real release push) -- see per-image-code-split.md criterion 8 step 7.
 # discord_dispatcher/ replaces the legacy root as of criterion 8 step 4: the
 # pod's own code no longer lives there at all, so this image drops that line
-# entirely rather than keeping it alongside the new one. The real VERSION
-# symlink (-> ../VERSION) is why the plain `COPY VERSION` below has to land
-# before the install, not after: the symlink target does not exist until it
-# does.
+# entirely rather than keeping it alongside the new one.
 COPY discord_dispatcher/ "${APPDIR}/discord_dispatcher/"
-COPY VERSION "${APPDIR}/"
 RUN pip install --no-deps "${APPDIR}/discord_dispatcher"
 
 # Set ownership of directories that need to be writable by the discord user

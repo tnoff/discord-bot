@@ -353,7 +353,7 @@ def test_every_dockerfile_exists():
 # `discord-core @ <tagged tarball>` dependency in its own pyproject.toml, so
 # discord_core now arrives through pip, resolved from that pin, in every
 # Dockerfile. There is no `COPY discord_core/` left anywhere to allow.
-_ALWAYS_ALLOWED_COPY_ROOTS = frozenset({'VERSION', 'docker', 'alembic', 'alembic.ini'})
+_ALWAYS_ALLOWED_COPY_ROOTS = frozenset({'docker', 'alembic', 'alembic.ini'})
 
 
 def test_dockerfile_copies_only_its_own_closure():

@@ -2,20 +2,29 @@
 Enforce that a PR bumps the VERSION of every package it touches.
 
 Criterion 8 step 6 gave each of the seven packages (`discord_core` plus the
-six pods) its own real `VERSION` file -- see `_roots.PACKAGE_ROOTS` -- in
-place of the step-5-era symlink to the shared root `VERSION`. Nothing
-automates the bump itself yet: like the shared root `VERSION` before it, each
-package's own file is still hand-edited as part of the PR that changes that
-package, the same way `git log` shows the root one always has been. This
-module is the enforcement half of that convention -- it does not write a
-bump, it only checks one was not forgotten.
+six pods) its own real `VERSION` file -- see `_roots.PACKAGE_ROOTS`. There is
+no repo-wide `VERSION` any more; these are the only version numbers. This
+module is the one place that decides which packages a diff touches, and it
+serves two callers:
 
-Run by ci.yml's "Detect package version bumps" job, which has no installed
-package and no dependencies -- so, like `_affected_images.py`, everything
-here is standard library and nothing imports `_image_deps` (which shells out
-to a real interpreter per entrypoint):
+  * the check (default): fail a PR that changed a package without bumping that
+    package's own `VERSION`, run by ci.yml's "Detect package version bumps" job;
+  * the list (`--list`): print the `VERSION` file of every touched package, one
+    per line, run by ci.yml's `bump-version` job as the shared workflow's
+    `version_files_command` so Renovate's dev- PRs get exactly the bumps the
+    check then demands. Because both read `touched_packages`, the bump and the
+    check cannot disagree about what "touched" means;
+  * the full list (`--list-all`): every package's `VERSION`, touched or not,
+    needing no diff -- release.yml hands it to `assemble-changelog` to fold each
+    package's own `changelog.d/` into its own `CHANGELOG.md`.
+
+Neither has an installed package or dependencies to lean on -- so, like
+`_affected_images.py`, everything here is standard library and nothing imports
+`_image_deps` (which shells out to a real interpreter per entrypoint):
 
     python3 -m tests.cli._package_versions --base "$BASE_SHA"
+    python3 -m tests.cli._package_versions --base "$BASE_SHA" --list
+    python3 -m tests.cli._package_versions --list-all
 
 NO DEPENDENCY-PROPAGATION RULE
 -------------------------------
@@ -65,11 +74,23 @@ def touched_packages(changed_files: list) -> set:
 
 
 def main(argv=None) -> int:
-    '''Fail if any touched package's own VERSION was not also touched.'''
+    '''Fail if any touched package's own VERSION was not also touched, or with
+    `--list` / `--list-all` print VERSION paths instead.'''
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--base', required=True, help='base ref to diff against')
+    parser.add_argument('--base', help='base ref to diff against (required except with --list-all)')
     parser.add_argument('--head', default='HEAD', help='head ref (default HEAD)')
+    parser.add_argument('--list', action='store_true',
+                        help='print each touched package\'s VERSION path to stdout and exit 0')
+    parser.add_argument('--list-all', action='store_true',
+                        help='print every package\'s VERSION path, touched or not, and exit 0')
     args = parser.parse_args(argv)
+
+    if args.list_all:
+        for root in sorted(PACKAGE_ROOTS.values()):
+            print(f'{root}/VERSION')
+        return 0
+    if not args.base:
+        parser.error('--base is required unless --list-all is given')
 
     result = subprocess.run(  # nosec B603 B607 - fixed argv
         ['git', 'diff', '--name-only', f'{args.base}...{args.head}'],
@@ -79,6 +100,13 @@ def main(argv=None) -> int:
     print('changed files:', file=sys.stderr)
     for path in changed:
         print(f'  {path}', file=sys.stderr)
+
+    if args.list:
+        # stdout carries only the paths; the changed-files diagnostics above went
+        # to stderr, so a caller can capture this cleanly.
+        for root in sorted(touched_packages(changed)):
+            print(f'{root}/VERSION')
+        return 0
 
     changed_set = set(changed)
     missing = sorted(root for root in touched_packages(changed)

@@ -1,14 +1,14 @@
 name: Release
 
-# Default-branch pipeline: fold the changelog, tag, push all six images, and
-# ask docker-apps to bump each pin.
+# Default-branch pipeline: fold each package's changelog, tag each package, push
+# all six images, and ask docker-apps to bump each pin.
 #
 # ---------------------------------------------------------------------------
 # The fold guard
 # ---------------------------------------------------------------------------
 # assemble-changelog pushes a "docs: assemble changelog for X" commit to main,
 # which triggers this workflow a SECOND time. That second pass is what cuts the
-# tag, because tag defers while fragments are still pending.
+# tags, because package-tags defers while fragments are still pending.
 #
 # The images must NOT be pushed twice and docker-apps must not be asked to bump
 # twice. GitLab guarded this with .not-on-changelog-fold matching the commit
@@ -98,31 +98,28 @@ jobs:
           echo "images to build: ${IMAGES}"
           echo "images=${IMAGES}" >> "$GITHUB_OUTPUT"
 
+  # Folds every package's own changelog.d/ into that package's CHANGELOG.md, in
+  # ONE commit and one push -- seven folds would be seven pushes and seven
+  # follow-up runs. The package list is tests/cli/_package_versions.py's
+  # `--list-all`, the same declared set `package-tags` below and the PR-side
+  # `bump-version` read. There is no repo-wide VERSION or CHANGELOG to fold into
+  # any more: root CHANGELOG.md is history through 3.0.0.
   assemble-changelog:
     name: Assemble changelog
     permissions:
       contents: write
     uses: tnoff/github-workflows/.github/workflows/assemble-changelog.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # assemble-changelog-v1.0.0
-    secrets:
-      app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
-      app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
-
-  tag:
-    name: Tag
-    needs: assemble-changelog
-    permissions:
-      contents: write
-    uses: tnoff/github-workflows/.github/workflows/tag.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # tag-v1.0.0
     with:
-      gate_on_fragments: true
+      version_files_command: python3 -m tests.cli._package_versions --list-all
     secrets:
       app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
       app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
 
   # Per-package tags, one `<short>-v<version>` tag per package, driven off
   # each package's own VERSION file (criterion 8 step 6 -- see DEVELOPMENT.md's
-  # "Per-package versions"). This is deliberately ONE job with a loop over a
-  # declared list, not seven near-identical copies: #922's push-db gap --
+  # "Per-package versions"). These are the only tags: the repo-wide `vX.Y.Z` tag
+  # went with the repo-wide VERSION. This is deliberately ONE job with a loop
+  # over a declared list, not seven near-identical copies: #922's push-db gap --
   # discord-db added to five of six hand-copied per-image lists and missed
   # release.yml, building green while shipping nothing for four days -- is the
   # exact failure mode a per-package copy-paste here would repeat, and the
@@ -131,22 +128,27 @@ jobs:
   # tests/cli/_package_versions.py, the same module the `package-versions`
   # job in ci.yml imports -- not a second table hand-written here.
   #
-  # Cannot reuse the shared tag.yml workflow this file's own `tag:` job calls:
-  # that workflow's tag format is hardcoded to a literal `v{VERSION}` prefix
-  # with no namespace input, so two packages at the same numeric version would
-  # collide on an identical tag string and the second call would silently
-  # no-op (tag.yml treats an existing tag as already-done). So this pushes
-  # tags directly instead, idempotently (git ls-remote first, skip if already
-  # there), using the same GitHub App credentials already passed to every
-  # other job in this file, via actions/create-github-app-token rather than a
-  # reusable workflow, since this job runs the git plumbing itself.
+  # Cannot reuse the shared tag.yml workflow: its tag format is hardcoded to a
+  # literal `v{VERSION}` prefix with no namespace input, so two packages at the
+  # same numeric version would collide on an identical tag string and the
+  # second call would silently no-op (tag.yml treats an existing tag as
+  # already-done). So this pushes tags directly instead, idempotently
+  # (git ls-remote first, skip if already there), using the same GitHub App
+  # credentials already passed to every other job in this file, via
+  # actions/create-github-app-token rather than a reusable workflow, since this
+  # job runs the git plumbing itself.
+  #
+  # Defers while any changelog fragment is still pending, exactly as tag.yml's
+  # `gate_on_fragments` did for the repo-wide tag: assemble-changelog folds and
+  # pushes first, that push fires a follow-up run where nothing is pending, and
+  # THAT run tags -- so a tag points at the commit that carries its own
+  # changelog section, not the one before it. A merge with no fragments (a
+  # human PR that bumped VERSION itself) tags on the first run.
   #
   # needs assemble-changelog (not changes): tags are not gated on whether an
-  # image needs rebuilding, the same independence the `tag:` job above has
-  # from `changes` -- a docs-only merge still gets its per-package tags if a
-  # package's own VERSION moved. It still waits on assemble-changelog, the
-  # same dependency `tag:` has, so this runs after the changelog fold rather
-  # than racing it.
+  # image needs rebuilding -- a docs-only merge still gets its per-package tags
+  # if a package's own VERSION moved. It waits on assemble-changelog so this
+  # runs after the changelog fold rather than racing it.
   package-tags:
     name: Tag packages
     needs: assemble-changelog
@@ -171,6 +173,10 @@ jobs:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           set -euo pipefail
+          if compgen -G '*/changelog.d/*.md' >/dev/null; then
+            echo "Changelog fragments pending -- deferring tags to the post-assemble run."
+            exit 0
+          fi
           # short-name -> import-root, read straight from the one place this
           # repo declares it (PACKAGE_ROOTS in tests/cli/_package_versions.py)
           # rather than a second copy here. Standard library only, no install

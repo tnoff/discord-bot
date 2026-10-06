@@ -164,10 +164,11 @@ jobs:
     with:
       dockerfile: ${{ matrix.dockerfile }}
 
-  # Each of the seven packages (discord_core plus the six pods) now tracks its
-  # own VERSION independently -- see DEVELOPMENT.md's "Per-package versions".
-  # Nothing bumps it automatically; this job only catches the PR that forgets
-  # to, the same shape as the `changes` job above and for the same reason:
+  # Each of the seven packages (discord_core plus the six pods) tracks its own
+  # VERSION independently -- see DEVELOPMENT.md's "Per-package versions".
+  # Renovate's dev- PRs are bumped by `bump-version` below; every other PR bumps
+  # by hand, and this job catches the one that forgets to, the same shape as the
+  # `changes` job above and for the same reason:
   # tests/cli/_package_versions.py reads the diff and tests/cli/_roots.py's
   # declared roots rather than a second hand-maintained list, so a package
   # cannot silently fall out of the check the way a hardcoded per-image list
@@ -230,6 +231,12 @@ jobs:
       contents: write
     uses: tnoff/github-workflows/.github/workflows/bump-version.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # bump-version-v1.0.0
     with:
+      # Bumps each touched package's own VERSION (and drops a fragment in that
+      # package's changelog.d/), not a repo-wide file -- there is none. The
+      # command is tests/cli/_package_versions.py's `--list`: the same
+      # "which packages did this PR touch" rule the `package-versions` job
+      # below enforces, so the bump and the check cannot disagree.
+      version_files_command: python3 -m tests.cli._package_versions --base "origin/${BASE_REF}" --list
       bump_changelog: true
     secrets:
       app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}

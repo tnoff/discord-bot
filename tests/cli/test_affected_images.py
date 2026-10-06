@@ -178,10 +178,19 @@ def test_dockerfile_change_builds_only_its_own_image():
     assert images == {'db'}
 
 
-def test_entrypoint_and_version_are_genuinely_all_six():
-    '''Every image COPYs these, so all-six is correct rather than lazy.'''
+def test_entrypoint_is_genuinely_all_six():
+    '''Every image COPYs it, so all-six is correct rather than lazy.'''
     assert _affected(['docker/entrypoint.sh'])[0] == {'bot', 'db'}
-    assert _affected(['VERSION'])[0] == {'bot', 'db'}
+
+
+def test_retired_root_version_reaches_no_image():
+    '''
+    The repo-wide VERSION is gone and no Dockerfile COPYs it, so deleting it (or
+    a stray one reappearing) builds nothing and is not an orphan either.
+    '''
+    images, orphans = _affected(['VERSION'], deleted=['VERSION'])
+    assert images == set()
+    assert not orphans
 
 
 def test_alembic_belongs_to_the_db_image_alone():

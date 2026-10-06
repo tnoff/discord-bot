@@ -82,11 +82,8 @@ RUN mkdir -p "${APPDIR}/discord_db" && \
 # push) -- see per-image-code-split.md criterion 8 step 7.
 # discord_db/ replaces the legacy root as of criterion 8 step 4: the pod's own
 # code no longer lives there at all, so this image drops that line entirely
-# rather than keeping it alongside the new one. The real VERSION symlink
-# (-> ../VERSION) is why the plain `COPY VERSION` below has to land before the
-# install, not after: the symlink target does not exist until it does.
+# rather than keeping it alongside the new one.
 COPY discord_db/ "${APPDIR}/discord_db/"
-COPY VERSION "${APPDIR}/"
 RUN pip install --no-cache-dir --no-deps "${APPDIR}/discord_db" && \
     chown -R discord:discord "${WORKDIR}" "${LOGFILE}" && \
     rm -rf "${APPDIR}" /root/.cache

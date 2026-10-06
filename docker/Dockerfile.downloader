@@ -84,12 +84,8 @@ RUN apt-get update && \
 # real release push) -- see per-image-code-split.md criterion 8 step 7.
 # discord_downloader/ replaces the legacy root as of criterion 8 step 4: the
 # pod's own code no longer lives there at all, so this image drops that line
-# entirely rather than keeping it alongside the new one. The real VERSION
-# symlink (-> ../VERSION) is why the plain `COPY VERSION` below has to land
-# before the install, not after: the symlink target does not exist until it
-# does.
+# entirely rather than keeping it alongside the new one.
 COPY discord_downloader/ "${APPDIR}/discord_downloader/"
-COPY VERSION "${APPDIR}/"
 RUN pip install --no-cache-dir --no-deps "${APPDIR}/discord_downloader" && \
     rm -rf "${APPDIR}" /root/.cache
 
