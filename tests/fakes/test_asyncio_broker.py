@@ -19,7 +19,7 @@ from discord_core.types.playlist_add_request import parse_media_request
 
 from discord_core.types.player_session import PlayerSession
 
-from discord_broker.interfaces.broker_protocols import BrokerEntry, CheckoutResult, Zone
+from discord_broker.interfaces.broker_protocols import BrokerEntry, Zone
 
 from tests.fakes.asyncio_broker import AsyncioBroker
 from tests.helpers import fake_context, fake_media_download, fake_source_dict  # pylint: disable=unused-import
@@ -218,18 +218,17 @@ async def test_bundle_storage_hooks_roundtrip(fake_context):  # pylint: disable=
 
 
 @pytest.mark.asyncio
-async def test_checkout_returns_checkoutresult_and_caches_local_path(fake_context): #pylint:disable=redefined-outer-name
-    '''checkout stages the file and returns CheckoutResult(local_path); a second
-    checkout hits the already-CHECKED_OUT early-return with the same local_path.'''
+async def test_stage_checkout_caches_the_staged_path(fake_context): #pylint:disable=redefined-outer-name
+    '''stage_checkout stages the file; a second call hits the already-CHECKED_OUT
+    early-return with the same path.'''
     broker = AsyncioBroker()
     with TemporaryDirectory() as guild_dir:
         with fake_media_download(guild_dir, fake_context=fake_context) as md:
             await broker.register_download(md)
-            first = await broker.checkout(str(md.media_request.uuid), 1, Path(guild_dir))
-            second = await broker.checkout(str(md.media_request.uuid), 1, Path(guild_dir))
-            assert isinstance(first, CheckoutResult)
-            assert first.local_path is not None
-            assert second.local_path == first.local_path
+            first = await broker.stage_checkout(str(md.media_request.uuid), 1, Path(guild_dir))
+            second = await broker.stage_checkout(str(md.media_request.uuid), 1, Path(guild_dir))
+            assert first is not None
+            assert second == first
 
 
 @pytest.mark.asyncio

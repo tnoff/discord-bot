@@ -15,7 +15,6 @@ back-compat; that shim is gone, along with the single-process sibling it existed
 to sit beside.
 '''
 import logging
-from pathlib import Path
 
 import aiohttp
 from opentelemetry.trace import SpanKind
@@ -33,7 +32,7 @@ from discord_core.routes import broker as broker_routes
 from discord_core.types.checkout_result import CheckoutResult
 from discord_core.types.broker_responses import (
     CacheCleanupResponse, CheckCacheHitResponse, CheckoutS3Response,
-    CheckoutStagedResponse, CreateBundleResponse, GetCacheCountResponse,
+    CheckoutEmptyResponse, CreateBundleResponse, GetCacheCountResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -183,9 +182,8 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
         '''
         POST /requests/{uuid}/checkout — returns a CheckoutResult or None.
 
-        Non-HA brokers stage the file themselves and respond with guild_file_path
-        (-> CheckoutResult(local_path=...)). HA brokers respond with an s3_key
-        (-> CheckoutResult(s3_key=...)) and leave the S3 download to the caller.
+        The broker responds with an s3_key (-> CheckoutResult(s3_key=...)) and
+        leaves the S3 download to the caller.
         '''
         body: dict = {'guild_id': guild_id}
         if guild_path:
@@ -201,16 +199,13 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             if not data:
                 return None
             # Two models for one route, matching the two shapes the broker
-            # sends: an HA broker answers {'s3_key': ...} with no
-            # guild_file_path key at all. Validating the branch we took gives
+            # sends: a hit answers {'s3_key': ...} with no guild_file_path key. Validating the branch we took gives
             # seam_response_invalid the peer's name when a shape drifts, instead
             # of a silent None that reads as "nothing to check out".
             if data.get('s3_key'):
                 checked = self._validate(CheckoutS3Response, data)
                 return CheckoutResult(s3_key=checked.s3_key, bucket_name=self._bucket_name)
-            staged = self._validate(CheckoutStagedResponse, data)
-            if staged.guild_file_path:
-                return CheckoutResult(local_path=Path(staged.guild_file_path))
+            self._validate(CheckoutEmptyResponse, data)
             return None
 
     async def release(self, uuid: str) -> None:

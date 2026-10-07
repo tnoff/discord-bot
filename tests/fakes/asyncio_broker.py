@@ -159,13 +159,23 @@ class AsyncioBroker(MediaBrokerBase):
 
     async def checkout(self, media_request_uuid: str, guild_id: int,
                        guild_path: Path | None = None) -> CheckoutResult | None:
-        '''Stage the file locally (in-process engine) and return
-        CheckoutResult(local_path=...). Returns None for an unknown entry.'''
+        '''Test double for the Redis broker's checkout: stage the file locally
+        (see stage_checkout) and answer with the staged path as the s3_key.
+        Returns None for an unknown entry.'''
+        staged = await self.stage_checkout(media_request_uuid, guild_id, guild_path)
+        if staged is None:
+            return None
+        return CheckoutResult(s3_key=str(staged), bucket_name=self.bucket_name)
+
+    async def stage_checkout(self, media_request_uuid: str, guild_id: int,
+                             guild_path: Path | None = None) -> Path | None:
+        '''Mark the entry CHECKED_OUT, copying the file under guild_path when given.
+        Returns the staged path, or None for an unknown entry.'''
         entry = self._registry.get(media_request_uuid)
         if entry is None:
             return None
         if entry.zone == Zone.CHECKED_OUT and entry.guild_file_path and entry.guild_file_path.exists():
-            return CheckoutResult(local_path=entry.guild_file_path)
+            return entry.guild_file_path
         attributes = {
             'music.media_request.uuid': media_request_uuid,
             'music.guild_id': guild_id,
@@ -193,7 +203,7 @@ class AsyncioBroker(MediaBrokerBase):
                 entry.guild_file_path = uuid_path
             entry.zone = Zone.CHECKED_OUT
             entry.checked_out_by = guild_id
-            return CheckoutResult(local_path=entry.guild_file_path)
+            return entry.guild_file_path
 
     async def remove(self, media_request_uuid: str) -> None:
         entry = self._registry.pop(media_request_uuid, None)

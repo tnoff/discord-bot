@@ -18,7 +18,6 @@
         "discord_broker.servers.broker_health_server",
         "discord_broker.servers.broker_server",
         "discord_broker.workers",
-        "discord_broker.workers.asyncio_queues",
         "discord_broker.workers.broker_metrics",
         "discord_broker.workers.broker_registry",
         "discord_broker.workers.media_bundle",

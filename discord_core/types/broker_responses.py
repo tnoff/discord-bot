@@ -93,17 +93,17 @@ class DeletePlayerSessionResponse(_Ok):
     '''200 from the delete-player-session route.'''
 
 
-class CheckoutStagedResponse(BaseModel):
+class CheckoutEmptyResponse(BaseModel):
     '''
-    Checkout answered by a non-HA broker: the file is staged on local disk.
+    Checkout found nothing to hand out (unknown entry, or no download attached).
 
     Two models for one route, because the two answers are different BYTES, not
-    one body with optional fields: an HA broker sends `{'s3_key': ...}` with no
-    `guild_file_path` key at all, and the client branches on which key is
-    present. A single model with both optional would emit both keys and change
-    what the client sees.
+    one body with optional fields: a hit sends `{'s3_key': ...}` and a miss sends
+    `{'guild_file_path': null}`, and the client branches on which key is present.
+    `guild_file_path` is always null and only still on the wire so a gateway
+    from before local staging was removed reads a miss the way it always did.
     '''
-    guild_file_path: str | None = None
+    guild_file_path: None = None
 
 
 class CheckoutS3Response(BaseModel):

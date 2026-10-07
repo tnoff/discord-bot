@@ -806,8 +806,8 @@ async def test_clear_queue_with_broker_removes_items(fake_context): #pylint:disa
 @pytest.mark.asyncio
 async def test_player_loop_real_broker_checkout_plays(fake_context): #pylint:disable=redefined-outer-name
     """End-to-end against a REAL AsyncioBroker: checkout stages the file locally
-    and returns CheckoutResult(local_path); the player opens and plays it, and the
-    track lands in history. Regression for the prod break where F2a passed a str
+    and returns a CheckoutResult; with no bucket configured the player plays the
+    download's own path, and the track lands in history. Regression for the prod break where F2a passed a str
     to the engine's checkout (str.mkdir crash) and expected a CheckoutResult the
     engine didn't return — a mocked broker hid both. Drive the real engine here."""
     fake_context['guild'].voice_client = FakeVoiceClient()

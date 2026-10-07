@@ -28,8 +28,8 @@ from discord_core.types.player_session import PlayerSession
 # itself is still re-exported from clients/broker_client.py, so the import
 # above and every other test here are unchanged.
 
-from discord_broker.servers.broker_server import BrokerHttpServer
-from discord_broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
+from tests.fakes.asyncio_queues import make_broker_http_server
+from tests.fakes.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
 from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
 from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
@@ -123,7 +123,7 @@ class TestInMemoryBrokerClient:
         client = InMemoryBrokerClient(_make_broker())
         assert isinstance(client.search_result_queue, SearchResultQueue)
 
-    async def test_checkout_returns_local_path(self):
+    async def test_checkout_returns_s3_key(self):
         broker = _make_broker()
         mr = _make_request()
         client = InMemoryBrokerClient(broker, asyncio.Queue())
@@ -133,8 +133,7 @@ class TestInMemoryBrokerClient:
                 with TemporaryDirectory() as guild_dir:
                     result = await client.checkout(str(mr.uuid), 123, guild_dir)
         assert isinstance(result, CheckoutResult)
-        assert result.local_path is not None
-        assert result.s3_key is None
+        assert result.s3_key is not None
 
     async def test_checkout_returns_none_for_unknown(self):
         broker = _make_broker()
@@ -150,10 +149,8 @@ class TestInMemoryBrokerClient:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await broker.register_download(md)
                 result = await client.checkout(str(mr.uuid), 123)
-        # No guild_path means no local staging — the entry is marked CHECKED_OUT
-        # and the CheckoutResult carries no local_path/s3_key.
-        assert result.local_path is None
-        assert result.s3_key is None
+        # No guild_path means the fake stages nothing, so there is no key to hand out.
+        assert result is None
 
     async def test_release_delegates(self):
         broker = _make_broker()
@@ -181,7 +178,7 @@ class TestHttpBrokerClient:
     async def test_register_request(self):
         broker = _make_broker()
         mr = _make_request()
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.register_request(mr)
@@ -192,7 +189,7 @@ class TestHttpBrokerClient:
         broker = _make_broker()
         mr = _make_request()
         await broker.register_request(mr)
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.update_request_status(
@@ -206,7 +203,7 @@ class TestHttpBrokerClient:
         mr = _make_request()
         await broker.register_request(mr)
         result_queue: asyncio.Queue = asyncio.Queue()
-        server = BrokerHttpServer(broker, result_queue=result_queue)
+        server = make_broker_http_server(broker, result_queue=result_queue)
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 result = DownloadResult(
@@ -230,7 +227,7 @@ class TestHttpBrokerClient:
         broker = _make_broker()
         mr = _make_request()
         search_queue = AsyncioSearchResultQueue()
-        server = BrokerHttpServer(broker, search_result_queue=search_queue)
+        server = make_broker_http_server(broker, search_result_queue=search_queue)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             assert await hc.next_search_result() is None
@@ -244,16 +241,16 @@ class TestHttpBrokerClient:
 
     async def test_checkout_unknown_returns_none(self):
         broker = _make_broker()
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             result = await hc.checkout('nonexistent', 123)
         assert result is None
 
-    async def test_checkout_with_valid_entry_returns_local_path(self):
+    async def test_checkout_with_valid_entry_returns_s3_key(self):
         broker = _make_broker()
         mr = _make_request()
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await broker.register_download(md)
@@ -262,8 +259,7 @@ class TestHttpBrokerClient:
                         hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
                         result = await hc.checkout(str(mr.uuid), 123, guild_dir)
         assert isinstance(result, CheckoutResult)
-        assert result.local_path is not None
-        assert result.s3_key is None
+        assert result.s3_key is not None
 
     async def test_checkout_with_path_guild_dir_serializes(self):
         '''Regression: the player passes self.file_dir (a Path) as guild_path.
@@ -273,7 +269,7 @@ class TestHttpBrokerClient:
         session — must round-trip, not raise.'''
         broker = _make_broker()
         mr = _make_request()
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await broker.register_download(md)
@@ -282,27 +278,26 @@ class TestHttpBrokerClient:
                         hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
                         result = await hc.checkout(str(mr.uuid), 123, Path(guild_dir))
         assert isinstance(result, CheckoutResult)
-        assert result.local_path is not None
+        assert result.s3_key is not None
 
     async def test_checkout_ha_broker_returns_s3_key(self):
         '''An HA broker returns CheckoutResult(s3_key); the server serialises it as
         s3_key and HttpBrokerClient surfaces it (with bucket_name) without downloading.'''
         broker = _make_broker()
         broker.checkout = AsyncMock(return_value=CheckoutResult(s3_key='guilds/1/x.mp3'))
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), bucket_name='my-bucket', session=tc.session)
             result = await hc.checkout('abc', 123, 'gdir')
         assert isinstance(result, CheckoutResult)
         assert result.s3_key == 'guilds/1/x.mp3'
         assert result.bucket_name == 'my-bucket'
-        assert result.local_path is None
 
     async def test_release(self):
         broker = _make_broker()
         mr = _make_request()
         await broker.register_request(mr)
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.release(str(mr.uuid))
@@ -311,7 +306,7 @@ class TestHttpBrokerClient:
     async def test_prefetch(self):
         '''prefetch with empty list is a no-op that does not raise.'''
         broker = _make_broker()
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         queue_items: list = []
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
@@ -321,7 +316,7 @@ class TestHttpBrokerClient:
         '''Regression (same PosixPath bug as checkout): the player passes a Path
         guild_path to prefetch. Must str()-serialise over HTTP rather than raise.'''
         broker = _make_broker()
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         with TemporaryDirectory() as guild_dir:
             async with TestClient(TestServer(server.build_app())) as tc:
                 hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
@@ -351,7 +346,7 @@ class TestHttpBrokerClient:
         broker = _make_broker()
         mr = _make_request()
         await broker.register_request(mr)
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.remove(str(mr.uuid))
@@ -362,7 +357,7 @@ class TestHttpBrokerClient:
         broker = _make_broker()
         mr = _make_request()
         await broker.register_request(mr)
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.discard(str(mr.uuid))
@@ -374,7 +369,7 @@ class TestHttpBrokerClient:
         broker = _make_broker()
         mr = _make_request()
         await broker.register_request(mr)
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 async with TestClient(TestServer(server.build_app())) as tc:
@@ -388,7 +383,7 @@ class TestHttpBrokerClient:
         '''check_cache returns None when the broker has no cache hit.'''
         broker = _make_broker()
         mr = _make_request()
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             assert await hc.check_cache(mr) is None
@@ -406,7 +401,7 @@ class TestHttpBrokerClientCacheAndQueue:
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 broker.check_cache = AsyncMock(return_value=md)
-                server = BrokerHttpServer(broker)
+                server = make_broker_http_server(broker)
                 async with TestClient(TestServer(server.build_app())) as tc:
                     hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
                     result = await hc.check_cache(mr)
@@ -429,7 +424,7 @@ class TestHttpBrokerClientCacheAndQueue:
                                 'uploader': 'tester', 'duration': 120, 'extractor': 'youtube'},
                     file_name=md.file_path,
                 )
-                server = BrokerHttpServer(broker)
+                server = make_broker_http_server(broker)
                 async with TestClient(TestServer(server.build_app())) as tc:
                     hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
                     await hc.register_download_result(result)
@@ -448,7 +443,7 @@ class TestHttpBrokerClientCacheAndQueue:
         '''next_result returns None when the broker has nothing queued, and mints
         NO span on the idle 204 path (the OOM churn fix).'''
         broker = _make_broker()
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             span_spy = mocker.patch.object(
@@ -495,7 +490,7 @@ class TestHttpBrokerClientCacheAndQueue:
         '''cache_cleanup returns the removed flag from the broker.'''
         broker = _make_broker()
         broker.cache_cleanup = AsyncMock(return_value=True)
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             assert await hc.cache_cleanup() is True
@@ -504,7 +499,7 @@ class TestHttpBrokerClientCacheAndQueue:
         '''get_cache_count round-trips the integer count.'''
         broker = _make_broker()
         broker.get_cache_count = AsyncMock(return_value=42)
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             assert await hc.get_cache_count() == 42
@@ -512,7 +507,7 @@ class TestHttpBrokerClientCacheAndQueue:
     async def test_create_finalize_delete_bundle_round_trip(self):
         '''create_bundle returns a uuid; finalize / delete reach the broker.'''
         broker = _make_broker()
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             bundle_uuid = await hc.create_bundle(
@@ -528,7 +523,7 @@ class TestHttpBrokerClientCacheAndQueue:
     async def test_list_bundles_for_guild_round_trip(self):
         '''GET /bundles?guild_id=N returns the broker's filtered uuids.'''
         broker = _make_broker()
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         a = await broker.create_bundle(100, 200)
         b = await broker.create_bundle(100, 201)
         await broker.create_bundle(999, 200)
@@ -633,7 +628,7 @@ class TestHttpBrokerClientPlayerSessions:
 
     async def test_save_list_delete_round_trip(self):
         broker = MediaBroker()
-        server = BrokerHttpServer(broker)
+        server = make_broker_http_server(broker)
         context = generate_fake_context()
         request = fake_source_dict(context)
         async with TestClient(TestServer(server.build_app())) as tc:

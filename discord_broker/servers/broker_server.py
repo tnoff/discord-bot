@@ -25,7 +25,6 @@ from discord_core.types.player_session import PlayerSession
 
 from discord_broker.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
                                                      MediaBrokerBase)
-from discord_broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 from discord_broker.workers.broker_metrics import BrokerMetricNaming
 
 logger = logging.getLogger(__name__)
@@ -82,39 +81,29 @@ class BrokerHttpServer(AiohttpServerBase):
         POST   /bundles/{uuid}/finalize   finalize_bundle
         DELETE /bundles/{uuid}            delete_bundle
 
-    checkout serialises whatever the engine returns: an in-process AsyncioBroker
-    stages the file and yields CheckoutResult(local_path) -> guild_file_path; an
-    HA RedisBroker yields CheckoutResult(s3_key) -> s3_key (the bot fetches it).
-    No mode flag is needed — the CheckoutResult drives the response shape.
+    checkout serialises whatever the engine returns: RedisBroker yields
+    CheckoutResult(s3_key) -> s3_key (the bot fetches it), and no result at all
+    yields an empty answer.
     '''
 
     # bandit B104: '0.0.0.0' default is intentional — worker/bot pods reach the broker across the docker/k8s network; callers override host via constructor arg
     def __init__(self, broker: MediaBrokerBase, host: str = '0.0.0.0', port: int = 8081,  # nosec B104
-                 result_queue: DownloadResultQueue | None = None,
-                 search_result_queue: SearchResultQueue | None = None):
+                 *, result_queue: DownloadResultQueue,
+                 search_result_queue: SearchResultQueue):
         super().__init__()
         self._broker = broker
         self._host = host
         self._port = port
-        # Always have a queue.  In single-process embedded mode the cog passes
-        # its InMemoryBrokerClient's AsyncioDownloadResultQueue so HTTP-arriving
-        # results land where the cog drains them.  In HA the broker pod passes a
-        # RedisDownloadResultQueue so multiple broker pods share a bot-ready queue.
-        self._result_queue: DownloadResultQueue = (
-            result_queue if result_queue is not None else AsyncioDownloadResultQueue()
-        )
-        # Same story for the bot-ready search-result queue (Redis in HA so the
-        # search pod's POSTs and the bot's polls meet on a shared list).
-        self._search_result_queue: SearchResultQueue = (
-            search_result_queue if search_result_queue is not None else AsyncioSearchResultQueue()
-        )
+        # The broker pod passes Redis-backed queues so multiple broker pods
+        # share one bot-ready download-result list and one search-result list.
+        self._result_queue: DownloadResultQueue = result_queue
+        self._search_result_queue: SearchResultQueue = search_result_queue
         # Heartbeat so the broker pod has a first-class liveness series like the
         # bot cogs and the dispatcher. The broker previously emitted no heartbeat
         # at all, so a broker that was down (or not yet accepting connections at
         # startup) was invisible on the dashboard — its outage only surfaced
         # indirectly as the bot's process_download_results loop dying. Emitted
-        # under job="discord-broker" in HA, or job="discord-bot" for the embedded
-        # broker in single-process mode.
+        # under job="discord-broker".
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
                                 self.heartbeat_observations,
                                 'Broker HTTP server heartbeat')
@@ -292,11 +281,8 @@ class BrokerHttpServer(AiohttpServerBase):
         with otel_span_wrapper('broker.checkout', context=ctx, kind=SpanKind.SERVER):
             result = await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
         if result is None:
-            return web.json_response(broker_responses.CheckoutStagedResponse().model_dump())
-        if result.s3_key:
-            return web.json_response(broker_responses.CheckoutS3Response(s3_key=result.s3_key).model_dump())
-        return web.json_response(broker_responses.CheckoutStagedResponse(
-            guild_file_path=str(result.local_path) if result.local_path else None).model_dump())
+            return web.json_response(broker_responses.CheckoutEmptyResponse().model_dump())
+        return web.json_response(broker_responses.CheckoutS3Response(s3_key=result.s3_key).model_dump())
 
     async def _handle_release(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)

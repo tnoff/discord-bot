@@ -24,7 +24,6 @@ from discord_core.routes import broker as broker_routes
 from discord_core.routes import queue_worker as queue_worker_routes
 from discord_core.routes import dispatch as dispatch_routes
 
-from discord_broker.servers.broker_server import BrokerHttpServer
 from discord_db.servers.database_server import DatabaseHttpServer
 from discord_search.servers.media_search_server import MediaSearchHttpServer
 from discord_search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
@@ -33,6 +32,7 @@ from discord_dispatcher.servers.dispatch_server import DispatchHttpServer
 
 from discord_downloader.servers.download_server import DownloadHttpServer
 
+from tests.fakes.asyncio_queues import make_broker_http_server
 from tests.fakes.asyncio_broker import AsyncioBroker
 
 CONTRACT_ENTRY = (contract.CONTRACT_ROUTE.method, contract.CONTRACT_ROUTE.template)
@@ -51,7 +51,7 @@ def fully_configured_database():
 
 # (surface name, server factory, the routes that server should serve, serving image)
 SEAMS = [
-    ('broker', lambda: BrokerHttpServer(AsyncioBroker()), broker_routes.ALL,
+    ('broker', lambda: make_broker_http_server(AsyncioBroker()), broker_routes.ALL,
      'discord-broker'),
     ('database', fully_configured_database, database_routes.ALL, 'discord-db'),
     ('dispatch', lambda: DispatchHttpServer(object(), object()), dispatch_routes.ALL,

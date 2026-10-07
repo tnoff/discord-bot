@@ -166,9 +166,8 @@ class MediaBrokerBase(PlayerSessionStore, ABC):
     @abstractmethod
     async def checkout(self, media_request_uuid: str, guild_id: int,
                        guild_path: Path | None = None) -> CheckoutResult | None:
-        '''Mark an entry CHECKED_OUT; returns a CheckoutResult with local_path
-        (in-process engine stages the file) or s3_key (HA engine leaves the S3
-        download to the caller), or None if the entry is unknown.'''
+        '''Mark an entry CHECKED_OUT; returns a CheckoutResult with s3_key
+        (the bot downloads from S3), or None if the entry is unknown.'''
 
     @abstractmethod
     async def remove(self, media_request_uuid: str) -> None:

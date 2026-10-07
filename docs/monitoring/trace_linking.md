@@ -229,13 +229,13 @@ call the history/emoji fetch path today.
 | `dispatch.update_mutable_channel` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:133` |
 | `dispatch_client.fetch_emojis` | CLIENT | core (shared) | `discord_core/clients/dispatch_client_base.py:169` |
 | `dispatch_client.fetch_history` | CLIENT | core (shared) | `discord_core/clients/dispatch_client_base.py:141` |
-| `message_dispatcher.delete` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:739` |
-| `message_dispatcher.fetch_emojis` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:788` |
-| `message_dispatcher.fetch_history` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:767` |
-| `message_dispatcher.process_mutable` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:613` |
-| `message_dispatcher.remove_mutable` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:700` |
-| `message_dispatcher.send` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:728` |
-| `message_dispatcher.update_mutable_channel` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:752` |
+| `message_dispatcher.delete` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:737` |
+| `message_dispatcher.fetch_emojis` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:786` |
+| `message_dispatcher.fetch_history` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:765` |
+| `message_dispatcher.process_mutable` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:611` |
+| `message_dispatcher.remove_mutable` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:698` |
+| `message_dispatcher.send` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:726` |
+| `message_dispatcher.update_mutable_channel` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:750` |
 
 <!-- END GENERATED(dispatcher-span-table) -->
 

@@ -27,7 +27,7 @@ from discord_broker.interfaces.broker_protocols import (
     SearchResultQueue,
     MediaBrokerBase,
 )
-from discord_broker.workers.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
+from tests.fakes.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
 logger = logging.getLogger(__name__)
 

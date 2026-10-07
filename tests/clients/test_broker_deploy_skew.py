@@ -28,7 +28,8 @@ from discord_core.utils.loop_health import LoopHealth
 from discord_core.clients.http_broker_client import HttpBrokerClient
 
 from discord_broker.servers.broker_server import BrokerHttpServer
-from discord_broker.workers.asyncio_queues import AsyncioSearchResultQueue
+from tests.fakes.asyncio_queues import make_broker_http_server
+from tests.fakes.asyncio_queues import AsyncioSearchResultQueue
 
 from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
 from tests.helpers import fake_bot_yielder, fake_source_dict, generate_fake_context
@@ -64,7 +65,7 @@ class TestPreMr2BrokerRoutes:
     '''The stand-in really is missing the routes (guards the test itself).'''
 
     async def test_old_broker_404s_the_search_result_routes(self):
-        server = BrokerHttpServer(_make_broker())
+        server = make_broker_http_server(_make_broker())
         async with TestClient(TestServer(_pre_mr2_app(server))) as tc:
             assert (await tc.get('/search-results/next')).status == 404
             assert (await tc.post('/search-results', json={})).status == 404
@@ -72,7 +73,7 @@ class TestPreMr2BrokerRoutes:
     async def test_current_broker_serves_them(self):
         # 204 (empty queue) and 422 (empty body) — never 404. Confirms the two
         # apps differ only in the routes under test.
-        server = BrokerHttpServer(_make_broker())
+        server = make_broker_http_server(_make_broker())
         async with TestClient(TestServer(server.build_app())) as tc:
             assert (await tc.get('/search-results/next')).status == 204
             assert (await tc.post('/search-results', json={})).status == 422
@@ -83,7 +84,7 @@ class TestSeamClientToleratesSkew:
     '''A 404 from an un-upgraded peer means "not there yet", not "fatal".'''
 
     async def test_next_search_result_treats_404_as_empty(self):
-        server = BrokerHttpServer(_make_broker())
+        server = make_broker_http_server(_make_broker())
         async with TestClient(TestServer(_pre_mr2_app(server))) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             assert await hc.next_search_result() is None
@@ -91,7 +92,7 @@ class TestSeamClientToleratesSkew:
     async def test_register_search_result_treats_404_as_a_noop(self):
         # The producer half of the seam: the bot may also be POSTing resolutions
         # to a broker that predates the route.
-        server = BrokerHttpServer(_make_broker())
+        server = make_broker_http_server(_make_broker())
         async with TestClient(TestServer(_pre_mr2_app(server))) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.register_search_result(
@@ -99,7 +100,7 @@ class TestSeamClientToleratesSkew:
 
     async def test_next_result_treats_404_as_empty(self):
         # Same tolerance on the download seam, for symmetry.
-        server = BrokerHttpServer(_make_broker())
+        server = make_broker_http_server(_make_broker())
         app = server.build_app()
         stripped = web.Application(middlewares=app.middlewares)
         for route in app.router.routes():
@@ -145,7 +146,7 @@ class TestSearchResultLoopSurvivesSkew:
         soon as the upgraded broker is serving.'''
         broker = _make_broker()
         search_queue = AsyncioSearchResultQueue()
-        server = BrokerHttpServer(broker, search_result_queue=search_queue)
+        server = make_broker_http_server(broker, search_result_queue=search_queue)
         delivered = []
         fake_bot = fake_bot_yielder()()
         health = LoopHealth('process_search_results', stale_after_seconds=60)

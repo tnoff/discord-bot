@@ -137,7 +137,6 @@ def test_media_broker_base_is_abstract():
 def test_value_types_have_expected_defaults():
     '''CheckoutResult / BrokerEntry / Zone carry the documented defaults.'''
     checkout = CheckoutResult()
-    assert checkout.local_path is None
     assert checkout.s3_key is None
     assert checkout.bucket_name is None
 

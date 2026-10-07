@@ -105,13 +105,6 @@ class MusicDownloadConfig(BaseModel):
     banned_videos_list: list[str] = Field(default_factory=list)
     youtube_wait_period_minimum: int = Field(default=30, ge=1)
     youtube_wait_period_max_variance: int = Field(default=10, ge=1)
-    # Number of concurrent download loops. Defaults to 1: yt-dlp/YouTube
-    # rate-limits per source IP, so a single downloader per egress IP is the
-    # safe default. Raise only when downloads egress over distinct IPs.
-    # Back the download queue with Redis (RedisDownloadWorker) instead of the
-    # in-process AsyncioDownloadWorker, so downloads can be shared across pods.
-    # Requires a redis_manager; falls back to in-process if unset.
-    redis_backed: bool = False
     # Per-egress bucket for the shared YouTube backoff/failure keys. Pods behind
     # distinct egress IPs should use distinct keys so their rate-limits don't couple.
     youtube_egress_key: str = 'default'

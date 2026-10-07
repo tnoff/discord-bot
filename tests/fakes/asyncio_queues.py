@@ -1,9 +1,8 @@
 '''
-In-process asyncio implementations of BundleStore and WorkQueue.
-
-Used when no Redis is configured (single-process / local-asyncio mode).
-Locking methods are no-ops: single-process deployments have no cross-pod
-contention so acquire_lock always succeeds and release_lock does nothing.
+In-memory asyncio implementations of BundleStore, WorkQueue and the result
+queues. Test fakes: production pods always use the Redis-backed versions.
+Locking methods are no-ops, so acquire_lock always succeeds and release_lock
+does nothing.
 '''
 import asyncio
 import itertools
@@ -138,3 +137,12 @@ class AsyncioDownloadResultQueue(_AsyncioResultQueue, DownloadResultQueue):
 
 class AsyncioSearchResultQueue(_AsyncioResultQueue, SearchResultQueue):
     '''In-memory SearchResultQueue backed by asyncio.Queue (single-process).'''
+
+
+def make_broker_http_server(broker, **kwargs):
+    '''BrokerHttpServer over in-memory result queues unless the test passes its own.'''
+    # Imported here so this fakes module stays importable without the broker pod.
+    from discord_broker.servers.broker_server import BrokerHttpServer  # pylint: disable=import-outside-toplevel
+    kwargs.setdefault('result_queue', AsyncioDownloadResultQueue())
+    kwargs.setdefault('search_result_queue', AsyncioSearchResultQueue())
+    return BrokerHttpServer(broker, **kwargs)

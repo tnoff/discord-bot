@@ -434,7 +434,6 @@ async def test_checkout_returns_s3_key():
     result = await broker.checkout(str(req.uuid), guild_id=1)
     assert result.s3_key == '/s3/bucket/key.mp3'
     assert result.bucket_name == 'my-bucket'
-    assert result.local_path is None
 
 
 @pytest.mark.asyncio
