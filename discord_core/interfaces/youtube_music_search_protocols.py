@@ -7,19 +7,17 @@ Two roles, mirroring interfaces/download_protocols.py:
   queue-agnostic bits: resolving a query to a YouTube videoId via the injected
   YoutubeMusicClient, the 429 failure tracking, and the backoff window.  The
   per-guild input queue is declared as abstract hooks so a subclass can back it
-  with an in-process DistributedQueue (AsyncioYoutubeMusicSearchWorker) or Redis
-  (a future RedisYoutubeMusicSearchWorker for HA).
+  with an in-memory DistributedQueue (the test-only AsyncioYoutubeMusicSearchWorker)
+  or Redis (RedisYoutubeMusicSearchWorker, which the search pod runs).
 
   YoutubeMusicSearchClient (Protocol) — the cog-facing handle.
-  InMemoryYoutubeMusicSearchClient wraps a worker in single-process mode;
   HttpYoutubeMusicSearchClient forwards the submit/clear/block/status half to a
   standalone search pod (the pop-and-resolve half belongs to the pod itself).
 
-The cog runs the search loop against the Protocol and lets config decide which
-implementation backs it.  Unlike the DownloadClient Protocol (which hides
+The cog runs the search loop against the Protocol.  Unlike the DownloadClient Protocol (which hides
 resolution behind a background worker loop), the search Protocol exposes
 resolve()/backoff_wait() because the bot-side loop still drives one search at a
-time in single-process mode.
+time.
 '''
 import asyncio
 from abc import ABC, abstractmethod
@@ -51,7 +49,7 @@ class YoutubeMusicSearchWorkerBase(ABC):
     YoutubeMusicClient call (offloaded to a thread), the 429 FailureQueue, and
     the backoff window.  The per-guild input queue is declared as abstract hooks
     (submit routes through _enqueue; the loop pulls via get_input_nowait) so a
-    subclass can back it with an in-process DistributedQueue or Redis.
+    subclass can back it with an in-memory DistributedQueue or Redis.
     '''
     def __init__(
         self,

@@ -305,7 +305,7 @@ def cached_exit_attributes(probe: 'ExitProbe | None') -> tuple[str, str]:
     '''
     Return (exit_hostname, exit_ip) from the probe, falling back to UNKNOWN_EXIT.
 
-    Tolerates a None probe (the in-process/bot path constructs no probe) and a
+    Tolerates a None probe (a downloader with no probe configured) and a
     probe that has not yet had a successful refresh.
     '''
     if probe is None:

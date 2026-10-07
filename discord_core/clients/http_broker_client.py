@@ -11,8 +11,7 @@ sqlalchemy off the dispatcher, and the same split interfaces/result_queue.py
 already made.
 
 This is the canonical home. clients/broker_client.py used to re-export it for
-back-compat; that shim is gone, along with the single-process sibling it existed
-to sit beside.
+back-compat; that shim is gone.
 '''
 import logging
 
@@ -48,11 +47,11 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
     BrokerClient that forwards calls to a remote BrokerHttpServer over HTTP.
     Used when the broker runs in a separate process.
 
-    In HA mode checkout returns a CheckoutResult with s3_key set; the caller
+    Checkout returns a CheckoutResult with s3_key set; the caller
     (MusicPlayer) downloads the file from S3 before playback.
 
     next_result polls the remote broker for the next bot-ready DownloadResult,
-    replacing the local-queue side-channel used in single-process mode.
+    which the broker pod fills from the downloaders' POSTs.
     '''
     #: The seam this client speaks, for HttpClientMixin.start_seam_check.
     SEAM = 'broker'

@@ -7,9 +7,9 @@ workers/redis_queues.py without transitively importing the broker engine
 (MediaBrokerBase pulls VideoCacheClient → discord_bot.database → sqlalchemy,
 which the dispatcher pod doesn't ship).
 
-Single-process deployments use AsyncioDownloadResultQueue (in-memory);
-HA deployments use RedisDownloadResultQueue so any broker pod can answer
-GET /results/next, and broker-pod restarts don't lose work.
+The broker pod uses RedisDownloadResultQueue so any broker pod can answer
+GET /results/next, and broker-pod restarts don't lose work.  Tests use the
+in-memory AsyncioDownloadResultQueue (tests/fakes/asyncio_queues.py).
 '''
 from abc import ABC, abstractmethod
 
@@ -37,9 +37,9 @@ class SearchResultQueue(ABC):
     '''Abstract bot-ready SearchResolution queue.
 
     Sibling of DownloadResultQueue: carries resolved searches from the search
-    worker back to the cog's process_search_results loop.  Single-process uses
-    AsyncioSearchResultQueue; HA uses RedisSearchResultQueue so any broker pod
-    can answer GET /search-results/next.
+    worker back to the cog's process_search_results loop.  The broker pod uses
+    RedisSearchResultQueue so any broker pod can answer
+    GET /search-results/next; tests use AsyncioSearchResultQueue.
     '''
 
     @abstractmethod

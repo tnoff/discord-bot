@@ -214,7 +214,7 @@ class MusicPlayer:
                 await asyncio.to_thread(get_file, checkout_result.bucket_name, checkout_result.s3_key, local_path)
                 s3_fetch_seconds = monotonic() - s3_fetch_started
                 file_path = local_path
-            # Surface how long staging this track took: broker checkout + (in HA) the
+            # Surface how long staging this track took: broker checkout + the
             # S3 fetch sit between the track leaving the play queue and audio starting,
             # so a slow broker or S3 GET reads as dead air. DEBUG normally; escalated
             # to WARNING past PLAY_STAGING_SLOW_SECONDS so a prod stall is visible

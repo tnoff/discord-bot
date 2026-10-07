@@ -158,9 +158,9 @@ class RedisBroker(MediaBrokerBase):
         else:
             await self._registry.set_entry(request_uuid, data)
         # Sync the bundle's copy of this request so the renderer sees the new
-        # lifecycle_stage / failure_reason.  In single-process the registry
-        # entry and bundled_requests share a Python reference; in Redis they
-        # are independent JSON blobs and would otherwise drift forever.
+        # lifecycle_stage / failure_reason.  The registry entry and
+        # bundled_requests are independent JSON blobs and would otherwise drift
+        # forever.
         # Both the sync and the render run under the per-bundle lock so they
         # don't clobber a concurrent register_request.
         bundle_uuid = media_request.bundle_uuid
@@ -172,11 +172,9 @@ class RedisBroker(MediaBrokerBase):
     async def _sync_request_into_bundle(self, media_request: MediaRequest) -> None:
         '''Replace the bundle's stored copy of this request with the latest one.
 
-        Caller must already hold the per-bundle lock.  In single-process the
-        bundle's bundled_requests share a Python reference with the registry
-        entry, so a mutation is visible everywhere; in Redis the two are
-        independent JSON blobs and would drift forever without this explicit
-        write-back.
+        Caller must already hold the per-bundle lock.  The bundle's
+        bundled_requests and the registry entry are independent JSON blobs and
+        would drift forever without this explicit write-back.
         '''
         bundle_uuid = media_request.bundle_uuid
         if not bundle_uuid:

@@ -218,7 +218,7 @@ class MusicConfig(BaseModel):
 
 OTEL_SPAN_PREFIX = 'music'
 # Idle backoff for process_download_results when the broker has no finished
-# result ready — in HA this paces the remote GET /results/next poll.
+# result ready — this paces the remote GET /results/next poll.
 _BROKER_POLL_INTERVAL_SECONDS = 1.0
 # Idle backoff for the post_play_processing / process_search_results loops when
 # their queue is empty. Sleeping ONLY on the empty path (not every iteration)
@@ -654,9 +654,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                           **details) -> None:
         '''Send a lifecycle transition to the broker (which renders the bundle).
 
-        In single-process mode this also mutates the local request, since the
-        broker holds the same MediaRequest object.  The broker performs the
-        mark AND re-renders the bundle — closing the render gap left by the
+        The broker performs the mark AND re-renders the bundle — closing the render gap left by the
         retired set_on_change callback.
         '''
         await self.broker_client.update_request_status(
@@ -829,8 +827,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
     async def process_search_results(self):
         '''
         Search-result consumer: routes resolved searches into the download
-        pipeline.  Resolution happens on the search loop (in-process today, a
-        standalone search pod under HA); this loop runs the bot-side tail —
+        pipeline.  Resolution happens on the search loop (on the
+        standalone search pod); this loop runs the bot-side tail —
         cache-check then download submit — which can only run where the download
         client and cache live.  Mirrors process_download_results.
         '''
@@ -840,7 +838,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         resolution = await self.broker_client.next_search_result()
         if resolution is None:
             # Idle — no resolved search ready right now.  Sleep before the loop
-            # runner re-calls so we don't busy-spin the broker (in HA a remote
+            # runner re-calls so we don't busy-spin the broker (a remote
             # GET /search-results/next poll).
             await sleep(_BROKER_POLL_INTERVAL_SECONDS)
             return
@@ -902,7 +900,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         if result is None:
             # Idle — the broker has no finished result for us right now.  Sleep
             # before the loop runner re-calls so we don't busy-spin the broker
-            # (in HA this is a remote GET /results/next poll).
+            # (a remote GET /results/next poll).
             await sleep(_BROKER_POLL_INTERVAL_SECONDS)
             return
 
@@ -1135,7 +1133,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                     self.logger.warning(f'Error disconnecting voice client for guild {guild.id}: {e}')
 
             # Block download queue for later
-            # Clear queues before blocking: the in-process clear_queue restores
+            # Clear queues before blocking: the worker's clear_queue restores
             # preserved items via put_nowait, which raises once the queue is blocked,
             # so block-first is not an option here (holds for the Redis worker too,
             # whose clear leaves preserved items in place). The clear/block calls are
@@ -1165,9 +1163,9 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                     return keep
 
                 clear_result = await self.download_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
-                # In HA the predicate runs on the downloader pod, so the closure above
+                # The predicate runs on the downloader pod, so the closure above
                 # never sees the preserved items — union the pod-reported bundle_uuids
-                # so their bundles are skipped below just as in single-process mode.
+                # so their bundles are skipped below.
                 preserved_bundle_uuids |= clear_result.preserved_bundle_uuids
                 self.logger.debug(f'Cleanup found {len(clear_result.dropped)} existing download items')
                 for item in clear_result.dropped:
@@ -1175,7 +1173,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
 
                 search_clear_result = await self.youtube_music_search_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
                 # Playlist-adds queue for search before they queue for download, so the
-                # search side preserves bundles too — and in HA its predicate also runs
+                # search side preserves bundles too — and its predicate also runs
                 # on the search pod, out of reach of the closure above.
                 preserved_bundle_uuids |= search_clear_result.preserved_bundle_uuids
                 self.logger.debug(f'Cleanup found {len(search_clear_result.dropped)} existing search queue items')

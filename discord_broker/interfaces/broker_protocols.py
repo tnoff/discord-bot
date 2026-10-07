@@ -2,13 +2,11 @@
 Abstract base class for the media broker plus the cog-facing BrokerClient
 Protocol.
 
-MediaBrokerBase is the broker *engine* interface — both the in-process
-(asyncio) and Redis-backed implementations satisfy it.
+MediaBrokerBase is the broker *engine* interface — the Redis-backed engine
+and the test-only AsyncioBroker both satisfy it.
 
-BrokerClient is the cog-facing handle.  InMemoryBrokerClient wraps a
-MediaBrokerBase directly for single-process deployments; HttpBrokerClient
-forwards calls to a remote BrokerHttpServer.  The cog only depends on
-BrokerClient — config picks which impl is wired in.
+BrokerClient is the cog-facing handle.  HttpBrokerClient forwards calls to the
+broker pod's BrokerHttpServer; the cog only depends on BrokerClient.
 '''
 import asyncio
 import logging
@@ -58,8 +56,8 @@ __all__ = ['DownloadResultQueue', 'SearchResultQueue', 'CheckoutResult', 'Broker
 class BundleDispatchSink(Protocol):
     '''Subset of dispatcher methods the broker uses to push bundle UI updates.
 
-    Both MessageDispatcher (in-process, cog-side) and HttpDispatchClient
-    (HA, broker-side) satisfy it without extending — duck-typed.
+    Both MessageDispatcher (dispatcher pod) and HttpDispatchClient
+    (broker pod) satisfy it without extending — duck-typed.
     '''
     def update_mutable(self, key: str, guild_id: int, content: list,
                        channel_id: int | None,
@@ -110,9 +108,8 @@ class MediaBrokerBase(PlayerSessionStore, ABC):
     # ------------------------------------------------------------------
     # Shared cache helpers (template methods)
     #
-    # Concrete on the base now that AsyncioBroker is the single in-process
-    # engine: both it and the future RedisBroker share this eviction body, so
-    # it lives here rather than being duplicated per impl.
+    # Concrete on the base: RedisBroker and the test-only AsyncioBroker share
+    # this eviction body, so it lives here rather than being duplicated per impl.
     # ------------------------------------------------------------------
 
     async def check_cache(self, media_request: MediaRequest) -> MediaDownload | None:

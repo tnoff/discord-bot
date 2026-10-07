@@ -8,16 +8,14 @@ Two shapes live here, mirroring interfaces/broker_protocols.py:
     yt-dlp pipeline (create_source, backoff, retry, broker reporting) and the
     run() consumer loop, and declares the per-guild queue surface as abstract
     hooks.  AsyncioDownloadWorker (tests/fakes/asyncio_download_worker.py) backs it
-    with in-process DistributedQueues; a later RedisDownloadWorker will back it
-    with Redis for HA.
+    with in-memory DistributedQueues; RedisDownloadWorker backs it with Redis in
+    the downloader pod.
 
-  DownloadClient (Protocol) — the cog-facing handle.  InMemoryDownloadClient
-    (clients/download_client.py) wraps a DownloadWorkerBase for single-process
-    deployments; a future HttpDownloadClient will forward the same surface to a
-    remote downloader pod.
+  DownloadClient (Protocol) — the cog-facing handle.  The gateway's
+    HttpDownloadClient forwards the same surface to the downloader pod.
 
-The cog depends only on the DownloadClient Protocol and lets config decide which
-impl is constructed — mirroring the BrokerClient seam.
+The cog depends only on the DownloadClient Protocol — mirroring the BrokerClient
+seam.
 '''
 import asyncio
 from abc import ABC, abstractmethod
@@ -206,8 +204,8 @@ class DownloadWorkerBase(ABC):
     consumer loop that reports results to the broker.  The per-guild input queue
     is declared here as abstract hooks (submit routes through _enqueue_request;
     the loop pulls via _dequeue_direct / _merged_get_nowait and interrupts
-    backoff via backoff_wait) so a subclass can back it with in-process queues
-    (AsyncioDownloadWorker) or Redis (a future RedisDownloadWorker).
+    backoff via backoff_wait) so a subclass can back it with in-memory queues
+    (the test-only AsyncioDownloadWorker) or Redis (RedisDownloadWorker).
     '''
     def __init__(
         self,
@@ -301,8 +299,8 @@ class DownloadWorkerBase(ABC):
         self.normalize_audio: bool = normalize_audio
         self.logger = get_logger('download_client', logging_config)
         self.logging_config = logging_config
-        # Optional ExitProbe, wired by the downloader entrypoint; None on the
-        # in-process/bot path, in which case exit attribution reads 'unknown'.
+        # Optional ExitProbe, wired by the downloader entrypoint; None when no
+        # probe is configured, in which case exit attribution reads 'unknown'.
         self._exit_probe = None
         # Pool modes lease a different exit per download, so a single-exit probe
         # cannot answer "which IP did THIS download leave from".  Build a per-exit
@@ -332,7 +330,7 @@ class DownloadWorkerBase(ABC):
         is claimed for this download, False if it is unavailable (backed off or
         claimed by another task/pod).
 
-        Base: the in-process worker keeps no shared per-exit state, so every exit is
+        Base: the in-memory worker keeps no shared per-exit state, so every exit is
         always reservable. The Redis worker overrides this to SET-NX the exit's
         per-exit YouTube window, which gives cross-task + cross-pod exclusion and
         doubles as the per-exit spacing/backoff gate.
@@ -653,8 +651,8 @@ class DownloadWorkerBase(ABC):
         # Report the finished result to the broker, which persists a successful
         # download (zone=AVAILABLE) and queues every result for the cog's
         # process_download_results router to drain via broker.next_result().
-        # In single-process this is the in-memory broker; in HA it POSTs to the
-        # broker pod.  Replaces the old download-client-owned result queue.
+        # This POSTs to the broker pod.  Replaces the old download-client-owned
+        # result queue.
         if self._broker is not None:
             await self._broker.register_download_result(result)
 

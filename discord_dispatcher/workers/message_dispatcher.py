@@ -267,8 +267,8 @@ class MessageDispatcher(DispatchClientBase):
     Owns a configurable number of worker tasks that dequeue items from work_queue
     and execute them.  Bundle state is persisted to bundle_store.
 
-    Both work_queue and bundle_store are required; use AsyncioWorkQueue /
-    AsyncioBundleStore for single-process deployments without Redis.
+    Both work_queue and bundle_store are required; production passes the Redis
+    ones, tests pass AsyncioWorkQueue / AsyncioBundleStore.
     '''
 
     def __init__(self, bot: Bot, settings: dict,

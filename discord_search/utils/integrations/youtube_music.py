@@ -6,10 +6,9 @@ from `_youtube_music_impl` on first access (PEP 562 module `__getattr__`), so
 ytmusicapi is imported when a caller actually builds a client — not when a
 process merely imports something that mentions one.
 
-**Why it matters.** `cogs/music.py` builds a client only in single-process mode;
-under HA the search pod owns it. But the cog is imported by every bot process
-through `cli/_lib/cog_registry.py`, so a module-scope `from ... import
-YoutubeMusicClient` pulled ytmusicapi into the HA bot pod on every deployment —
+**Why it matters.** The search pod owns the client, but `cogs/music.py` is imported by
+every bot process through `cli/_lib/cog_registry.py`, so a module-scope
+`from ... import YoutubeMusicClient` pulled ytmusicapi into the bot pod —
 the exact dependency the search tier exists to isolate. Attribute access defers
 it; the ytmusicapi import still belongs at top level, in `_youtube_music_impl`.
 

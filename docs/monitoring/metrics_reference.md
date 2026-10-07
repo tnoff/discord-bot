@@ -184,7 +184,7 @@ early warning for the readiness-split regression class. Only the bot pod
 ### `message_dispatcher_queue_depth`
 
 **Status**: Planned — **not currently emitted**. The work queue is a single
-priority queue (asyncio in single-process, a Redis sorted set in HA), not a set
+priority queue (a Redis sorted set), not a set
 of per-guild queues, so there is no per-guild breakdown to label, and an
 observable-gauge callback (synchronous) cannot read the Redis depth without an
 async poller. Tracked for a follow-up that adds a `depth()` to the `WorkQueue`
@@ -213,7 +213,7 @@ probes, so this metric and the pod's readiness can never disagree.
 
 | `background_job` label | Emitted by | Description |
 |------------------------|------------|-------------|
-| `message_dispatcher` | dispatcher pod (HA) or bot (single-process) | Dispatcher worker pool |
+| `message_dispatcher` | dispatcher pod | Dispatcher worker pool |
 | `markov_check` | bot | Markov producer loop (submits Discord fetch requests) |
 | `markov_result` | bot | Markov dispatch-result consumer |
 | `delete_message_check` | bot | Message-deletion producer loop |
@@ -225,7 +225,7 @@ probes, so this metric and the pod's readiness can never disagree.
 | `youtube_music_search` | search pod | YouTube Music search loop — the bot no longer runs one, so the series only ever carries the pod's label set |
 | `post_play_processing` | bot | Post-play history/playlist tracking (Music) — only with a configured database |
 | `downloader_worker` | downloader pod | Download consumer driver |
-| `broker` | broker pod, or bot with an embedded broker | Broker HTTP server accepting requests* |
+| `broker` | broker pod | Broker HTTP server accepting requests* |
 | `downloader` | downloader pod | Downloader HTTP server accepting requests* |
 
 \* The two HTTP-server heartbeats report "the socket is serving", not loop

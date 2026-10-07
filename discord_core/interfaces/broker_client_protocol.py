@@ -26,17 +26,12 @@ __all__ = ['BrokerClient']
 
 class BrokerClient(PlayerSessionClient, Protocol):
     '''
-    Cog-facing handle for the MediaBroker.  Two implementations exist:
+    Cog-facing handle for the MediaBroker.  HttpBrokerClient
+    (clients/http_broker_client.py) forwards calls to the broker pod's
+    BrokerHttpServer over HTTP.  tests/fakes/in_memory_broker_client.py wraps a
+    local engine directly for tests.
 
-      InMemoryBrokerClient (clients/broker_client.py) — wraps a local
-        MediaBrokerBase directly.  Used in single-process deployments.
-
-      HttpBrokerClient (clients/broker_client.py) — forwards calls to a
-        remote BrokerHttpServer over HTTP.  Used in HA deployments where
-        the broker pod runs separately.
-
-    Both shapes satisfy this Protocol; the cog only depends on the Protocol
-    and lets config decide which impl is constructed.
+    The cog only depends on this Protocol.
     '''
     async def register_request(self, media_request) -> None:
         '''Register a new MediaRequest entering the pipeline.'''

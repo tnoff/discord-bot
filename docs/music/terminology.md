@@ -109,8 +109,8 @@ queueing is now per-guild Redis work, implemented by
 `discord_core/workers/redis_guild_queue.py` plus the pod-specific workers
 (`AsyncioDownloadWorker`/`RedisDownloadWorker` in `discord_downloader`,
 `AsyncioYoutubeMusicSearchWorker`/`RedisYoutubeMusicSearchWorker` in
-`discord_search`) — the "Asyncio" variants are single-process/test doubles,
-the "Redis" variants are what actually runs in HA mode.
+`discord_search`) — the "Asyncio" variants are test doubles,
+the "Redis" variants are what actually runs.
 
 ### **Standard `Queue`**
 - Simple FIFO (First In, First Out) queue
