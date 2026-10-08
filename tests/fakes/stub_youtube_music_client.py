@@ -10,7 +10,7 @@ fails when it does not: CI saw
 versions while the other two went green, which is the signature of a live
 dependency rather than a version bug.
 
-`_youtube_music_impl.search` only converts a **429** into a
+`youtube_music.search` only converts a **429** into a
 `YoutubeMusicRetryException`; every other `YTMusicServerError` propagates raw,
 so a 400 is an outright test failure with no retry and no backoff.
 

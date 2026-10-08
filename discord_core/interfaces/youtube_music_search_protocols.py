@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 from functools import partial
 from random import randint, seed
 from time import time
-from typing import TYPE_CHECKING, Callable, Protocol, runtime_checkable
+from typing import Callable, Protocol, runtime_checkable
 
 from discord_core.exceptions import ExitEarlyException, YoutubeMusicRetryException
 from discord_core.types.media_request import MediaRequest
@@ -34,11 +34,14 @@ from discord_core.utils.common import LoggingConfig, get_logger
 from discord_core.types.clear_guild_result import ClearGuildResult
 from discord_core.utils.failure_queue import FailureQueue, FailureStatus
 
-if TYPE_CHECKING:  # pragma: no cover
-    # Annotation only — importing it for real would pull ytmusicapi into every
-    # process that touches this base, including the HA bot, which never builds a
-    # client (it is injected by the caller; see the constructor docstring).
-    from discord_search.utils.integrations.youtube_music import YoutubeMusicClient
+
+class YoutubeMusicClientProtocol(Protocol):
+    '''The one call the search worker makes on the injected ytmusicapi wrapper.
+    The real wrapper (discord_search's YoutubeMusicClient) lives in the search
+    pod; typing it as a Protocol keeps ytmusicapi and discord_search out of every
+    other image.'''
+    def search(self, search_string: str) -> str:
+        '''Resolve a search string to a YouTube videoId.'''
 
 
 class YoutubeMusicSearchWorkerBase(ABC):
@@ -54,7 +57,7 @@ class YoutubeMusicSearchWorkerBase(ABC):
     def __init__(
         self,
         logging_config: LoggingConfig,
-        client: 'YoutubeMusicClient',
+        client: YoutubeMusicClientProtocol,
         failure_queue: FailureQueue,
         wait_period_minimum: int,
         wait_period_max_variance: int,
@@ -62,7 +65,7 @@ class YoutubeMusicSearchWorkerBase(ABC):
         '''
         Init search engine.
 
-        client : YoutubeMusicClient, injected so the ytmusicapi dependency is
+        client : YoutubeMusicClientProtocol, injected so the ytmusicapi dependency is
                  supplied by the caller (the HA search pod builds its own; the
                  bot pod's future HTTP client never imports one).
         failure_queue : FailureQueue tracking recent 429s for backoff scaling.

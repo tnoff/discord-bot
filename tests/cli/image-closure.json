@@ -501,7 +501,6 @@
         "discord_search.servers.youtube_music_search_server",
         "discord_search.utils",
         "discord_search.utils.integrations",
-        "discord_search.utils.integrations._youtube_music_impl",
         "discord_search.utils.integrations.spotify",
         "discord_search.utils.integrations.third_party_naming",
         "discord_search.utils.integrations.youtube",

@@ -35,11 +35,10 @@ import click
 from discord.ext.commands import Bot
 
 from discord_core.cli._lib.common import (
-    bot_lifecycle, load_cogs, run_loop,
-    setup_observability, register_on_ready,
+    run_loop, setup_observability,
     parse_and_validate_config, require_discord_token,
 )
-from discord_core.cli._lib.gateway import build_bot
+from discord_core.cli._lib.gateway import bot_lifecycle, build_bot, load_cogs, register_on_ready
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig
