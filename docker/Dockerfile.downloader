@@ -48,13 +48,9 @@ COPY discord_downloader/pyproject.toml "${APPDIR}/discord_downloader/pyproject.t
 # (libGL -> libglx-mesa0 -> libgl1-mesa-dri -> libllvm15).  Audio-only ffmpeg
 # never triggers that chain, so removing the JIT (libllvm15, 115 MB) and the DRI
 # driver (libgl1-mesa-dri, 25 MB) is safe.
-ARG INSTALL_HEAPTRACK=false
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       gcc cmake ffmpeg curl unzip ca-certificates && \
-    if [ "$INSTALL_HEAPTRACK" = "true" ]; then \
-      apt-get install -y --no-install-recommends heaptrack; \
-    fi && \
     mkdir -p "${APPDIR}/discord_downloader" && \
     : > "${APPDIR}/discord_downloader/__init__.py" && \
     echo "0.0.0" > "${APPDIR}/discord_downloader/VERSION" && \
@@ -91,9 +87,7 @@ RUN pip install --no-cache-dir --no-deps "${APPDIR}/discord_downloader" && \
 
 ENV PATH="$PATH:/opt/discord/.deno/bin"
 
-# Route through the shared entrypoint so HEAPTRACK_ENABLE=true launches the
-# process under heaptrack (parity with the bot image; the INSTALL_HEAPTRACK arg
-# above bakes the binary in). DISCORD_BOT_CMD selects the downloader console
+# Route through the shared entrypoint. DISCORD_BOT_CMD selects the downloader console
 # script; behaviour is identical to the old direct ENTRYPOINT.
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

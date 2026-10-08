@@ -426,18 +426,6 @@ documentation](./monitoring/health_server.md#docker-integration) for the
 full breakdown and [Health Check](./configuration.md#health-check) for the
 config toggle.
 
-### Debug builds
-
-`docker/Dockerfile.gateway` accepts an `INSTALL_HEAPTRACK` build arg
-(default `false`) for memory-profiling sessions:
-
-```bash
-docker build --build-arg INSTALL_HEAPTRACK=true -f docker/Dockerfile.gateway -t discord-gateway:debug .
-```
-
-The production image excludes it to keep image size down; keep debug images
-local — there's no need to push them to the registry.
-
 ### No database driver in the bot image
 
 The bot image (`docker/Dockerfile.gateway`) carries no database driver
