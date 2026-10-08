@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.0.6] - 2026-10-08
+
+### Changed
+
+- Remove the unused broker prefetch (POST /prefetch, prefetch on the broker engine and client); prefetch is done by the player (#1036).
+
 ## [3.0.5] - 2026-10-08
 
 ### Changed
