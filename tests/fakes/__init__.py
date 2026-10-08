@@ -1,8 +1,8 @@
 '''
-The single-process engines, retired from production by the HA rollout.
+In-memory test doubles for the engines each pod runs in production.
 
-These are the in-memory implementations the tiers used before each became its
-own pod: AsyncioBroker behind BrokerHttpServer, AsyncioDownloadWorker and
+These are the implementations the tiers used before each became its own pod, kept
+so tests can drive real behaviour without standing up Redis or a pod: AsyncioBroker behind BrokerHttpServer, AsyncioDownloadWorker and
 AsyncioYoutubeMusicSearchWorker behind their queue-worker servers.  Production
 runs the Redis-backed siblings (workers/redis_broker.py and friends); nothing
 under discord_bot/ imports anything here.

@@ -1,12 +1,12 @@
 '''
-In-process download engine backed by DistributedQueues.
+In-memory download engine backed by DistributedQueues.
 
-AsyncioDownloadWorker is the single-process DownloadWorkerBase impl: it owns the
+AsyncioDownloadWorker is the test-double DownloadWorkerBase impl: it owns the
 per-guild input queues (regular + DIRECT) and the _direct_available event that
 lets a DIRECT item interrupt an active backoff.  All the yt-dlp / backoff /
 consumer-loop logic lives on DownloadWorkerBase; this class only supplies the
-queue surface.  A future RedisDownloadWorker will supply the same surface backed
-by Redis for HA.
+queue surface.  RedisDownloadWorker (the downloader pod's engine) supplies the same surface
+backed by Redis.
 '''
 import asyncio
 from asyncio import QueueEmpty
@@ -25,10 +25,10 @@ from tests.fakes.distributed_queue import DistributedQueue
 
 class AsyncioDownloadWorker(DownloadWorkerBase):
     '''
-    Single-process download engine backed by an in-process yt-dlp pipeline.
+    In-memory download engine backed by an in-process yt-dlp pipeline.
 
     Owns the input queues and runs the download worker loop (via the inherited
-    run()) in the same process as the cog.  The regular and DIRECT queues are
+    run()) in the test's own process.  The regular and DIRECT queues are
     plain in-memory DistributedQueues; _direct_available wakes backoff_wait when
     a DIRECT item arrives so it can bypass an active backoff period.
     '''
@@ -44,7 +44,7 @@ class AsyncioDownloadWorker(DownloadWorkerBase):
         self._direct_input_queue: DistributedQueue[MediaRequest] = DistributedQueue(queue_max_size)
         self._direct_available: asyncio.Event = asyncio.Event()
         # Retries waiting out their hold-off, as (ready_at, guild_id, request).
-        # In-process is the whole storage story here: this worker's input queues
+        # In memory is the whole storage story here: this worker's input queues
         # are memory too, so a restart loses a deferred retry exactly as it loses
         # a queued one. The Redis worker, whose queue is durable, persists instead.
         self._deferred_retries: list[tuple[float, int, MediaRequest]] = []

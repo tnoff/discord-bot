@@ -1,11 +1,11 @@
 '''
-In-process YouTube-Music search engine backed by a DistributedQueue.
+In-memory YouTube-Music search engine backed by a DistributedQueue.
 
-AsyncioYoutubeMusicSearchWorker is the single-process
+AsyncioYoutubeMusicSearchWorker is the test-double
 YoutubeMusicSearchWorkerBase impl: it owns the per-guild input queue and runs in
-the same process as the cog.  All the resolution / 429-backoff logic lives on the
-base; this class only supplies the queue surface.  A future
-RedisYoutubeMusicSearchWorker will supply the same surface backed by Redis for HA.
+the test's own process.  All the resolution / 429-backoff logic lives on the
+base; this class only supplies the queue surface.  RedisYoutubeMusicSearchWorker
+(the search pod's engine) supplies the same surface backed by Redis.
 '''
 from typing import Callable
 
@@ -18,7 +18,7 @@ from tests.fakes.distributed_queue import DistributedQueue
 
 class AsyncioYoutubeMusicSearchWorker(YoutubeMusicSearchWorkerBase):
     '''
-    Single-process search engine backed by an in-memory DistributedQueue.
+    In-memory search engine backed by a DistributedQueue.
 
     Search requests are lightweight, so a single per-guild queue (no DIRECT
     fast-path like the download worker) is enough; the cog sizes it larger than
