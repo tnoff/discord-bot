@@ -195,3 +195,74 @@ async def test_removing_or_clearing_discards_staged_files(fake_context): #pylint
             assert not paths[0].exists() and paths[1].exists()
             await player.clear_queue()
             assert not paths[1].exists()
+
+
+class _BlockedDownload:
+    '''A get_file stand-in that blocks until released, so a test can act while a download is in flight.'''
+    def __init__(self):
+        self.loop = asyncio.get_running_loop()
+        self.started = asyncio.Event()
+        self.gate = asyncio.Event()
+
+    def __call__(self, bucket, key, dest):
+        self.loop.call_soon_threadsafe(self.started.set)
+        asyncio.run_coroutine_threadsafe(self.gate.wait(), self.loop).result()
+        _writes_audio(bucket, key, dest)
+
+    def release(self):
+        '''Let the blocked download finish.'''
+        self.gate.set()
+
+
+@pytest.mark.asyncio
+async def test_a_new_trigger_supersedes_the_running_prefetch(fake_context): #pylint:disable=redefined-outer-name
+    '''Triggering again cancels the previous window task but not its download.'''
+    with TemporaryDirectory() as tmp_dir:
+        player = _player(fake_context, tmp_dir)
+        blocked = _BlockedDownload()
+        with fake_media_download(tmp_dir, fake_context=fake_context) as md:
+            player.add_to_play_queue(md)
+            with patch(GET_FILE, side_effect=blocked) as mock_get:
+                player.trigger_prefetch()
+                first = player._prefetch_task #pylint:disable=protected-access
+                await blocked.started.wait()
+                player.trigger_prefetch()
+                await asyncio.sleep(0)
+                assert first.cancelled() or first.cancelling()
+                blocked.release()
+                await _settle(player)
+            assert mock_get.call_count == 1
+            assert player._staged_path(str(md.media_request.uuid), md.file_path).exists() #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_discarding_a_track_cancels_its_download(fake_context): #pylint:disable=redefined-outer-name
+    '''A track that leaves the queue mid-download stops that download.'''
+    with TemporaryDirectory() as tmp_dir:
+        player = _player(fake_context, tmp_dir)
+        blocked = _BlockedDownload()
+        with fake_media_download(tmp_dir, fake_context=fake_context) as md:
+            with patch(GET_FILE, side_effect=blocked):
+                waiter = asyncio.create_task(
+                    player._ensure_staged(str(md.media_request.uuid), 'my-bucket', md.file_path)) #pylint:disable=protected-access
+                await blocked.started.wait()
+                player._discard_staged(md) #pylint:disable=protected-access
+                with pytest.raises(asyncio.CancelledError):
+                    await waiter
+                blocked.release()
+            assert not player._staging #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_cleanup_cancels_downloads_in_flight(fake_context): #pylint:disable=redefined-outer-name
+    '''Tearing the player down cancels any download still running.'''
+    with TemporaryDirectory() as tmp_dir:
+        player = _player(fake_context, tmp_dir)
+        blocked = _BlockedDownload()
+        with patch(GET_FILE, side_effect=blocked):
+            waiter = asyncio.create_task(player._ensure_staged('abc', 'my-bucket', 'cache/x.mp3')) #pylint:disable=protected-access
+            await blocked.started.wait()
+            await player.cleanup()
+            with pytest.raises(asyncio.CancelledError):
+                await waiter
+            blocked.release()
