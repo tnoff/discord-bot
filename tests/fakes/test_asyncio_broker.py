@@ -264,11 +264,11 @@ async def test_single_track_search_cache_hit_tears_down_bundle(fake_context):  #
 
 @pytest.mark.asyncio
 async def test_player_session_save_list_delete(fake_context):  # pylint: disable=redefined-outer-name
-    '''Single-process sessions round-trip in memory.
+    '''Sessions round-trip in memory.
 
-    They do not survive the restart they exist for — without a separate broker
-    process there is nothing to survive into — but the surface has to behave so
-    the cog can call it in both deployment modes.
+    They do not survive a restart (RedisBroker's do), but the surface has to
+    behave so code under test can call the same methods it calls against the real
+    broker.
     '''
     broker = AsyncioBroker()
     session = PlayerSession(

@@ -1,5 +1,6 @@
 '''
-In-process (asyncio) media broker backed by a plain dict registry.
+In-memory (asyncio) media broker backed by a plain dict registry. A test double
+for RedisBroker.
 '''
 import asyncio
 import hashlib
@@ -36,9 +37,10 @@ def _copy_and_checksum(src: Path, dst: Path) -> tuple[str, str]:
 
 class AsyncioBroker(MediaBrokerBase):
     '''
-    In-process media broker backed by a plain dict registry.
+    In-memory media broker backed by a plain dict registry.
 
-    All state lives in memory; suitable for single-process deployments.
+    All state lives in memory. A test double for RedisBroker; production never
+    builds it.
     '''
 
     def __init__(self, **kwargs):
@@ -119,7 +121,7 @@ class AsyncioBroker(MediaBrokerBase):
     async def _sync_request_into_bundle(self, media_request: MediaRequest) -> None:
         '''Re-attach the registry's authoritative request into its bundle.
 
-        Caller must already hold the per-bundle lock.  In-process the bundle's
+        Caller must already hold the per-bundle lock.  Here the bundle's
         bundled_requests normally share a Python reference with the registry
         entry, but that alias is lost when the entry is rebuilt from a
         deserialised request; this write-back restores it so the renderer sees
@@ -274,12 +276,10 @@ class AsyncioBroker(MediaBrokerBase):
     # ------------------------------------------------------------------
     # Player sessions
     #
-    # Single-process mode stores these in memory, which means they do not in
-    # fact survive the restart they exist for.  That is not a gap: without a
-    # separate broker process there is nothing to survive into — the bot and its
-    # broker die together — so a resume is impossible either way and an empty
-    # session list is the honest answer.  Implemented rather than raised so the
-    # cog can call the same surface in both deployment modes.
+    # This fake stores sessions in memory, so they do not survive the restart
+    # they exist for (RedisBroker's do).  That is fine for a test double: the
+    # surface only has to behave, so code under test can call the same methods
+    # it calls against the real broker.
     # ------------------------------------------------------------------
 
     async def save_player_session(self, session: PlayerSession) -> None:
