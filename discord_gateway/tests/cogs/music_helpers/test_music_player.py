@@ -562,7 +562,6 @@ def with_broker_player(fake_context, history_playlist_id=None, queue_max_size=10
         broker.checkout = AsyncMock(return_value=None)
         broker.release = AsyncMock()
         broker.remove = AsyncMock()
-        broker.prefetch = AsyncMock()
         dispatcher = Mock()
         dispatcher.update_mutable = Mock()
         history_queue = Queue()

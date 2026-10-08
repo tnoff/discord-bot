@@ -1272,7 +1272,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                                      guild_path, self.dispatcher,
                                      history_playlist_id, self.history_playlist_queue,
                                      broker=self.broker_client,
-                                     prefetch_limit=self.config.download.storage.prefetch_limit if self.config.download.storage else 0)
+                                     prefetch_limit=self.config.download.storage.prefetch_limit if self.config.download.storage else 0,
+                                     bucket_name=self.config.download.storage.bucket_name if self.config.download.storage else None)
                 await player.start_tasks()
                 self.players[guild_id] = player
             if check_voice_client_active:
