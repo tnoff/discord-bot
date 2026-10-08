@@ -1,7 +1,7 @@
 '''
-Single-process BrokerClient: a thin wrapper around a MediaBrokerBase.
+In-memory BrokerClient: a thin wrapper around a MediaBrokerBase.
 
-Retired from production by the HA rollout and kept only as a test double.
+A test double only.
 The pod-facing implementation is HttpBrokerClient (clients/http_broker_client.py);
 music.broker_client is required config, so nothing a deployment can be
 configured with reaches this class. tests.helpers.attach_in_process_broker
@@ -58,22 +58,21 @@ class InMemoryBrokerClient: #pylint:disable=too-many-public-methods
 
     @property
     def result_queue(self) -> DownloadResultQueue:
-        '''Internal queue exposed so an embedded BrokerHttpServer can share it.'''
+        '''Internal queue, exposed so a test can hand it to a BrokerHttpServer.'''
         return self._result_queue
 
     @property
     def search_result_queue(self) -> SearchResultQueue:
-        '''Internal search-result queue, exposed so an embedded BrokerHttpServer
-        can share it (and so the cog's queue-depth gauge can read it).'''
+        '''Internal search-result queue, exposed so a test can hand it to a
+        BrokerHttpServer.'''
         return self._search_result_queue
 
     @property
     def local_broker(self) -> MediaBrokerBase:
         '''The wrapped MediaBrokerBase instance.
 
-        Only meaningful in single-process mode — there is no equivalent on
-        HttpBrokerClient because HA mode doesn't host a local broker.  The cog
-        uses this to attach an embedded BrokerHttpServer for external workers.
+        Test-only: there is no equivalent on HttpBrokerClient, which talks to a
+        broker pod rather than hosting an engine.
         '''
         return self._broker
 

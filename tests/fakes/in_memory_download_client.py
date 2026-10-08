@@ -1,7 +1,7 @@
 '''
-Single-process DownloadClient: a thin wrapper around a DownloadWorkerBase.
+In-memory DownloadClient: a thin wrapper around a DownloadWorkerBase.
 
-Retired from production by the HA rollout and kept only as a test double.
+A test double only.
 The pod-facing implementation is HttpDownloadClient
 (clients/http_download_client.py), which forwards the same surface to the
 downloader pod. The shared forwarding half lives in InMemoryQueueWorkerClient;
@@ -17,7 +17,7 @@ from tests.fakes.in_memory_queue_worker_client import InMemoryQueueWorkerClient
 
 class InMemoryDownloadClient(InMemoryQueueWorkerClient):
     '''
-    Single-process DownloadClient: a thin wrapper around a DownloadWorkerBase.
+    In-memory DownloadClient: a thin wrapper around a DownloadWorkerBase.
 
     The shared forwarding surface (submit / block_guild / clear_guild_queue /
     queue_size / failure_summary / backoff_seconds_remaining) comes
@@ -28,7 +28,7 @@ class InMemoryDownloadClient(InMemoryQueueWorkerClient):
 
     @property
     def local_worker(self) -> DownloadWorkerBase:
-        '''The wrapped engine — only meaningful in single-process mode.'''
+        '''The wrapped engine; HttpDownloadClient has no equivalent.'''
         return self._worker
 
     async def run(self, shutdown_event: asyncio.Event) -> None:

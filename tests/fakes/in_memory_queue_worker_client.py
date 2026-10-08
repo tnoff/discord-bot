@@ -1,7 +1,7 @@
 '''
-Shared single-process client for the queue workers.
+Shared in-memory client for the queue workers.
 
-The in-process counterpart to http_queue_worker_client.py: InMemoryDownloadClient
+The test-double counterpart to http_queue_worker_client.py: InMemoryDownloadClient
 and InMemoryYoutubeMusicSearchClient both wrap a worker engine and forward the
 same submit / block / clear / queue_size / failure_summary / backoff surface to
 it, so that forwarding lives here once and each subclass adds only the half that
@@ -25,7 +25,7 @@ class InMemoryQueueWorkerClient:
     def __init__(self, worker):
         self._worker = worker
 
-    # local_worker — the single-process escape hatch onto the wrapped engine — is
+    # local_worker — the escape hatch onto the wrapped engine — is
     # declared by each subclass instead of here, so it carries that subclass's
     # engine type (DownloadWorkerBase / YoutubeMusicSearchWorkerBase).
 

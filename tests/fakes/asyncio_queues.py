@@ -15,7 +15,7 @@ class AsyncioBundleStore(BundleStore):
     '''
     In-memory BundleStore backed by a plain dict.
 
-    No persistence across process restarts; suitable for single-process deployments.
+    No persistence across process restarts; for tests.
     '''
 
     def __init__(self):
@@ -36,11 +36,11 @@ class AsyncioBundleStore(BundleStore):
 
 class AsyncioWorkQueue(WorkQueue):
     '''
-    In-process WorkQueue backed by asyncio.PriorityQueue.
+    In-memory WorkQueue backed by asyncio.PriorityQueue.
 
-    Locking is a no-op: only one process and one event loop, so there is no
+    Locking is a no-op: one process and one event loop, so there is no
     cross-pod contention to guard against.  Results are stored in a plain dict
-    for in-process fetch result delivery.
+    for fetch result delivery.
     '''
 
     def __init__(self):
@@ -83,11 +83,11 @@ class AsyncioWorkQueue(WorkQueue):
             return None
 
     async def acquire_lock(self, _bundle_key: str) -> bool:
-        '''Single-process: no cross-pod contention; always succeeds.'''
+        '''No cross-pod contention in a test; always succeeds.'''
         return True
 
     async def release_lock(self, _bundle_key: str) -> None:
-        '''Single-process: no-op.'''
+        '''No-op: nothing else holds the lock.'''
 
     async def store_result(self, request_id: str, result: dict) -> None:
         self._results[request_id] = result
@@ -102,9 +102,8 @@ class _AsyncioResultQueue:
     The download and search result queues are both FIFO asyncio.Queues that
     differ only in element type, so the put / get_nowait / depth / raw_queue
     plumbing lives here once and the two concrete queues just pin the ABC and
-    element type.  Used in single-process deployments; ``raw_queue`` exposes the
-    underlying asyncio.Queue so the cog's metric callback can read ``qsize()``
-    synchronously.
+    element type.  ``raw_queue`` exposes the
+    underlying asyncio.Queue so a test can read ``qsize()`` synchronously.
     '''
 
     def __init__(self, queue: asyncio.Queue | None = None):
@@ -112,7 +111,7 @@ class _AsyncioResultQueue:
 
     @property
     def raw_queue(self) -> asyncio.Queue:
-        '''The wrapped asyncio.Queue — only meaningful in single-process.'''
+        '''The wrapped asyncio.Queue.'''
         return self._queue
 
     async def put(self, item) -> None:
@@ -132,11 +131,11 @@ class _AsyncioResultQueue:
 
 
 class AsyncioDownloadResultQueue(_AsyncioResultQueue, DownloadResultQueue):
-    '''In-memory DownloadResultQueue backed by asyncio.Queue (single-process).'''
+    '''In-memory DownloadResultQueue backed by asyncio.Queue.'''
 
 
 class AsyncioSearchResultQueue(_AsyncioResultQueue, SearchResultQueue):
-    '''In-memory SearchResultQueue backed by asyncio.Queue (single-process).'''
+    '''In-memory SearchResultQueue backed by asyncio.Queue.'''
 
 
 def make_broker_http_server(broker, **kwargs):

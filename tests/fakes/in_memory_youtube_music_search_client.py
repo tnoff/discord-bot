@@ -1,7 +1,7 @@
 '''
-Single-process YoutubeMusicSearchClient: a wrapper around a search worker.
+In-memory YoutubeMusicSearchClient: a wrapper around a search worker.
 
-Retired from production by the HA rollout and kept only as a test double.
+A test double only.
 The pod-facing implementation is HttpYoutubeMusicSearchClient
 (clients/youtube_music_search_client.py), which forwards the submit/clear/block
 half of the surface to the search pod.
@@ -17,20 +17,20 @@ from tests.fakes.in_memory_queue_worker_client import InMemoryQueueWorkerClient
 
 class InMemoryYoutubeMusicSearchClient(InMemoryQueueWorkerClient):
     '''
-    Single-process YoutubeMusicSearchClient: a thin wrapper around a
+    In-memory YoutubeMusicSearchClient: a thin wrapper around a
     YoutubeMusicSearchWorkerBase.
 
     The shared forwarding surface (submit / block_guild / clear_guild_queue /
     queue_size / failure_summary / backoff_seconds_remaining) comes
     from InMemoryQueueWorkerClient; the worker owns the ytmusicapi call and input
     queue.  What is specific to search is the pop/resolve half below — the loop
-    that consumes it runs in the cog in single-process mode, and in the search pod
-    under HA (which is why HttpYoutubeMusicSearchClient has no counterpart).
+    that consumes it runs in the search pod in production (which is why
+    HttpYoutubeMusicSearchClient has no counterpart).
     '''
 
     @property
     def local_worker(self) -> YoutubeMusicSearchWorkerBase:
-        '''The wrapped engine — only meaningful in single-process mode.'''
+        '''The wrapped engine; HttpYoutubeMusicSearchClient has no equivalent.'''
         return self._worker
 
     async def get_input_nowait(self) -> MediaRequest:

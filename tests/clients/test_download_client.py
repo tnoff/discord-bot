@@ -2,7 +2,7 @@
 Tests for the InMemoryDownloadClient wrapper.
 
 The wrapper is a thin delegator around a DownloadWorkerBase engine
-(AsyncioDownloadWorker in single-process); these tests assert every method and
+(the in-memory AsyncioDownloadWorker); these tests assert every method and
 property forwards to the wrapped worker, mirroring tests/clients/test_broker_client.py.
 '''
 from pathlib import Path
