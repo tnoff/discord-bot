@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.1.6] - 2026-10-08
+
+### Changed
+
+- Prefetch is back: the player downloads the next queued tracks from S3 itself, reuses them at playback, and deletes staged files once played or removed from the queue (#1036).
+
 ## [3.1.5] - 2026-10-08
 
 ### Changed
