@@ -29,11 +29,12 @@ from discord_core.routes import broker as broker_routes
 
 from discord_broker.servers.broker_server import BrokerHttpServer
 
+from tests.fakes.asyncio_queues import make_broker_http_server
 from tests.fakes.asyncio_broker import AsyncioBroker
 
 
 def _server() -> BrokerHttpServer:
-    return BrokerHttpServer(AsyncioBroker())
+    return make_broker_http_server(AsyncioBroker())
 
 
 def _served(app: web.Application) -> set[tuple[str, str]]:

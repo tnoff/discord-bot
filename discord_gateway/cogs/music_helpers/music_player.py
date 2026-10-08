@@ -202,14 +202,11 @@ class MusicPlayer:
                 checkout_seconds = monotonic() - checkout_started
 
             # Default to the download's own path; override with whatever the broker
-            # checked out. local_path means the file is already staged locally (the
-            # single-process / non-HA path — behaviour-preserving). s3_key means an
-            # HA broker pod holds it in S3 and the bot must fetch it before playback.
+            # checked out. s3_key means the broker pod holds it in S3 and the bot
+            # must fetch it before playback.
             file_path = media_download.file_path
             s3_fetch_seconds = 0.0
-            if checkout_result and checkout_result.local_path:
-                file_path = checkout_result.local_path
-            elif checkout_result and checkout_result.s3_key and checkout_result.bucket_name:
+            if checkout_result and checkout_result.s3_key and checkout_result.bucket_name:
                 extension = ''.join(Path(checkout_result.s3_key).suffixes)
                 local_path = self.file_dir / f'{media_download.media_request.uuid}{extension}'
                 self.file_dir.mkdir(exist_ok=True)
@@ -217,7 +214,7 @@ class MusicPlayer:
                 await asyncio.to_thread(get_file, checkout_result.bucket_name, checkout_result.s3_key, local_path)
                 s3_fetch_seconds = monotonic() - s3_fetch_started
                 file_path = local_path
-            # Surface how long staging this track took: broker checkout + (in HA) the
+            # Surface how long staging this track took: broker checkout + the
             # S3 fetch sit between the track leaving the play queue and audio starting,
             # so a slow broker or S3 GET reads as dead air. DEBUG normally; escalated
             # to WARNING past PLAY_STAGING_SLOW_SECONDS so a prod stall is visible

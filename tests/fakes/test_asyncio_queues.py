@@ -6,7 +6,7 @@ import pytest
 from discord_core.types.download import DownloadResult, DownloadStatus
 from discord_core.types.search_resolution import SearchResolution
 
-from discord_broker.workers.asyncio_queues import (
+from tests.fakes.asyncio_queues import (
     AsyncioBundleStore,
     AsyncioDownloadResultQueue,
     AsyncioSearchResultQueue,

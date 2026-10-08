@@ -64,9 +64,7 @@ class BundleState(BaseModel):
     message content from this state plus a transient DapperTable.
 
     Caveat: ``bundled_requests[i].media_request`` is a *snapshot* of the
-    request at the time it was attached to the bundle.  In single-process
-    mode it shares a Python reference with the broker registry's entry, so
-    lifecycle transitions are seen automatically.  In HA / Redis mode the
+    request at the time it was attached to the bundle.  In the Redis broker the
     bundle and the registry entry are independent JSON blobs — every broker
     op that mutates the registry's MediaRequest must also call
     ``RedisBroker._sync_request_into_bundle`` or the bundle's copy goes stale
@@ -103,11 +101,11 @@ class BundleState(BaseModel):
         ``media_request``, returning True when a matching row was found.
 
         Brokers keep the authoritative MediaRequest in their registry; the
-        bundle holds its own copy.  In single-process those copies normally
-        share a Python reference, but the alias is lost when a registry entry is
-        rebuilt from a deserialised request, and in Redis the two are always
-        independent JSON blobs.  Both brokers call this to write the latest
-        lifecycle state back into the bundle before rendering.
+        bundle holds its own copy.  In Redis the two are always independent
+        JSON blobs (the test-only AsyncioBroker can alias them, but the alias is
+        lost when a registry entry is rebuilt from a deserialised request).  Both
+        brokers call this to write the latest lifecycle state back into the
+        bundle before rendering.
         '''
         target = str(media_request.uuid)
         for req_state in self.bundled_requests:

@@ -11,11 +11,9 @@ sqlalchemy off the dispatcher, and the same split interfaces/result_queue.py
 already made.
 
 This is the canonical home. clients/broker_client.py used to re-export it for
-back-compat; that shim is gone, along with the single-process sibling it existed
-to sit beside.
+back-compat; that shim is gone.
 '''
 import logging
-from pathlib import Path
 
 import aiohttp
 from opentelemetry.trace import SpanKind
@@ -33,7 +31,7 @@ from discord_core.routes import broker as broker_routes
 from discord_core.types.checkout_result import CheckoutResult
 from discord_core.types.broker_responses import (
     CacheCleanupResponse, CheckCacheHitResponse, CheckoutS3Response,
-    CheckoutStagedResponse, CreateBundleResponse, GetCacheCountResponse,
+    CheckoutEmptyResponse, CreateBundleResponse, GetCacheCountResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,11 +47,11 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
     BrokerClient that forwards calls to a remote BrokerHttpServer over HTTP.
     Used when the broker runs in a separate process.
 
-    In HA mode checkout returns a CheckoutResult with s3_key set; the caller
+    Checkout returns a CheckoutResult with s3_key set; the caller
     (MusicPlayer) downloads the file from S3 before playback.
 
     next_result polls the remote broker for the next bot-ready DownloadResult,
-    replacing the local-queue side-channel used in single-process mode.
+    which the broker pod fills from the downloaders' POSTs.
     '''
     #: The seam this client speaks, for HttpClientMixin.start_seam_check.
     SEAM = 'broker'
@@ -183,9 +181,8 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
         '''
         POST /requests/{uuid}/checkout — returns a CheckoutResult or None.
 
-        Non-HA brokers stage the file themselves and respond with guild_file_path
-        (-> CheckoutResult(local_path=...)). HA brokers respond with an s3_key
-        (-> CheckoutResult(s3_key=...)) and leave the S3 download to the caller.
+        The broker responds with an s3_key (-> CheckoutResult(s3_key=...)) and
+        leaves the S3 download to the caller.
         '''
         body: dict = {'guild_id': guild_id}
         if guild_path:
@@ -201,16 +198,13 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             if not data:
                 return None
             # Two models for one route, matching the two shapes the broker
-            # sends: an HA broker answers {'s3_key': ...} with no
-            # guild_file_path key at all. Validating the branch we took gives
+            # sends: a hit answers {'s3_key': ...} with no guild_file_path key. Validating the branch we took gives
             # seam_response_invalid the peer's name when a shape drifts, instead
             # of a silent None that reads as "nothing to check out".
             if data.get('s3_key'):
                 checked = self._validate(CheckoutS3Response, data)
                 return CheckoutResult(s3_key=checked.s3_key, bucket_name=self._bucket_name)
-            staged = self._validate(CheckoutStagedResponse, data)
-            if staged.guild_file_path:
-                return CheckoutResult(local_path=Path(staged.guild_file_path))
+            self._validate(CheckoutEmptyResponse, data)
             return None
 
     async def release(self, uuid: str) -> None:

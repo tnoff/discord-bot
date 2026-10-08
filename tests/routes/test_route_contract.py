@@ -17,10 +17,10 @@ from aiohttp.test_utils import TestClient, TestServer
 from discord_core.routes import contract
 from discord_core.servers.base import AiohttpServerBase
 
-from discord_broker.servers.broker_server import BrokerHttpServer
 from discord_db.servers.database_server import DatabaseHttpServer
 from discord_search.servers.composite_server import CompositeHttpServer
 
+from tests.fakes.asyncio_queues import make_broker_http_server
 from tests.fakes.asyncio_broker import AsyncioBroker
 
 CONTRACT_ENTRY = (contract.CONTRACT_ROUTE.method, contract.CONTRACT_ROUTE.template)
@@ -53,14 +53,14 @@ async def _advertised(app: web.Application) -> set[tuple[str, str]]:
 
 @pytest.mark.asyncio(loop_scope='session')
 async def test_broker_advertises_what_it_serves():
-    app = BrokerHttpServer(AsyncioBroker()).build_app()
+    app = make_broker_http_server(AsyncioBroker()).build_app()
     assert await _advertised(app) == contract.served_routes(app)
 
 
 @pytest.mark.asyncio(loop_scope='session')
 async def test_the_endpoint_advertises_itself():
     '''It is a route this listener serves, so omitting it would be a lie.'''
-    app = BrokerHttpServer(AsyncioBroker()).build_app()
+    app = make_broker_http_server(AsyncioBroker()).build_app()
     assert CONTRACT_ENTRY in await _advertised(app)
 
 

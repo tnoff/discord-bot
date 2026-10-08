@@ -18,6 +18,7 @@ from discord_core.types.playlist_add_request import PlaylistAddRequest
 
 from discord_broker.servers.broker_server import BrokerHttpServer, _QueueItemProxy
 
+from tests.fakes.asyncio_queues import make_broker_http_server
 from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
 
@@ -31,7 +32,7 @@ def _make_request():
 
 
 def _make_server(broker: MediaBroker) -> BrokerHttpServer:
-    return BrokerHttpServer(broker)
+    return make_broker_http_server(broker)
 
 
 def _span_exporter(mocker) -> InMemorySpanExporter:
@@ -83,7 +84,7 @@ class TestNextResultCounter:
         counter = mocker.patch('discord_broker.servers.broker_server._RESULT_FETCH_COUNTER')
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=None)
-        server = BrokerHttpServer(_make_broker(), result_queue=queue)
+        server = make_broker_http_server(_make_broker(), result_queue=queue)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.get('/results/next')
             assert resp.status == 204
@@ -96,7 +97,7 @@ class TestNextResultCounter:
         result.model_dump.return_value = {'ok': True}
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=result)
-        server = BrokerHttpServer(_make_broker(), result_queue=queue)
+        server = make_broker_http_server(_make_broker(), result_queue=queue)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.get('/results/next')
             assert resp.status == 200
@@ -108,7 +109,7 @@ class TestNextResultCounter:
         mocker.patch('discord_broker.servers.broker_server._RESULT_FETCH_COUNTER')
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=None)
-        server = BrokerHttpServer(_make_broker(), result_queue=queue)
+        server = make_broker_http_server(_make_broker(), result_queue=queue)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.get('/results/next')
             assert resp.status == 204
@@ -122,7 +123,7 @@ class TestNextResultCounter:
         result.model_dump.return_value = {'ok': True}
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=result)
-        server = BrokerHttpServer(_make_broker(), result_queue=queue)
+        server = make_broker_http_server(_make_broker(), result_queue=queue)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.get('/results/next')
             assert resp.status == 200
@@ -136,7 +137,7 @@ class TestNextSearchResultCounter:
         counter = mocker.patch('discord_broker.servers.broker_server._RESULT_FETCH_COUNTER')
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=None)
-        server = BrokerHttpServer(_make_broker(), search_result_queue=queue)
+        server = make_broker_http_server(_make_broker(), search_result_queue=queue)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.get('/search-results/next')
             assert resp.status == 204
@@ -149,7 +150,7 @@ class TestNextSearchResultCounter:
         resolution.model_dump.return_value = {'ok': True}
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=resolution)
-        server = BrokerHttpServer(_make_broker(), search_result_queue=queue)
+        server = make_broker_http_server(_make_broker(), search_result_queue=queue)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.get('/search-results/next')
             assert resp.status == 200
@@ -161,7 +162,7 @@ class TestNextSearchResultCounter:
         mocker.patch('discord_broker.servers.broker_server._RESULT_FETCH_COUNTER')
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=None)
-        server = BrokerHttpServer(_make_broker(), search_result_queue=queue)
+        server = make_broker_http_server(_make_broker(), search_result_queue=queue)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.get('/search-results/next')
             assert resp.status == 204
@@ -175,7 +176,7 @@ class TestNextSearchResultCounter:
         resolution.model_dump.return_value = {'ok': True}
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=resolution)
-        server = BrokerHttpServer(_make_broker(), search_result_queue=queue)
+        server = make_broker_http_server(_make_broker(), search_result_queue=queue)
         async with TestClient(TestServer(server.build_app())) as client:
             resp = await client.get('/search-results/next')
             assert resp.status == 200
@@ -197,7 +198,7 @@ class TestServe:
     async def test_serve_starts_and_responds(self):
         '''serve() starts the aiohttp server and handles requests until cancelled.'''
         broker = _make_broker()
-        server = BrokerHttpServer(broker, host='127.0.0.1', port=19200)
+        server = make_broker_http_server(broker, host='127.0.0.1', port=19200)
         task = asyncio.create_task(server.serve())
         # Wait for the port to be ready
         deadline = asyncio.get_event_loop().time() + 5.0
@@ -360,7 +361,7 @@ class TestRegisterDownload:
         mr = _make_request()
         await broker.register_request(mr)
         result_queue: asyncio.Queue = asyncio.Queue()
-        server = BrokerHttpServer(broker, result_queue=result_queue)
+        server = make_broker_http_server(broker, result_queue=result_queue)
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 result = DownloadResult(
@@ -422,7 +423,7 @@ class TestCheckout:
                         )
                         assert resp.status == 200
                         data = await resp.json()
-                        assert data['guild_file_path'] is not None
+                        assert data['s3_key'] is not None
 
     async def test_invalid_body_returns_422(self):
         broker = _make_broker()

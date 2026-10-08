@@ -26,17 +26,12 @@ __all__ = ['BrokerClient']
 
 class BrokerClient(PlayerSessionClient, Protocol):
     '''
-    Cog-facing handle for the MediaBroker.  Two implementations exist:
+    Cog-facing handle for the MediaBroker.  HttpBrokerClient
+    (clients/http_broker_client.py) forwards calls to the broker pod's
+    BrokerHttpServer over HTTP.  tests/fakes/in_memory_broker_client.py wraps a
+    local engine directly for tests.
 
-      InMemoryBrokerClient (clients/broker_client.py) — wraps a local
-        MediaBrokerBase directly.  Used in single-process deployments.
-
-      HttpBrokerClient (clients/broker_client.py) — forwards calls to a
-        remote BrokerHttpServer over HTTP.  Used in HA deployments where
-        the broker pod runs separately.
-
-    Both shapes satisfy this Protocol; the cog only depends on the Protocol
-    and lets config decide which impl is constructed.
+    The cog only depends on this Protocol.
     '''
     async def register_request(self, media_request) -> None:
         '''Register a new MediaRequest entering the pipeline.'''
@@ -60,7 +55,7 @@ class BrokerClient(PlayerSessionClient, Protocol):
         '''Pop the next bot-ready SearchResolution, or None if nothing is ready.
         Non-blocking — callers poll on their own cadence.'''
     async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
-        '''Mark a request CHECKED_OUT; returns a CheckoutResult with local_path or s3_key set.'''
+        '''Mark a request CHECKED_OUT; returns a CheckoutResult with s3_key set.'''
     async def release(self, uuid: str) -> None:
         '''Release a CHECKED_OUT entry and clean up the guild-specific file.'''
     async def remove(self, uuid: str) -> None:

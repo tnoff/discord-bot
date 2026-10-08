@@ -19,8 +19,8 @@ _UNSET = object()
 
 
 class CogHelperBase(Cog):
-    '''Base cog class. Requires an injected dispatcher — use MessageDispatcher for
-    single-process deployments and HttpDispatchClient for HA deployments.'''
+    '''Base cog class. Requires an injected dispatcher — production passes
+    HttpDispatchClient; tests may pass a MessageDispatcher.'''
 
     _message_delete_after: int | None = None
 

@@ -267,8 +267,8 @@ class MessageDispatcher(DispatchClientBase):
     Owns a configurable number of worker tasks that dequeue items from work_queue
     and execute them.  Bundle state is persisted to bundle_store.
 
-    Both work_queue and bundle_store are required; use AsyncioWorkQueue /
-    AsyncioBundleStore for single-process deployments without Redis.
+    Both work_queue and bundle_store are required; production passes the Redis
+    ones, tests pass AsyncioWorkQueue / AsyncioBundleStore.
     '''
 
     def __init__(self, bot: Bot, settings: dict,
@@ -304,10 +304,8 @@ class MessageDispatcher(DispatchClientBase):
         self._tombstones: dict[str, float] = {}
 
         # Heartbeat so the dispatcher process shows up in the App ControlPanel
-        # aggregate ratio. Emitted from whichever process owns this dispatcher:
-        # the discord-dispatcher pod in HA mode, or the bot itself in
-        # single-process (cli.full) mode. The bot pod (cli.bot) builds no
-        # MessageDispatcher, so it never emits this series.
+        # aggregate ratio. Emitted by the discord-dispatcher pod; the bot pod
+        # (cli.bot) builds no MessageDispatcher, so it never emits this series.
         # Driven by LoopHealth (a worker completing dequeue cycles), not by task
         # liveness — the same bit this process's health server probes.
         create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
