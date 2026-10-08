@@ -57,13 +57,11 @@ def _entry_from_dict(data: dict) -> BrokerEntry:
     '''Reconstruct a BrokerEntry from a Redis-stored dict.'''
     media_request = parse_media_request(data['request'])
     download = _download_from_dict(data['download'], media_request) if data.get('download') else None
-    guild_file_path = Path(data['guild_file_path']) if data.get('guild_file_path') else None
     return BrokerEntry(
         request=media_request,
         download=download,
         zone=Zone(data['zone']),
         checked_out_by=data.get('checked_out_by'),
-        guild_file_path=guild_file_path,
     )
 
 
@@ -97,7 +95,6 @@ class RedisBroker(MediaBrokerBase):
             await self._registry.set_entry(uuid, {
                 'zone': 'in_flight',
                 'checked_out_by': None,
-                'guild_file_path': None,
                 'request': media_request.model_dump(mode='json'),
                 'download': None,
             })
@@ -201,7 +198,6 @@ class RedisBroker(MediaBrokerBase):
             await self._registry.set_entry(key, {
                 'zone': 'available',
                 'checked_out_by': None,
-                'guild_file_path': None,
                 'request': media_download.media_request.model_dump(mode='json'),
                 'download': download_dict,
             })
@@ -222,14 +218,12 @@ class RedisBroker(MediaBrokerBase):
     # Player lifecycle
     # ------------------------------------------------------------------
 
-    async def checkout(self, media_request_uuid: str, guild_id: int,
-                       guild_path: Path | None = None) -> CheckoutResult | None:
+    async def checkout(self, media_request_uuid: str, guild_id: int) -> CheckoutResult | None:
         '''
         Atomically mark the entry CHECKED_OUT and return CheckoutResult(s3_key=...).
 
-        guild_path is accepted for interface compatibility but ignored — file
-        staging is the caller's responsibility (the bot downloads from S3 via the
-        returned s3_key + bucket_name).
+        File staging is the caller's responsibility (the bot downloads from S3 via
+        the returned s3_key + bucket_name).
         '''
         succeeded = await self._registry.atomic_checkout(media_request_uuid, guild_id)
         if not succeeded:

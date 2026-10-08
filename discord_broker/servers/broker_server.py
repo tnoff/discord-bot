@@ -275,11 +275,11 @@ class BrokerHttpServer(AiohttpServerBase):
         uuid = request.match_info['uuid']
         try:
             guild_id = int(body['guild_id'])
-            guild_path = body.get('guild_path')
         except Exception as exc:
             raise web.HTTPUnprocessableEntity() from exc
+        # A gateway from before guild_path was dropped still sends it; ignored.
         with otel_span_wrapper('broker.checkout', context=ctx, kind=SpanKind.SERVER):
-            result = await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
+            result = await self._broker.checkout(uuid, guild_id)
         if result is None:
             return web.json_response(broker_responses.CheckoutEmptyResponse().model_dump())
         return web.json_response(broker_responses.CheckoutS3Response(s3_key=result.s3_key).model_dump())

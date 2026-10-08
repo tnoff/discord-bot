@@ -5,7 +5,7 @@ client, because the risk in this seam is the wire, not the logic: a serialisatio
 mismatch between the two sides passes every unit test and fails in prod. That is
 how the HttpBrokerClient guild_path bug shipped.
 
-The provider work behind the server is a small fake; InMemoryMediaSearchClient's
+The provider work behind the server is a small fake; LocalMediaSearchClient's
 own translation of spotipy/googleapiclient failures is covered in
 tests/clients/test_media_search_client.py.
 '''
@@ -207,7 +207,7 @@ def test_http_client_pulls_in_no_provider_sdk():
     Importing this module must not pull spotipy or googleapiclient into a process.
 
     This is the reason the class lives here rather than beside
-    InMemoryMediaSearchClient, which imports both at module scope to catch their
+    LocalMediaSearchClient, which imports both at module scope to catch their
     exceptions. Measured in a clean interpreter, the same way the per-image
     boundaries are, because an import chain is not something to verify by reading:
     the ytmusicapi leak that CrashLooped a pod was invisible in the source too.

@@ -1,5 +1,5 @@
 '''
-InMemoryMediaSearchClient — the provider seam the cog now expands sources through.
+LocalMediaSearchClient — the provider seam the cog now expands sources through.
 
 These cover the half that used to be private methods on SearchClient plus the
 exception translation that used to be inline in the cog: every provider failure
@@ -16,7 +16,7 @@ from discord_core.exceptions import MediaSearchError
 from discord_core.types.catalog import CatalogResponse, CatalogItem
 
 from discord_search.clients.media_search_client import (
-    InMemoryMediaSearchClient, build_media_search_client,
+    LocalMediaSearchClient, build_media_search_client,
 )
 
 
@@ -65,7 +65,7 @@ class MockYoutube():
 @pytest.mark.asyncio
 async def test_spotify_source_requires_an_id():
     with pytest.raises(ValueError, match='Playlist, album, or track id must be passed'):
-        await InMemoryMediaSearchClient(spotify_client=MockSpotify()).spotify_source()
+        await LocalMediaSearchClient(spotify_client=MockSpotify()).spotify_source()
 
 
 @pytest.mark.asyncio
@@ -76,7 +76,7 @@ async def test_spotify_source_requires_an_id():
 ])
 async def test_spotify_source_routes_each_id_to_its_call(kwarg, expected_call):
     spotify = MockSpotify()
-    result = await InMemoryMediaSearchClient(spotify_client=spotify).spotify_source(**{kwarg: 'abc'})
+    result = await LocalMediaSearchClient(spotify_client=spotify).spotify_source(**{kwarg: 'abc'})
     assert spotify.calls == [(expected_call, 'abc')]
     assert result.items[0].search_string == 'a b'
 
@@ -84,14 +84,14 @@ async def test_spotify_source_routes_each_id_to_its_call(kwarg, expected_call):
 @pytest.mark.asyncio
 async def test_spotify_source_without_credentials():
     with pytest.raises(MediaSearchError) as exc:
-        await InMemoryMediaSearchClient().spotify_source(playlist_id='abc')
+        await LocalMediaSearchClient().spotify_source(playlist_id='abc')
     assert exc.value.provider == MediaSearchError.SPOTIFY
     assert exc.value.reason == MediaSearchError.MISSING_CREDENTIALS
 
 
 @pytest.mark.asyncio
 async def test_spotify_source_404_is_not_found():
-    client = InMemoryMediaSearchClient(spotify_client=MockSpotify(SpotifyException(404, -1, 'nope')))
+    client = LocalMediaSearchClient(spotify_client=MockSpotify(SpotifyException(404, -1, 'nope')))
     with pytest.raises(MediaSearchError) as exc:
         await client.spotify_source(album_id='abc')
     assert exc.value.reason == MediaSearchError.NOT_FOUND
@@ -100,7 +100,7 @@ async def test_spotify_source_404_is_not_found():
 
 @pytest.mark.asyncio
 async def test_spotify_source_other_status_is_api_error():
-    client = InMemoryMediaSearchClient(spotify_client=MockSpotify(SpotifyException(403, -1, 'nope')))
+    client = LocalMediaSearchClient(spotify_client=MockSpotify(SpotifyException(403, -1, 'nope')))
     with pytest.raises(MediaSearchError) as exc:
         await client.spotify_source(album_id='abc')
     assert exc.value.reason == MediaSearchError.API_ERROR
@@ -109,7 +109,7 @@ async def test_spotify_source_other_status_is_api_error():
 
 @pytest.mark.asyncio
 async def test_spotify_source_oauth_is_auth_error():
-    client = InMemoryMediaSearchClient(spotify_client=MockSpotify(SpotifyOauthError('bad creds')))
+    client = LocalMediaSearchClient(spotify_client=MockSpotify(SpotifyOauthError('bad creds')))
     with pytest.raises(MediaSearchError) as exc:
         await client.spotify_source(album_id='abc')
     assert exc.value.reason == MediaSearchError.AUTH_ERROR
@@ -119,7 +119,7 @@ async def test_spotify_source_oauth_is_auth_error():
 @pytest.mark.asyncio
 async def test_youtube_source_returns_catalog():
     youtube = MockYoutube()
-    result = await InMemoryMediaSearchClient(youtube_client=youtube).youtube_source('PL1')
+    result = await LocalMediaSearchClient(youtube_client=youtube).youtube_source('PL1')
     assert youtube.calls == ['PL1']
     assert result.collection_name == 'YT'
 
@@ -127,14 +127,14 @@ async def test_youtube_source_returns_catalog():
 @pytest.mark.asyncio
 async def test_youtube_source_without_credentials():
     with pytest.raises(MediaSearchError) as exc:
-        await InMemoryMediaSearchClient().youtube_source('PL1')
+        await LocalMediaSearchClient().youtube_source('PL1')
     assert exc.value.provider == MediaSearchError.YOUTUBE
     assert exc.value.reason == MediaSearchError.MISSING_CREDENTIALS
 
 
 @pytest.mark.asyncio
 async def test_youtube_source_http_error_is_api_error():
-    client = InMemoryMediaSearchClient(youtube_client=MockYoutube(HttpError(MockResponse(), b'foo')))
+    client = LocalMediaSearchClient(youtube_client=MockYoutube(HttpError(MockResponse(), b'foo')))
     with pytest.raises(MediaSearchError) as exc:
         await client.youtube_source('PL1')
     assert exc.value.provider == MediaSearchError.YOUTUBE
@@ -151,9 +151,9 @@ async def test_no_provider_sdk_exception_escapes_the_client():
     would have to import the SDK to name the type.
     '''
     for client, call in (
-        (InMemoryMediaSearchClient(spotify_client=MockSpotify(SpotifyException(500, -1, 'x'))),
+        (LocalMediaSearchClient(spotify_client=MockSpotify(SpotifyException(500, -1, 'x'))),
          lambda c: c.spotify_source(album_id='a')),
-        (InMemoryMediaSearchClient(youtube_client=MockYoutube(HttpError(MockResponse(), b'x'))),
+        (LocalMediaSearchClient(youtube_client=MockYoutube(HttpError(MockResponse(), b'x'))),
          lambda c: c.youtube_source('PL1')),
     ):
         with pytest.raises(MediaSearchError):

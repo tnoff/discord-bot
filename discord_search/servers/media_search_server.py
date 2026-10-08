@@ -1,7 +1,7 @@
 '''
 HTTP server for the media-search providers — the search pod's 2nd route family.
 
-Fronts a MediaSearchClient (in practice InMemoryMediaSearchClient, holding the
+Fronts a MediaSearchClient (in practice LocalMediaSearchClient, holding the
 real SpotifyClient and YoutubeClient) so bot pods can expand a Spotify or YouTube
 URL without carrying those SDKs themselves.
 

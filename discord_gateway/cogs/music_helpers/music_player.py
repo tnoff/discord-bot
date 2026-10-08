@@ -197,7 +197,7 @@ class MusicPlayer:
             if self.broker:
                 checkout_started = monotonic()
                 checkout_result = await self.broker.checkout(
-                    str(media_download.media_request.uuid), self.guild.id, self.file_dir
+                    str(media_download.media_request.uuid), self.guild.id
                 )
                 checkout_seconds = monotonic() - checkout_started
 

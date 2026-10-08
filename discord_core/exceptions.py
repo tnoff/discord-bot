@@ -58,7 +58,7 @@ class MediaSearchError(Exception):
     '''
     A media-search provider call failed, described without naming the provider SDK.
 
-    This is the seam's error type: InMemoryMediaSearchClient translates spotipy
+    This is the seam's error type: LocalMediaSearchClient translates spotipy
     and googleapiclient failures into one of these, and the cog-side SearchClient
     renders it into the user-facing SearchException. That split is the point --
     the provider libraries stay behind the client, and the Discord copy stays in

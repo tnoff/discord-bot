@@ -46,6 +46,8 @@ class AsyncioBroker(MediaBrokerBase):
         download_max_retries, search_max_retries) to MediaBrokerBase.'''
         super().__init__(**kwargs)
         self._registry: dict[str, BrokerEntry] = {}
+        # Files stage_checkout copied under a guild dir, by request uuid.
+        self._staged: dict[str, Path] = {}
         self._bundles: dict[str, BundleState] = {}
         self._player_sessions: dict[int, PlayerSession] = {}
 
@@ -157,15 +159,16 @@ class AsyncioBroker(MediaBrokerBase):
     # Player lifecycle
     # ------------------------------------------------------------------
 
-    async def checkout(self, media_request_uuid: str, guild_id: int,
-                       guild_path: Path | None = None) -> CheckoutResult | None:
-        '''Test double for the Redis broker's checkout: stage the file locally
-        (see stage_checkout) and answer with the staged path as the s3_key.
-        Returns None for an unknown entry.'''
-        staged = await self.stage_checkout(media_request_uuid, guild_id, guild_path)
-        if staged is None:
+    async def checkout(self, media_request_uuid: str, guild_id: int) -> CheckoutResult | None:
+        '''Test double for the Redis broker's checkout: mark the entry CHECKED_OUT
+        and answer with the download's path as the s3_key. Returns None for an
+        unknown entry or one with no download. Use stage_checkout to copy the file.'''
+        entry = self._registry.get(media_request_uuid)
+        if entry is None or entry.download is None or not entry.download.file_path:
             return None
-        return CheckoutResult(s3_key=str(staged), bucket_name=self.bucket_name)
+        entry.zone = Zone.CHECKED_OUT
+        entry.checked_out_by = guild_id
+        return CheckoutResult(s3_key=str(entry.download.file_path), bucket_name=self.bucket_name)
 
     async def stage_checkout(self, media_request_uuid: str, guild_id: int,
                              guild_path: Path | None = None) -> Path | None:
@@ -174,8 +177,9 @@ class AsyncioBroker(MediaBrokerBase):
         entry = self._registry.get(media_request_uuid)
         if entry is None:
             return None
-        if entry.zone == Zone.CHECKED_OUT and entry.guild_file_path and entry.guild_file_path.exists():
-            return entry.guild_file_path
+        staged = self._staged.get(media_request_uuid)
+        if entry.zone == Zone.CHECKED_OUT and staged and staged.exists():
+            return staged
         attributes = {
             'music.media_request.uuid': media_request_uuid,
             'music.guild_id': guild_id,
@@ -200,10 +204,10 @@ class AsyncioBroker(MediaBrokerBase):
                     if src_md5 != dst_md5:
                         logger.warning('Checksum mismatch after copyfile: src=%s dst=%s src_md5=%s dst_md5=%s',
                                        entry.download.file_path, uuid_path, src_md5, dst_md5)
-                entry.guild_file_path = uuid_path
+                self._staged[media_request_uuid] = uuid_path
             entry.zone = Zone.CHECKED_OUT
             entry.checked_out_by = guild_id
-            return entry.guild_file_path
+            return self._staged.get(media_request_uuid)
 
     async def remove(self, media_request_uuid: str) -> None:
         entry = self._registry.pop(media_request_uuid, None)
@@ -212,8 +216,9 @@ class AsyncioBroker(MediaBrokerBase):
 
     async def release(self, media_request_uuid: str) -> None:
         entry = self._registry.pop(media_request_uuid, None)
-        if entry and entry.guild_file_path:
-            await asyncio.to_thread(entry.guild_file_path.unlink, missing_ok=True)
+        staged = self._staged.pop(media_request_uuid, None)
+        if staged:
+            await asyncio.to_thread(staged.unlink, missing_ok=True)
         if entry is not None:
             await self._maybe_render_bundle(entry.request)
 
@@ -244,7 +249,7 @@ class AsyncioBroker(MediaBrokerBase):
                 if entry.zone == Zone.CHECKED_OUT:
                     staged += 1
                 elif entry.zone == Zone.AVAILABLE:
-                    await self.checkout(str(item.media_request.uuid), guild_id, guild_path)
+                    await self.stage_checkout(str(item.media_request.uuid), guild_id, guild_path)
                     staged += 1
 
     # ------------------------------------------------------------------

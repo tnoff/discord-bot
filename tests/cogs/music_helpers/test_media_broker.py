@@ -78,7 +78,7 @@ async def test_checkout_local_mode_checksum_match_no_warning(mocker):
             with fake_media_download(tmp_dir, fake_context=fake_context) as md:
                 broker = AsyncioBroker()
                 await broker.register_download(md)
-                result = await broker.checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
+                result = await broker.stage_checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
                 assert result is not None
                 mock_logger.warning.assert_not_called()
 
@@ -99,7 +99,7 @@ async def test_checkout_local_mode_checksum_mismatch_logs_warning(mocker):
             with fake_media_download(tmp_dir, fake_context=fake_context) as md:
                 broker = AsyncioBroker()
                 await broker.register_download(md)
-                result = await broker.checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
+                result = await broker.stage_checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
                 assert result is not None
                 mock_logger.warning.assert_called_once()
 
@@ -115,7 +115,7 @@ async def test_checkout_missing_local_file_raises():
                 await broker.register_download(md)
                 md.file_path.unlink()
                 with pytest.raises(FileNotFoundError):
-                    await broker.checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
+                    await broker.stage_checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
 
 
 @pytest.mark.asyncio
@@ -194,7 +194,7 @@ async def test_checkout_s3_mode(mocker):
     with TemporaryDirectory() as guild_dir:
         broker = AsyncioBroker(bucket_name='my-bucket')
         await broker.register_download(md)
-        result = await broker.checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
+        result = await broker.stage_checkout(str(md.media_request.uuid), 123, guild_path=Path(guild_dir))
         get_mock.assert_called_once()
         assert get_mock.call_args[0][0] == 'my-bucket'
         assert str(get_mock.call_args[0][1]).startswith('cache/')
@@ -345,7 +345,7 @@ async def test_prefetch_skips_already_checked_out(mocker):
         await broker.register_download(md1)
         await broker.register_download(md2)
         # Manually put md1 into CHECKED_OUT without staging a file
-        await broker.checkout(str(md1.media_request.uuid), 123, guild_path=Path(guild_dir))
+        await broker.stage_checkout(str(md1.media_request.uuid), 123, guild_path=Path(guild_dir))
         assert get_mock.call_count == 1
         # prefetch with limit=1 — md1 already checked out fills the slot
         await broker.prefetch([md1, md2], 123, Path(guild_dir), limit=1)

@@ -88,7 +88,6 @@ class BrokerEntry:
     download: MediaDownload | None = None
     zone: Zone = Zone.IN_FLIGHT
     checked_out_by: int | None = None
-    guild_file_path: Path | None = None
 
 
 class MediaBrokerBase(PlayerSessionStore, ABC):
@@ -161,8 +160,7 @@ class MediaBrokerBase(PlayerSessionStore, ABC):
         '''Associate a completed download with its request and move it to AVAILABLE.'''
 
     @abstractmethod
-    async def checkout(self, media_request_uuid: str, guild_id: int,
-                       guild_path: Path | None = None) -> CheckoutResult | None:
+    async def checkout(self, media_request_uuid: str, guild_id: int) -> CheckoutResult | None:
         '''Mark an entry CHECKED_OUT; returns a CheckoutResult with s3_key
         (the bot downloads from S3), or None if the entry is unknown.'''
 

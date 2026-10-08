@@ -28,6 +28,7 @@ from discord_core.types.player_session import PlayerSession
 # itself is still re-exported from clients/broker_client.py, so the import
 # above and every other test here are unchanged.
 
+from discord_broker.interfaces.broker_protocols import Zone
 from tests.fakes.asyncio_queues import make_broker_http_server
 from tests.fakes.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
@@ -130,8 +131,7 @@ class TestInMemoryBrokerClient:
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await broker.register_download(md)
-                with TemporaryDirectory() as guild_dir:
-                    result = await client.checkout(str(mr.uuid), 123, guild_dir)
+                result = await client.checkout(str(mr.uuid), 123)
         assert isinstance(result, CheckoutResult)
         assert result.s3_key is not None
 
@@ -141,16 +141,17 @@ class TestInMemoryBrokerClient:
         result = await client.checkout('nonexistent', 123)
         assert result is None
 
-    async def test_checkout_no_guild_path(self):
+    async def test_checkout_marks_the_entry_checked_out(self):
         broker = _make_broker()
         mr = _make_request()
         client = InMemoryBrokerClient(broker, asyncio.Queue())
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await broker.register_download(md)
-                result = await client.checkout(str(mr.uuid), 123)
-        # No guild_path means the fake stages nothing, so there is no key to hand out.
-        assert result is None
+                await client.checkout(str(mr.uuid), 123)
+                entry = await broker.get_entry(str(mr.uuid))
+        assert entry.zone == Zone.CHECKED_OUT
+        assert entry.checked_out_by == 123
 
     async def test_release_delegates(self):
         broker = _make_broker()
@@ -254,29 +255,9 @@ class TestHttpBrokerClient:
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await broker.register_download(md)
-                with TemporaryDirectory() as guild_dir:
-                    async with TestClient(TestServer(server.build_app())) as tc:
-                        hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
-                        result = await hc.checkout(str(mr.uuid), 123, guild_dir)
-        assert isinstance(result, CheckoutResult)
-        assert result.s3_key is not None
-
-    async def test_checkout_with_path_guild_dir_serializes(self):
-        '''Regression: the player passes self.file_dir (a Path) as guild_path.
-        A PosixPath is not JSON-serialisable, so without str()-ing it the real
-        aiohttp request raised TypeError before reaching the broker (prod music
-        wouldn't play after the HA cutover). Drive a real Path through the real
-        session — must round-trip, not raise.'''
-        broker = _make_broker()
-        mr = _make_request()
-        server = make_broker_http_server(broker)
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                await broker.register_download(md)
-                with TemporaryDirectory() as guild_dir:
-                    async with TestClient(TestServer(server.build_app())) as tc:
-                        hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
-                        result = await hc.checkout(str(mr.uuid), 123, Path(guild_dir))
+                async with TestClient(TestServer(server.build_app())) as tc:
+                    hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+                    result = await hc.checkout(str(mr.uuid), 123)
         assert isinstance(result, CheckoutResult)
         assert result.s3_key is not None
 
@@ -288,7 +269,7 @@ class TestHttpBrokerClient:
         server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), bucket_name='my-bucket', session=tc.session)
-            result = await hc.checkout('abc', 123, 'gdir')
+            result = await hc.checkout('abc', 123)
         assert isinstance(result, CheckoutResult)
         assert result.s3_key == 'guilds/1/x.mp3'
         assert result.bucket_name == 'my-bucket'

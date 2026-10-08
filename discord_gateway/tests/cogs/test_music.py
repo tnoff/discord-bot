@@ -792,7 +792,7 @@ def test_cog_builds_no_in_process_media_search_stack(fake_context):  #pylint:dis
     """
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     assert isinstance(cog.search_client.media_search_client, HttpMediaSearchClient)
-    for symbol in ('build_media_search_client', 'InMemoryMediaSearchClient',
+    for symbol in ('build_media_search_client', 'LocalMediaSearchClient',
                    'SpotifyClient', 'YoutubeClient'):
         assert not hasattr(music_module, symbol), f'{symbol} is back in the cog module'
 
