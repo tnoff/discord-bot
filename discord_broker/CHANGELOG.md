@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.0.5] - 2026-10-08
+
+### Changed
+
+- Finish the checkout cleanup: no guild_path on checkout, a miss answers {}, BrokerEntry drops guild_file_path, and InMemoryMediaSearchClient is now LocalMediaSearchClient (#1036).
+
 ## [3.0.4] - 2026-10-08
 
 ### Changed
