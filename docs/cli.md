@@ -124,8 +124,7 @@ docker stop --time 30 my-discord-bot
 
 The real `docker/Dockerfile.gateway` uses a shared `entrypoint.sh`, not a direct
 `CMD`, so the console script can be selected by `DISCORD_BOT_CMD` (the same
-entrypoint script is reused across all six pods' Dockerfiles) and so an
-opt-in heaptrack wrapper can be inserted:
+entrypoint script is reused across all six pods' Dockerfiles):
 
 ```dockerfile
 ENTRYPOINT ["/entrypoint.sh"]

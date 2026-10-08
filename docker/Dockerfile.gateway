@@ -98,12 +98,8 @@ FROM python:3.14-slim-bookworm
 # Runtime packages only.
 # ffmpeg            -> audio processing
 # postgresql-client -> db operations
-ARG INSTALL_HEAPTRACK=false
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ffmpeg postgresql-client && \
-    if [ "$INSTALL_HEAPTRACK" = "true" ]; then \
-        apt-get install -y --no-install-recommends heaptrack; \
-    fi && \
     apt-get upgrade -y --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
