@@ -277,6 +277,6 @@ which constructs it does and does not follow.
 |---|---|---|
 | `discord_core/clients/http_store_base.py:101` | span name not statically determinable | `f'{self.SPAN_PREFIX}.{route}'` |
 | `discord_db/servers/database_server.py:251` | span name not statically determinable | `f'{SPAN_PREFIX}.{span_name}'` |
-| `discord_gateway/utils/otel_command.py:44` | span name not statically determinable | `span_name` |
+| `discord_gateway/utils/otel_command.py:61` | span name not statically determinable | `span_name` |
 
 <!-- END GENERATED(exempt-span-appendix) -->

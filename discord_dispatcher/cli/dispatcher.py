@@ -22,10 +22,10 @@ import click
 from discord.ext.commands import Bot
 
 from discord_core.cli._lib.common import (
-    bot_lifecycle, run_loop,
+    run_loop,
     setup_observability, parse_and_validate_config, require_discord_token,
 )
-from discord_core.cli._lib.gateway import build_bot
+from discord_core.cli._lib.gateway import bot_lifecycle, build_bot
 from discord_core.clients.redis_client import RedisManager
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig

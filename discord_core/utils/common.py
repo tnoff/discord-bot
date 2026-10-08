@@ -3,7 +3,7 @@ from logging import getLogger, Formatter, StreamHandler, RootLogger
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from sys import stdout
-from typing import Callable, Optional, Literal, TYPE_CHECKING
+from typing import Callable, Optional, Literal, Protocol
 
 from opentelemetry.trace import get_current_span
 from opentelemetry.trace.status import StatusCode
@@ -14,9 +14,6 @@ from pydantic import BaseModel, Field, model_validator
 from discord_core.cogs.schema import StorageConfig
 from discord_core.exceptions import ExitEarlyException
 from discord_core.utils.loop_health import DEFAULT_STALE_AFTER_SECONDS, LoopHealth
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from discord.ext.commands import Bot
 
 OTEL_SPAN_PREFIX = 'utils'
 
@@ -323,13 +320,23 @@ def rm_tree(pth: Path) -> bool:
     pth.rmdir()
     return True
 
-def return_loop_runner(function: Callable, bot: 'Bot', logger: RootLogger, continue_exceptions=None, exit_exceptions=ExitEarlyException,
+class LoopBot(Protocol):
+    '''What return_loop_runner needs from a discord.py Bot, so utils/common.py
+    never has to name discord.py.'''
+    async def wait_until_ready(self) -> None:
+        '''Block until the bot's cache is ready.'''
+
+    def is_closed(self) -> bool:
+        '''True once the bot has shut down.'''
+
+
+def return_loop_runner(function: Callable, bot: LoopBot, logger: RootLogger, continue_exceptions=None, exit_exceptions=ExitEarlyException,
                        health: Optional[LoopHealth] = None):
     '''
     Return a basic standard bot loop
 
     function : Function to run, must by async
-    bot : Bot object
+    bot : Bot object (anything satisfying LoopBot)
     logger : Logger for exceptions
     checkfile: Writes 1 to file when loop active, writes 0 when its not
     continue_exceptions: Do not exit on these exceptions

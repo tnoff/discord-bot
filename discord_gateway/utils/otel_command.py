@@ -22,8 +22,25 @@ from opentelemetry import trace
 
 from discord.ext.commands import Context
 
-from discord_core.utils.discord_context import command_span_attributes
+from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.otel import async_otel_span_wrapper
+
+
+def command_span_attributes(ctx: Context) -> dict:
+    '''
+    Span attributes for a discord.py command Context.
+
+    This block was duplicated verbatim inside `otel_span_wrapper` and
+    `async_otel_span_wrapper`. One copy now, at the single call site that has a
+    Context to read.
+    '''
+    return {
+        DiscordContextNaming.AUTHOR.value: ctx.author.id,
+        DiscordContextNaming.CHANNEL.value: ctx.channel.id,
+        DiscordContextNaming.GUILD.value: ctx.guild.id,
+        DiscordContextNaming.COMMAND.value: ctx.command.name,
+        DiscordContextNaming.MESSAGE.value: ' '.join(i for i in ctx.message.content.split(' ')[1:]),
+    }
 
 
 def command_wrapper(function):

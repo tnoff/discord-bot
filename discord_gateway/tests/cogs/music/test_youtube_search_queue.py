@@ -12,6 +12,7 @@ import pytest
 
 from discord_core.cogs.music_helpers.common import SearchType, MediaRequestLifecycleStage, YOUTUBE_VIDEO_PREFIX
 from discord_core.exceptions import ExitEarlyException
+from discord_core.exceptions import YoutubeMusicRetryException
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
@@ -22,7 +23,6 @@ from discord_core.utils.failure_queue import FailureStatus
 from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG
-from discord_search.utils.integrations.youtube_music import YoutubeMusicRetryException
 from discord_search.workers.youtube_music_search_driver import SEARCH_BACKOFF_SLICE_SECONDS
 
 from discord_broker.workers.media_bundle import BundleRenderer
