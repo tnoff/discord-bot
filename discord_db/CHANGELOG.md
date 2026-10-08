@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.0.5] - 2026-10-08
+
+### Changed
+
+- Bump the discord-core pin to core-v3.0.5.
+
 ## [3.0.4] - 2026-10-08
 
 ### Changed
