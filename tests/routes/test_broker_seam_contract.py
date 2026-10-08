@@ -155,7 +155,7 @@ def test_collect_finds_only_route_instances():
     '''ALL is derived, so a route that exists is a route these tests see.'''
     namespace = {'A': Route('GET', '/a'), 'NOT_A_ROUTE': 'GET /b', 'Route': Route}
     assert collect(namespace) == (namespace['A'],)
-    assert len(broker_routes.ALL) == 22
+    assert len(broker_routes.ALL) == 21
 
 
 def test_routes_called_matches_what_the_source_calls():

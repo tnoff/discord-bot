@@ -63,8 +63,6 @@ class BrokerClient(PlayerSessionClient, Protocol):
     async def discard(self, uuid: str) -> None:
         '''Drop an entry that was registered but cannot be enqueued; deletes the
         underlying file unless a VideoCache is keeping it.'''
-    async def prefetch(self, queue_items: list, guild_id: int, guild_path: str | None, limit: int) -> None:
-        '''Pre-stage the next limit items from the queue to local disk.'''
     async def check_cache(self, media_request) -> MediaDownload | None:
         '''Look up a cached MediaDownload by webpage URL; returns None on miss.'''
     async def cache_cleanup(self) -> bool:

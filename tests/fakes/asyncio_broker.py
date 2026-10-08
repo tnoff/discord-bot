@@ -233,25 +233,6 @@ class AsyncioBroker(MediaBrokerBase):
         if entry is not None:
             await self._maybe_render_bundle(entry.request)
 
-    async def prefetch(self, queue_items: list, guild_id: int,
-                       guild_path: Path | None, limit: int) -> None:
-        if not guild_path or not self.bucket_name:
-            return
-        with otel_span_wrapper('music.broker.prefetch', kind=SpanKind.INTERNAL,
-                               attributes={'music.guild_id': guild_id, 'music.prefetch_limit': limit}):
-            staged = 0
-            for item in queue_items:
-                if staged >= limit:
-                    break
-                entry = self._registry.get(str(item.media_request.uuid))
-                if entry is None:
-                    continue
-                if entry.zone == Zone.CHECKED_OUT:
-                    staged += 1
-                elif entry.zone == Zone.AVAILABLE:
-                    await self.stage_checkout(str(item.media_request.uuid), guild_id, guild_path)
-                    staged += 1
-
     # ------------------------------------------------------------------
     # Eviction queries
     # ------------------------------------------------------------------

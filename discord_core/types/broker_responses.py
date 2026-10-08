@@ -73,10 +73,6 @@ class DiscardResponse(_Ok):
     '''200 from the discard route.'''
 
 
-class PrefetchResponse(_Ok):
-    '''200 from the prefetch route.'''
-
-
 class FinalizeBundleResponse(_Ok):
     '''200 from the finalize-bundle route.'''
 

@@ -124,8 +124,8 @@ composite app.
 |---|---|---|---|---|---|
 | `discord-broker` | `discord-db` | database | `/database/video_cache` | `HttpVideoCacheStore` | 6 |
 | `discord-broker` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 8 |
-| `discord-downloader` | `discord-broker` | broker | — | `HttpBrokerClient` | 22 |
-| `discord-gateway` | `discord-broker` | broker | — | `HttpBrokerClient` | 22 |
+| `discord-downloader` | `discord-broker` | broker | — | `HttpBrokerClient` | 21 |
+| `discord-gateway` | `discord-broker` | broker | — | `HttpBrokerClient` | 21 |
 | `discord-gateway` | `discord-db` | database | `/database/guild_analytics` | `HttpGuildAnalyticsStore` | 2 |
 | `discord-gateway` | `discord-db` | database | `/database/markov` | `HttpMarkovStore` | 9 |
 | `discord-gateway` | `discord-db` | database | `/database/playlist` | `HttpPlaylistStore` | 16 |
@@ -133,13 +133,13 @@ composite app.
 | `discord-gateway` | `discord-search` | media_search | — | `HttpMediaSearchClient` | 2 |
 | `discord-gateway` | `discord-downloader` | queue_worker | `/downloads` | `HttpDownloadClient` | 4 |
 | `discord-gateway` | `discord-search` | queue_worker | `/search/ytmusic` | `HttpYoutubeMusicSearchClient` | 4 |
-| `discord-search` | `discord-broker` | broker | — | `HttpBrokerClient` | 22 |
+| `discord-search` | `discord-broker` | broker | — | `HttpBrokerClient` | 21 |
 
 #### Seams
 
 | seam | served by | called by | routes |
 |---|---|---|---|
-| broker | `discord-broker` | `discord-downloader`, `discord-gateway`, `discord-search` | 22 |
+| broker | `discord-broker` | `discord-downloader`, `discord-gateway`, `discord-search` | 21 |
 | database | `discord-db` | `discord-broker`, `discord-gateway` | 33 |
 | dispatch | `discord-dispatcher` | `discord-broker`, `discord-gateway` | 8 |
 | media_search | `discord-search` | `discord-gateway` | 2 |

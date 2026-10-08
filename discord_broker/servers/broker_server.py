@@ -3,7 +3,6 @@ HTTP server exposing MediaBroker over aiohttp for cross-process communication.
 Schedule with asyncio.create_task(server.serve()).
 '''
 import logging
-from dataclasses import dataclass
 from pathlib import Path
 
 from aiohttp import web
@@ -39,21 +38,6 @@ _RESULT_FETCH_COUNTER = METER_PROVIDER.create_counter(
 )
 
 
-@dataclass
-class _QueueItemProxy:
-    '''
-    Minimal stand-in for queue items passed to MediaBroker.prefetch.
-    The broker only accesses item.media_request.uuid, so we return self
-    as media_request and expose uuid directly.
-    '''
-    uuid: str
-
-    @property
-    def media_request(self):
-        '''Return self so item.media_request.uuid resolves to self.uuid.'''
-        return self
-
-
 class BrokerHttpServer(AiohttpServerBase):
     '''
     aiohttp HTTP server wrapping a MediaBroker instance.  Exposes the full
@@ -72,7 +56,6 @@ class BrokerHttpServer(AiohttpServerBase):
         POST   /requests/{uuid}/release   release
         POST   /requests/{uuid}/remove    remove
         POST   /requests/{uuid}/discard   discard
-        POST   /prefetch                  prefetch
         POST   /cache/check               check_cache
         POST   /cache/cleanup             cache_cleanup
         GET    /cache/count               get_cache_count
@@ -134,7 +117,6 @@ class BrokerHttpServer(AiohttpServerBase):
             broker_routes.NEXT_RESULT: self._handle_next_result,
             broker_routes.REGISTER_SEARCH_RESULT: self._handle_register_search_result,
             broker_routes.NEXT_SEARCH_RESULT: self._handle_next_search_result,
-            broker_routes.PREFETCH: self._handle_prefetch,
             broker_routes.CHECK_CACHE: self._handle_check_cache,
             broker_routes.CACHE_CLEANUP: self._handle_cache_cleanup,
             broker_routes.CACHE_COUNT: self._handle_get_cache_count,
@@ -304,20 +286,6 @@ class BrokerHttpServer(AiohttpServerBase):
         with otel_span_wrapper('broker.discard', context=ctx, kind=SpanKind.SERVER):
             await self._broker.discard(uuid)
         return web.json_response(broker_responses.DiscardResponse().model_dump())
-
-    async def _handle_prefetch(self, request: web.Request) -> web.Response:
-        ctx, body = await self._read_body(request)
-        try:
-            uuids = list(body['uuids'])
-            guild_id = int(body['guild_id'])
-            guild_path = body.get('guild_path')
-            limit = int(body['limit'])
-        except Exception as exc:
-            raise web.HTTPUnprocessableEntity() from exc
-        items = [_QueueItemProxy(uuid=u) for u in uuids]
-        with otel_span_wrapper('broker.prefetch', context=ctx, kind=SpanKind.SERVER):
-            await self._broker.prefetch(items, guild_id, Path(guild_path) if guild_path else None, limit)
-        return web.json_response(broker_responses.PrefetchResponse().model_dump())
 
     async def _handle_check_cache(self, request: web.Request) -> web.Response:
         ctx, body = await self._read_body(request)

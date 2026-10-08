@@ -81,9 +81,6 @@ class _StorageBroker(MediaBrokerBase):
     async def discard(self, media_request_uuid):  # pylint: disable=unused-argument
         raise NotImplementedError
 
-    async def prefetch(self, queue_items, guild_id, guild_path, limit):  # pylint: disable=unused-argument
-        raise NotImplementedError
-
     async def can_evict_request(self, media_request_uuid):  # pylint: disable=unused-argument
         raise NotImplementedError
 

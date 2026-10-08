@@ -16,7 +16,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from discord_core.types.download import LifecycleEvent, DownloadResult, DownloadStatus
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 
-from discord_broker.servers.broker_server import BrokerHttpServer, _QueueItemProxy
+from discord_broker.servers.broker_server import BrokerHttpServer
 
 from tests.fakes.asyncio_queues import make_broker_http_server
 from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
@@ -47,16 +47,6 @@ def _span_exporter(mocker) -> InMemorySpanExporter:
     provider.add_span_processor(SimpleSpanProcessor(exporter))
     mocker.patch('discord_core.utils.otel.TRACER', provider.get_tracer('test'))
     return exporter
-
-
-class TestQueueItemProxy:
-    def test_media_request_returns_self(self):
-        proxy = _QueueItemProxy(uuid='test-uuid')
-        assert proxy.media_request is proxy
-
-    def test_uuid_accessible_via_media_request(self):
-        proxy = _QueueItemProxy(uuid='abc-123')
-        assert proxy.media_request.uuid == 'abc-123'
 
 
 class TestHeartbeatObservations:
@@ -613,33 +603,6 @@ async def _wait_for_tcp(port: int, timeout: float = 5.0) -> None:
 
 
 @pytest.mark.asyncio
-
-
-@pytest.mark.asyncio
-class TestPrefetch:
-    async def test_prefetch_with_uuids(self):
-        broker = _make_broker()
-        server = _make_server(broker)
-        async with TestClient(TestServer(server.build_app())) as client:
-            resp = await client.post(
-                '/prefetch',
-                json={
-                    'uuids': ['uuid-1', 'uuid-2'],
-                    'guild_id': 123,
-                    'guild_path': None,
-                    'limit': 3,
-                },
-            )
-            assert resp.status == 200
-            data = await resp.json()
-            assert data['status'] == 'ok'
-
-    async def test_invalid_body_returns_422(self):
-        broker = _make_broker()
-        server = _make_server(broker)
-        async with TestClient(TestServer(server.build_app())) as client:
-            resp = await client.post('/prefetch', json={'missing': 'required_fields'})
-            assert resp.status == 422
 
 
 @pytest.mark.asyncio

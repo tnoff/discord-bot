@@ -295,65 +295,6 @@ async def test_checkout_skips_restage_if_already_checked_out(mocker):
 
 
 # ---------------------------------------------------------------------------
-# prefetch
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_prefetch_noop_in_local_mode():
-    '''prefetch is a no-op when bucket_name is not set (local mode)'''
-    fake_context = generate_fake_context()
-    with TemporaryDirectory() as tmp_dir:
-        with fake_media_download(tmp_dir, fake_context=fake_context) as md:
-            broker = AsyncioBroker()
-            await broker.register_download(md)
-            # Should not raise and should not change zone
-            await broker.prefetch([md], 123, Path(tmp_dir), limit=5)
-            entry = await broker.get_entry(str(md.media_request.uuid))
-            assert entry.zone == Zone.AVAILABLE
-
-
-@pytest.mark.asyncio
-async def test_prefetch_stages_available_items(mocker):
-    '''prefetch calls checkout for AVAILABLE items up to limit'''
-    get_mock = mocker.patch('tests.fakes.asyncio_broker.get_file', return_value=True)
-    fake_context = generate_fake_context()
-    md1 = _make_s3_media_download(fake_context)
-    md2 = _make_s3_media_download(generate_fake_context())
-    md3 = _make_s3_media_download(generate_fake_context())
-    with TemporaryDirectory() as guild_dir:
-        broker = AsyncioBroker(bucket_name='my-bucket')
-        await broker.register_download(md1)
-        await broker.register_download(md2)
-        await broker.register_download(md3)
-        await broker.prefetch([md1, md2, md3], 123, Path(guild_dir), limit=2)
-        # Only 2 of the 3 items should have been staged
-        assert get_mock.call_count == 2
-        assert (await broker.get_entry(str(md1.media_request.uuid))).zone == Zone.CHECKED_OUT
-        assert (await broker.get_entry(str(md2.media_request.uuid))).zone == Zone.CHECKED_OUT
-        assert (await broker.get_entry(str(md3.media_request.uuid))).zone == Zone.AVAILABLE
-
-
-@pytest.mark.asyncio
-async def test_prefetch_skips_already_checked_out(mocker):
-    '''prefetch counts CHECKED_OUT items toward the limit without re-staging'''
-    get_mock = mocker.patch('tests.fakes.asyncio_broker.get_file', return_value=True)
-    fake_context = generate_fake_context()
-    md1 = _make_s3_media_download(fake_context)
-    md2 = _make_s3_media_download(generate_fake_context())
-    with TemporaryDirectory() as guild_dir:
-        broker = AsyncioBroker(bucket_name='my-bucket')
-        await broker.register_download(md1)
-        await broker.register_download(md2)
-        # Manually put md1 into CHECKED_OUT without staging a file
-        await broker.stage_checkout(str(md1.media_request.uuid), 123, guild_path=Path(guild_dir))
-        assert get_mock.call_count == 1
-        # prefetch with limit=1 — md1 already checked out fills the slot
-        await broker.prefetch([md1, md2], 123, Path(guild_dir), limit=1)
-        assert get_mock.call_count == 1  # md2 not staged
-        assert (await broker.get_entry(str(md2.media_request.uuid))).zone == Zone.AVAILABLE
-
-
-# ---------------------------------------------------------------------------
 # update_request_status
 # ---------------------------------------------------------------------------
 

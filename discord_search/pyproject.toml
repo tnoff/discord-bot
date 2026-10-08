@@ -15,7 +15,7 @@ dependencies = [
     # checkout path -- criterion 8 step 7. All six pods pin the IDENTICAL tag
     # string; tests/cli/test_package_pins.py enforces that they never drift
     # apart.
-    "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.0.3.tar.gz#subdirectory=discord_core",
+    "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.0.4.tar.gz#subdirectory=discord_core",
     "spotipy==2.26.0",
     "google-api-python-client==2.199.0",
     "ytmusicapi==1.12.2",
