@@ -25,7 +25,7 @@ from discord_core.types.queue import Queue
 
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.types.checkout_result import CheckoutResult
-from discord_core.utils.integrations.s3 import get_file
+from discord_core.utils.integrations.s3 import ObjectStorageException, get_file
 
 from discord_gateway.types.cleanup_reason import CleanupReason
 from discord_gateway.types.history_playlist_item import HistoryPlaylistItem
@@ -74,7 +74,8 @@ class MusicPlayer:
                  history_playlist_id: int,
                  history_playlist_queue: Queue,
                  broker: BrokerClient | None = None,
-                 prefetch_limit: int = 5):
+                 prefetch_limit: int = 5,
+                 bucket_name: str | None = None):
         '''
         Music Player to sit in voice chat
 
@@ -117,6 +118,12 @@ class MusicPlayer:
         self.inactive_timestamp: int | None = None
         self.broker: BrokerClient | None = broker
         self.prefetch_limit: int = prefetch_limit
+        # Bucket the queued items' file paths are object keys in. None means the
+        # downloads are local files already, so there is nothing to stage.
+        self.bucket_name: str | None = bucket_name
+        # Staging downloads in flight, by request uuid, so playback and the
+        # prefetch window never fetch the same object twice.
+        self._staging: dict[str, asyncio.Task] = {}
 
     async def start_tasks(self):
         '''
@@ -206,14 +213,17 @@ class MusicPlayer:
             # must fetch it before playback.
             file_path = media_download.file_path
             s3_fetch_seconds = 0.0
+            media_uuid = str(media_download.media_request.uuid)
             if checkout_result and checkout_result.s3_key and checkout_result.bucket_name:
-                extension = ''.join(Path(checkout_result.s3_key).suffixes)
-                local_path = self.file_dir / f'{media_download.media_request.uuid}{extension}'
-                self.file_dir.mkdir(exist_ok=True)
                 s3_fetch_started = monotonic()
-                await asyncio.to_thread(get_file, checkout_result.bucket_name, checkout_result.s3_key, local_path)
+                # Already on disk when the prefetch window got here first.
+                file_path = await self._ensure_staged(media_uuid, checkout_result.bucket_name,
+                                                      checkout_result.s3_key)
                 s3_fetch_seconds = monotonic() - s3_fetch_started
-                file_path = local_path
+            elif self.bucket_name and self._staged_path(media_uuid, media_download.file_path).exists():
+                # The broker has no entry any more (e.g. the cache evicted it), but
+                # the prefetch window already staged the file.
+                file_path = self._staged_path(media_uuid, media_download.file_path)
             # Surface how long staging this track took: broker checkout + the
             # S3 fetch sit between the track leaving the play queue and audio starting,
             # so a slow broker or S3 GET reads as dead air. DEBUG normally; escalated
@@ -274,6 +284,7 @@ class MusicPlayer:
         cleanup_source(audio_source)
         if self.broker:
             await self.broker.release(str(media_download.media_request.uuid))
+        self._discard_staged(media_download)
 
         # Add video to history if possible
         # Add here to history playlist queue to save items for metrics as well
@@ -422,17 +433,74 @@ class MusicPlayer:
 
     def trigger_prefetch(self):
         '''
-        Fire a non-blocking prefetch task to pre-stage the next items in the
-        queue from S3.  Replaces any previous prefetch task reference so cleanup
-        can cancel it.  No-op in local mode or when prefetch_limit is 0.
+        Fire a non-blocking task that downloads the next queued items from S3 to
+        the guild's player directory, so they are on disk when the player reaches
+        them.  Replaces any previous prefetch task reference so cleanup can cancel
+        it.  No-op when there is no bucket or prefetch_limit is 0.
         '''
-        if self.broker and self.prefetch_limit > 0:
-            self._prefetch_task = asyncio.create_task(
-                self.broker.prefetch(
-                    self.get_queue_items(), self.guild.id, self.file_dir, self.prefetch_limit,
-                )
-            )
+        if self.bucket_name and self.prefetch_limit > 0:
+            if self._prefetch_task and not self._prefetch_task.done():
+                self._prefetch_task.cancel()
+            self._prefetch_task = asyncio.create_task(self._prefetch(self.get_queue_items()))
             self._prefetch_task.add_done_callback(self._on_prefetch_done)
+
+    async def _prefetch(self, queue_items: List[MediaDownload]):
+        '''Stage the first prefetch_limit queued items, in queue order.'''
+        for item in queue_items[:self.prefetch_limit]:
+            try:
+                await self._ensure_staged(str(item.media_request.uuid), self.bucket_name, str(item.file_path))
+            except ObjectStorageException as exc:
+                # Playback retries the fetch at checkout, so a failed prefetch
+                # costs only the head start.
+                self.logger.warning(f'Prefetch of "{item.webpage_url}" failed in guild {self.guild.id}: {exc}')
+
+    def _staged_path(self, media_uuid: str, s3_key) -> Path:
+        '''Where the object for this request is staged under the player directory.'''
+        return self.file_dir / f'{media_uuid}{"".join(Path(str(s3_key)).suffixes)}'
+
+    async def _ensure_staged(self, media_uuid: str, bucket_name: str, s3_key) -> Path:
+        '''
+        Return the local path of the object, downloading it unless it is already
+        there.  A download already in flight for the same request is awaited, not
+        repeated.  The file lands under a .part name and is renamed when whole, so
+        nothing ever sees half an object.
+        '''
+        local_path = self._staged_path(media_uuid, s3_key)
+        if local_path.exists():
+            return local_path
+        task = self._staging.get(media_uuid)
+        if task is None:
+            task = asyncio.create_task(self._download_staged(bucket_name, str(s3_key), local_path))
+            self._staging[media_uuid] = task
+            task.add_done_callback(lambda done, uuid=media_uuid: self._staging_done(uuid, done))
+        # Shielded so cancelling one waiter (a superseded prefetch) leaves the
+        # download running for the other.
+        await asyncio.shield(task)
+        return local_path
+
+    def _staging_done(self, media_uuid: str, task: asyncio.Task):
+        self._staging.pop(media_uuid, None)
+        if not task.cancelled():
+            task.exception()  # retrieved here so an unawaited failure is not logged as lost
+
+    async def _download_staged(self, bucket_name: str, s3_key: str, local_path: Path):
+        self.file_dir.mkdir(exist_ok=True, parents=True)
+        part_path = local_path.with_name(f'{local_path.name}.part')
+        try:
+            await asyncio.to_thread(get_file, bucket_name, s3_key, part_path)
+            part_path.replace(local_path)
+        finally:
+            part_path.unlink(missing_ok=True)
+
+    def _discard_staged(self, media_download: MediaDownload):
+        '''Delete the staged copy of a track that has played or left the queue.'''
+        if not self.bucket_name:
+            return
+        media_uuid = str(media_download.media_request.uuid)
+        task = self._staging.get(media_uuid)
+        if task:
+            task.cancel()
+        self._staged_path(media_uuid, media_download.file_path).unlink(missing_ok=True)
 
     def add_to_play_queue(self, source_download: MediaDownload) -> bool:
         '''
@@ -453,6 +521,7 @@ class MusicPlayer:
         '''
         items = self._play_queue.clear()
         for item in items:
+            self._discard_staged(item)
             if self.broker:
                 await self.broker.remove(str(item.media_request.uuid))
         return items
@@ -468,7 +537,9 @@ class MusicPlayer:
         '''
         Remove item from queue
         '''
-        return self._play_queue.remove_item(queue_index)
+        item = self._play_queue.remove_item(queue_index)
+        self._discard_staged(item)
+        return item
 
     def bump_queue_item(self, queue_index: int) -> MediaDownload:
         '''
@@ -540,6 +611,8 @@ class MusicPlayer:
         if self._prefetch_task and not self._prefetch_task.done():
             self._prefetch_task.cancel()
             self._prefetch_task = None
+        for staging in list(self._staging.values()):
+            staging.cancel()
         if self._player_task:
             self._player_task.cancel()
             self._player_task = None

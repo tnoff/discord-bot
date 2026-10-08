@@ -155,29 +155,34 @@ Instead of checking a "marked for deletion" flag on the file, the cache cleanup 
 
 ## S3 Prefetch Window
 
-> **Not active in production.** `RedisBroker.prefetch` is a no-op ("S3 prefetch
-> staging is handled by the bot pod") and the bot pod does not implement it, so
-> the gateway's `trigger_prefetch` makes a request that does nothing and
-> `storage.prefetch_limit` has no effect. The test-only `AsyncioBroker` still
-> stages files (`stage_checkout`). The section below is the original design.
-
-In S3 mode, `checkout()` downloads the file from S3 the moment the player dequeues it. With typical song durations of 3+ minutes, this latency is imperceptible. However, the broker also supports a configurable **prefetch window** that pre-stages the next N songs to local disk so they are ready the instant the player needs them, and provides a predictable disk usage ceiling.
+The broker only hands out an S3 key: `checkout()` returns `CheckoutResult(s3_key=...)`
+and the bot downloads the object itself. Prefetch is therefore a bot-side job, done
+by `MusicPlayer` (`discord_gateway/cogs/music_helpers/music_player.py`), not the broker.
 
 ```
 add_source_to_player()
     → register_download() → Zone.AVAILABLE
-    → _trigger_prefetch(): prefetch() next N AVAILABLE items → local disk
+    → player.trigger_prefetch(): download the next N queued items from S3
+      into the guild's player directory
 
 player_loop() dequeues
-    → checkout() → file already staged, no S3 download needed
+    → broker.checkout()  (marks CHECKED_OUT, returns the s3_key)
+    → the file is already on disk if the window got there first, else it is
+      downloaded now (a download already in flight is joined, never repeated)
 
-player_loop() finishes → release() → local file deleted
-    → prefetch() slides next item into the window
+player_loop() finishes → broker.release() and the staged copy is deleted
+    → the next trigger_prefetch() slides the window forward
 ```
 
-The number of items pre-staged is controlled by `storage.prefetch_limit` in the config (default: 5). Setting it to `0` restores fully lazy behaviour — only 1 song on local disk at a time.
+The window size is `storage.prefetch_limit` in the config (default: 5); `0` disables
+it, and so does having no `storage.bucket_name`. Downloads land under a `.part` name
+and are renamed when whole. A staged copy is deleted when its track finishes or leaves
+the queue (skip, remove, clear), and the guild's directory is removed when the player
+is torn down. A prefetch that fails is logged and costs only the head start, since
+playback downloads the object at checkout anyway.
 
-Already-CHECKED_OUT items count toward the limit, so the window never over-stages. The `checkout()` call is idempotent: if a prefetched item reaches the player while its staged file still exists, no second S3 download is made.
+`POST /prefetch` and `RedisBroker.prefetch` still exist but nothing calls them; they
+are left over from when the broker staged files itself and are due for removal.
 
 ## Player Restart / Refresh
 
