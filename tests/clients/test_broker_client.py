@@ -2,7 +2,6 @@
 Tests for InMemoryBrokerClient and HttpBrokerClient.
 '''
 import asyncio
-from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
@@ -161,13 +160,6 @@ class TestInMemoryBrokerClient:
         await client.release(str(mr.uuid))
         assert await broker.get_entry(str(mr.uuid)) is None
 
-    async def test_prefetch_delegates(self):
-        broker = _make_broker()
-        mr = _make_request()
-        await broker.register_request(mr)
-        client = InMemoryBrokerClient(broker, asyncio.Queue())
-        # prefetch is a no-op in local mode (no S3)
-        await client.prefetch([], 123, None, 5)
 
 
 # ---------------------------------------------------------------------------
@@ -283,25 +275,6 @@ class TestHttpBrokerClient:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.release(str(mr.uuid))
         assert await broker.get_entry(str(mr.uuid)) is None
-
-    async def test_prefetch(self):
-        '''prefetch with empty list is a no-op that does not raise.'''
-        broker = _make_broker()
-        server = make_broker_http_server(broker)
-        queue_items: list = []
-        async with TestClient(TestServer(server.build_app())) as tc:
-            hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
-            await hc.prefetch(queue_items, 123, None, 5)
-
-    async def test_prefetch_with_path_guild_dir_serializes(self):
-        '''Regression (same PosixPath bug as checkout): the player passes a Path
-        guild_path to prefetch. Must str()-serialise over HTTP rather than raise.'''
-        broker = _make_broker()
-        server = make_broker_http_server(broker)
-        with TemporaryDirectory() as guild_dir:
-            async with TestClient(TestServer(server.build_app())) as tc:
-                hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
-                await hc.prefetch([], 123, Path(guild_dir), 5)
 
     async def test_close_session(self):
         '''close() closes the underlying aiohttp session.'''

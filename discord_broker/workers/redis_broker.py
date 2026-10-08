@@ -255,10 +255,6 @@ class RedisBroker(MediaBrokerBase):
         if data is not None:
             await self._maybe_render_bundle(parse_media_request(data['request']))
 
-    async def prefetch(self, queue_items: list, guild_id: int,
-                       guild_path: Path | None, limit: int) -> None:
-        '''No-op — S3 prefetch staging is handled by the bot pod.'''
-
     # ------------------------------------------------------------------
     # Eviction queries
     # ------------------------------------------------------------------

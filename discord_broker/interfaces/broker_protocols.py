@@ -13,7 +13,6 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 from typing import Any, List, Protocol
 
 from opentelemetry.trace import SpanKind
@@ -175,11 +174,6 @@ class MediaBrokerBase(PlayerSessionStore, ABC):
     @abstractmethod
     async def discard(self, media_request_uuid: str) -> None:
         '''Remove an entry that was registered but could not be enqueued.'''
-
-    @abstractmethod
-    async def prefetch(self, queue_items: list, guild_id: int,
-                       guild_path: Path | None, limit: int) -> None:
-        '''Pre-stage the next limit AVAILABLE items from the queue to local disk.'''
 
     @abstractmethod
     async def can_evict_request(self, media_request_uuid: str) -> bool:

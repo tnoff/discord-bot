@@ -73,12 +73,6 @@ paths:
       responses:
         default:
           description: See the handler; the seam contract covers the route, not the body.
-  /prefetch:
-    post:
-      operationId: post-prefetch
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
   /requests/{uuid}:
     post:
       operationId: post-requests-by-uuid

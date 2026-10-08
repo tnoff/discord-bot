@@ -13,7 +13,6 @@ and must keep satisfying it: a double that drifts from the Protocol takes the
 meaning out of every test built on it rather than failing them.
 '''
 import logging
-from pathlib import Path
 
 from discord_core.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_core.types.media_download import MediaDownload
@@ -142,10 +141,6 @@ class InMemoryBrokerClient: #pylint:disable=too-many-public-methods
     async def get_cache_count(self) -> int:
         '''Delegate to broker.get_cache_count.'''
         return await self._broker.get_cache_count()
-
-    async def prefetch(self, queue_items: list, guild_id: int, guild_path: str | None, limit: int) -> None:
-        '''Delegate to broker.prefetch.'''
-        await self._broker.prefetch(queue_items, guild_id, Path(guild_path) if guild_path else None, limit)
 
     async def create_bundle(self, guild_id: int, channel_id: int,
                             input_string: str | None = None,

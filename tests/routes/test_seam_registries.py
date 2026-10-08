@@ -162,7 +162,7 @@ EXPECTED_WIRE_PATHS = {
         'POST /requests/{uuid}/checkout', 'POST /requests/{uuid}/release',
         'POST /requests/{uuid}/remove', 'POST /requests/{uuid}/discard',
         'POST /downloads', 'POST /downloads/register', 'GET /results/next',
-        'POST /search-results', 'GET /search-results/next', 'POST /prefetch',
+        'POST /search-results', 'GET /search-results/next',
         'POST /cache/check', 'POST /cache/cleanup', 'GET /cache/count',
         'GET /bundles', 'POST /bundles', 'POST /bundles/{uuid}/finalize',
         'DELETE /bundles/{uuid}', 'GET /sessions', 'PUT /sessions/{guild_id}',

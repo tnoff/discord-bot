@@ -110,9 +110,6 @@ register_download(media_download)
     → entry updated with download, zone = AVAILABLE
     → triggered when state machine fires COMPLETED
 
-prefetch(queue_items, guild_id, guild_path, limit)
-    → a no-op on the Redis broker (see "S3 Prefetch Window" below)
-
 checkout(media_request_uuid, guild_id)
     → zone = CHECKED_OUT, checked_out_by = guild_id
     → returns CheckoutResult(s3_key=...); the bot downloads the object itself
@@ -181,8 +178,8 @@ the queue (skip, remove, clear), and the guild's directory is removed when the p
 is torn down. A prefetch that fails is logged and costs only the head start, since
 playback downloads the object at checkout anyway.
 
-`POST /prefetch` and `RedisBroker.prefetch` still exist but nothing calls them; they
-are left over from when the broker staged files itself and are due for removal.
+The broker no longer has a prefetch operation: `POST /prefetch`, `MediaBrokerBase.prefetch`
+and `HttpBrokerClient.prefetch` were removed once nothing called them.
 
 ## Player Restart / Refresh
 

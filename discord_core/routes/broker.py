@@ -38,8 +38,7 @@ NEXT_RESULT = Route('GET', '/results/next')
 REGISTER_SEARCH_RESULT = Route('POST', '/search-results')
 NEXT_SEARCH_RESULT = Route('GET', '/search-results/next')
 
-# Prefetch and the video cache.
-PREFETCH = Route('POST', '/prefetch')
+# The video cache.
 CHECK_CACHE = Route('POST', '/cache/check')
 CACHE_CLEANUP = Route('POST', '/cache/cleanup')
 CACHE_COUNT = Route('GET', '/cache/count')

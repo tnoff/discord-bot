@@ -270,20 +270,6 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             return 0
         return int(self._validate(GetCacheCountResponse, payload).count)
 
-    async def prefetch(self, queue_items: list, guild_id: int, guild_path: str | None, limit: int) -> None:
-        '''POST /prefetch — sends UUIDs extracted from queue_items.'''
-        uuids = [str(item.media_request.uuid) for item in queue_items]
-        async with async_otel_span_wrapper(
-            'broker.prefetch', kind=SpanKind.CLIENT,
-            attributes={'music.guild_id': guild_id, 'music.prefetch_limit': limit},
-        ):
-            await self._call_route(broker_routes.PREFETCH, {
-                                   # str() guild_path — it arrives as a Path (self.file_dir) and a
-                                   # PosixPath isn't JSON-serialisable for the HTTP body.
-                                   'uuids': uuids, 'guild_id': guild_id,
-                                   'guild_path': str(guild_path) if guild_path else None, 'limit': limit,
-                                   })
-
     async def create_bundle(self, guild_id: int, channel_id: int,
                             input_string: str | None = None,
                             has_search_banner: bool = False) -> str:

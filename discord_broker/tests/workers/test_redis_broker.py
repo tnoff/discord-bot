@@ -527,17 +527,6 @@ async def test_discard_skips_s3_delete_when_video_cache_configured():
 
 
 # ---------------------------------------------------------------------------
-# prefetch (no-op)
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_prefetch_is_noop():
-    '''prefetch is a no-op and does not raise.'''
-    broker = _make_broker()
-    await broker.prefetch([], guild_id=1, guild_path=None, limit=3)
-
-
-# ---------------------------------------------------------------------------
 # can_evict_request / can_evict_base
 # ---------------------------------------------------------------------------
 

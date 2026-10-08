@@ -8,7 +8,6 @@ bundle-attach path, get_cache_count with a cache, and the bundle-storage hooks.
 '''
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -192,15 +191,6 @@ async def test_get_cache_count_with_cache(fake_context):  # pylint: disable=rede
     cache.get_cache_count.return_value = 7
     broker = AsyncioBroker(video_cache=cache)
     assert await broker.get_cache_count() == 7
-
-
-@pytest.mark.asyncio
-async def test_prefetch_skips_items_missing_from_registry(fake_context):  # pylint: disable=redefined-outer-name,unused-argument
-    '''prefetch ignores queue items that have no registry entry (S3 mode).'''
-    broker = AsyncioBroker(bucket_name='bucket')
-    item = SimpleNamespace(media_request=SimpleNamespace(uuid='not-registered'))
-    await broker.prefetch([item], guild_id=123, guild_path=Path('/tmp/prefetch-test'), limit=5)
-    assert len(broker) == 0
 
 
 @pytest.mark.asyncio
