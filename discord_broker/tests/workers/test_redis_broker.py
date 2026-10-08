@@ -133,18 +133,16 @@ def test_entry_from_dict_in_flight_no_download():
     data = {
         'zone': 'in_flight',
         'checked_out_by': None,
-        'guild_file_path': None,
         'request': req.model_dump(mode='json'),
         'download': None,
     }
     entry = _entry_from_dict(data)
     assert entry.zone == Zone.IN_FLIGHT
     assert entry.download is None
-    assert entry.guild_file_path is None
 
 
-def test_entry_from_dict_checked_out_with_guild_path():
-    '''_entry_from_dict reconstructs a CHECKED_OUT entry with guild_file_path.'''
+def test_entry_from_dict_checked_out():
+    '''_entry_from_dict reconstructs a CHECKED_OUT entry; a stale guild_file_path key is ignored.'''
     req = _make_request()
     dl = _make_download(req, Path('/s3/key.mp3'))
     data = {
@@ -157,7 +155,6 @@ def test_entry_from_dict_checked_out_with_guild_path():
     entry = _entry_from_dict(data)
     assert entry.zone == Zone.CHECKED_OUT
     assert entry.checked_out_by == 42
-    assert entry.guild_file_path == Path('/local/guild/file.mp3')
 
 
 # ---------------------------------------------------------------------------
@@ -346,7 +343,7 @@ async def test_sync_request_into_bundle_no_op_when_request_not_in_bundle():
     # Plant a registry entry without the bundle attachment side-effect.
     await broker._registry.set_entry(  # pylint: disable=protected-access
         str(req.uuid),
-        {'zone': 'in_flight', 'checked_out_by': None, 'guild_file_path': None,
+        {'zone': 'in_flight', 'checked_out_by': None,
          'request': req.model_dump(mode='json'), 'download': None},
     )
     await broker.update_request_status(

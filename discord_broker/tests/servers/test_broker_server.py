@@ -406,7 +406,7 @@ class TestCheckout:
             )
             assert resp.status == 200
             data = await resp.json()
-            assert data['guild_file_path'] is None
+            assert data == {}
 
     async def test_checkout_with_valid_entry(self):
         broker = _make_broker()

@@ -111,9 +111,9 @@ class InMemoryBrokerClient: #pylint:disable=too-many-public-methods
         '''Pop the next ready SearchResolution; None if the queue is empty.'''
         return await self._search_result_queue.get_nowait()
 
-    async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
+    async def checkout(self, uuid: str, guild_id: int) -> CheckoutResult | None:
         '''Delegate to broker.checkout, which already returns a CheckoutResult.'''
-        return await self._broker.checkout(uuid, guild_id, Path(guild_path) if guild_path else None)
+        return await self._broker.checkout(uuid, guild_id)
 
     async def release(self, uuid: str) -> None:
         '''Delegate to broker.release.'''

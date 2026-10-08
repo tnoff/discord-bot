@@ -30,7 +30,7 @@ SPOTIFY = MediaSearchError.SPOTIFY
 YOUTUBE = MediaSearchError.YOUTUBE
 
 
-class InMemoryMediaSearchClient:
+class LocalMediaSearchClient:
     '''
     MediaSearchClient backed by in-process provider SDKs.
 
@@ -113,7 +113,7 @@ class InMemoryMediaSearchClient:
 
 
 def build_media_search_client(spotify_client_id: str = None, spotify_client_secret: str = None,
-                              youtube_api_key: str = None) -> InMemoryMediaSearchClient:
+                              youtube_api_key: str = None) -> LocalMediaSearchClient:
     '''
     Build an in-process media search client from raw credential values.
 
@@ -134,5 +134,5 @@ def build_media_search_client(spotify_client_id: str = None, spotify_client_secr
     youtube_client = None
     if youtube_api_key:
         youtube_client = YoutubeClient(youtube_api_key)
-    return InMemoryMediaSearchClient(spotify_client=spotify_client,
+    return LocalMediaSearchClient(spotify_client=spotify_client,
                                      youtube_client=youtube_client)

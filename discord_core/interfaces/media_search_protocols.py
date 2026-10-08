@@ -15,7 +15,7 @@ across the network to do string matching.
 
 Implementations:
 
-  InMemoryMediaSearchClient (clients/media_search_client.py) — wraps a
+  LocalMediaSearchClient (clients/media_search_client.py) — wraps a
   SpotifyClient / YoutubeClient and offloads their blocking calls to a thread.
   This is what the bot runs today.
 

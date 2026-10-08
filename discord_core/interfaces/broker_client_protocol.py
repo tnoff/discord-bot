@@ -54,7 +54,7 @@ class BrokerClient(PlayerSessionClient, Protocol):
     async def next_search_result(self) -> SearchResolution | None:
         '''Pop the next bot-ready SearchResolution, or None if nothing is ready.
         Non-blocking — callers poll on their own cadence.'''
-    async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
+    async def checkout(self, uuid: str, guild_id: int) -> CheckoutResult | None:
         '''Mark a request CHECKED_OUT; returns a CheckoutResult with s3_key set.'''
     async def release(self, uuid: str) -> None:
         '''Release a CHECKED_OUT entry and clean up the guild-specific file.'''

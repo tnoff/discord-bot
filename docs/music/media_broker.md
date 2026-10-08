@@ -21,7 +21,7 @@ It solves two problems that currently have no clean solution:
 
 2. **Player restart / refresh**: if a player disconnects and reconnects, it needs a way to know what files it had queued and whether those files are still available. The broker is the single place that holds that view.
 
-It is intentionally designed as an in-process sidecar first. The interface is defined so the backing store can later be replaced with a remote service (Redis, SQS, HTTP) without callers needing to change.
+It was designed as an in-process sidecar first (it now runs as its own pod, see the note at the top). The interface is defined so the backing store can later be replaced with a remote service (Redis, SQS, HTTP) without callers needing to change.
 
 ---
 
@@ -111,18 +111,15 @@ register_download(media_download)
     → triggered when state machine fires COMPLETED
 
 prefetch(queue_items, guild_id, guild_path, limit)
-    → stages the next `limit` AVAILABLE items to local disk via checkout()
-    → already CHECKED_OUT items count toward the limit
-    → no-op in local mode (no bucket_name configured)
+    → a no-op on the Redis broker (see "S3 Prefetch Window" below)
 
-checkout(media_request_uuid, guild_id, guild_path)
+checkout(media_request_uuid, guild_id)
     → zone = CHECKED_OUT, checked_out_by = guild_id
-    → stages the file to guild_path (S3 download or local copy)
-    → if already CHECKED_OUT with a valid staged file, returns immediately (idempotent)
-    → triggered when player takes the file from the queue, or by prefetch()
+    → returns CheckoutResult(s3_key=...); the bot downloads the object itself
+    → triggered when player takes the file from the queue
 
 release(media_request_uuid)
-    → deletes the guild-specific staged copy, removes entry from registry
+    → removes the entry from the registry
     → triggered when player finishes the track or is cleaned up
 
 remove(media_request_uuid)
@@ -157,6 +154,12 @@ Instead of checking a "marked for deletion" flag on the file, the cache cleanup 
 ---
 
 ## S3 Prefetch Window
+
+> **Not active in production.** `RedisBroker.prefetch` is a no-op ("S3 prefetch
+> staging is handled by the bot pod") and the bot pod does not implement it, so
+> the gateway's `trigger_prefetch` makes a request that does nothing and
+> `storage.prefetch_limit` has no effect. The test-only `AsyncioBroker` still
+> stages files (`stage_checkout`). The section below is the original design.
 
 In S3 mode, `checkout()` downloads the file from S3 the moment the player dequeues it. With typical song durations of 3+ minutes, this latency is imperceptible. However, the broker also supports a configurable **prefetch window** that pre-stages the next N songs to local disk so they are ready the instant the player needs them, and provides a predictable disk usage ceiling.
 

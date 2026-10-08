@@ -99,11 +99,9 @@ class CheckoutEmptyResponse(BaseModel):
 
     Two models for one route, because the two answers are different BYTES, not
     one body with optional fields: a hit sends `{'s3_key': ...}` and a miss sends
-    `{'guild_file_path': null}`, and the client branches on which key is present.
-    `guild_file_path` is always null and only still on the wire so a gateway
-    from before local staging was removed reads a miss the way it always did.
+    `{}`. (Brokers from before local staging was removed sent
+    `{'guild_file_path': null}` for a miss; the extra key is ignored on read.)
     '''
-    guild_file_path: None = None
 
 
 class CheckoutS3Response(BaseModel):

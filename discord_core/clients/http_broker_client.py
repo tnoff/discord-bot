@@ -177,7 +177,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             async with async_otel_span_wrapper('broker.next_search_result', kind=SpanKind.CLIENT):
                 return self._validate(SearchResolution, payload)
 
-    async def checkout(self, uuid: str, guild_id: int, guild_path: str | None = None) -> CheckoutResult | None:
+    async def checkout(self, uuid: str, guild_id: int) -> CheckoutResult | None:
         '''
         POST /requests/{uuid}/checkout — returns a CheckoutResult or None.
 
@@ -185,11 +185,6 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
         leaves the S3 download to the caller.
         '''
         body: dict = {'guild_id': guild_id}
-        if guild_path:
-            # str() it: the player passes self.file_dir (a Path), and aiohttp's
-            # json= can't serialise a PosixPath. The broker server takes the
-            # string and rebuilds the Path on its side.
-            body['guild_path'] = str(guild_path)
         async with async_otel_span_wrapper(
             'broker.checkout', kind=SpanKind.CLIENT,
             attributes={'music.media_request.uuid': uuid, 'music.guild_id': guild_id},
@@ -198,7 +193,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
             if not data:
                 return None
             # Two models for one route, matching the two shapes the broker
-            # sends: a hit answers {'s3_key': ...} with no guild_file_path key. Validating the branch we took gives
+            # sends: a hit answers {'s3_key': ...} and a miss answers {}. Validating the branch we took gives
             # seam_response_invalid the peer's name when a shape drifts, instead
             # of a silent None that reads as "nothing to check out".
             if data.get('s3_key'):
