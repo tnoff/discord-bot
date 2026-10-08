@@ -30,7 +30,7 @@ dependencies = [
     # way `dappertable` already does below: a direct archive URL, not a VCS
     # dep and not a path install. All six pods pin the IDENTICAL tag string;
     # tests/cli/test_package_pins.py enforces that they never drift apart.
-    "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.0.0.tar.gz#subdirectory=discord_core",
+    "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.0.3.tar.gz#subdirectory=discord_core",
     "discord.py==2.7.1",
     "PyNaCl==1.6.2",
     "davey==0.1.6",
