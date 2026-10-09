@@ -1,7 +1,7 @@
 '''
-InMemoryBrokerClient's guild queue must answer exactly as HttpBrokerClient does.
+AsyncioBrokerClient's guild queue must answer exactly as HttpBrokerClient does.
 
-The gateway's tests drive the queue through InMemoryBrokerClient (the real GuildQueueBroker, minus
+The gateway's tests drive the queue through AsyncioBrokerClient (the real GuildQueueBroker, minus
 the HTTP hop), while production reaches it through HttpBrokerClient and the broker's server. Any
 difference between those two paths is a way for the gateway suite to pass while prod does
 something else, so this runs ONE scenario through both and requires the same observations.
@@ -27,7 +27,7 @@ from tests.fakes.asyncio_broker import AsyncioBroker
 from tests.fakes.asyncio_queues import (
     make_broker_http_server, make_guild_queue_broker, make_guild_queue_for,
 )
-from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
+from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
 
 GUILD = 77
 BUCKET = 'contract-bucket'
@@ -67,10 +67,10 @@ class _Stack:
 
 
 @contextlib.asynccontextmanager
-async def _in_memory():
+async def _asyncio():
     broker = AsyncioBroker(bucket_name=BUCKET)
     queue = make_guild_queue_for(broker)
-    yield _Stack(InMemoryBrokerClient(broker, guild_queue=queue), broker, queue)
+    yield _Stack(AsyncioBrokerClient(broker, guild_queue=queue), broker, queue)
 
 
 @contextlib.asynccontextmanager
@@ -82,7 +82,7 @@ async def _over_http():
         yield _Stack(client, queue.broker, queue)
 
 
-STACKS = [pytest.param(_in_memory, id='in-memory'), pytest.param(_over_http, id='over-http')]
+STACKS = [pytest.param(_asyncio, id='asyncio'), pytest.param(_over_http, id='over-http')]
 
 
 async def _scenario(stack: _Stack) -> list:
@@ -160,10 +160,10 @@ async def _scenario(stack: _Stack) -> list:
 async def test_the_scenario_gives_the_same_answers_through_both_paths():
     """One scenario, two paths, identical observations."""
     results = {}
-    for name, opener in (('in-memory', _in_memory), ('over-http', _over_http)):
+    for name, opener in (('asyncio', _asyncio), ('over-http', _over_http)):
         async with opener() as stack:
             results[name] = await _scenario(stack)
-    assert results['in-memory'] == results['over-http']
+    assert results['asyncio'] == results['over-http']
 
 
 @pytest.mark.asyncio
@@ -192,14 +192,14 @@ def test_the_fake_implements_the_whole_protocol():
     for name, member in inspect.getmembers(GuildQueueClient, inspect.isfunction):
         if name.startswith('_'):
             continue
-        implemented = getattr(InMemoryBrokerClient, name)
+        implemented = getattr(AsyncioBrokerClient, name)
         assert list(inspect.signature(implemented).parameters) == list(inspect.signature(member).parameters), name
 
 
 @pytest.mark.asyncio
 async def test_a_fake_built_without_a_queue_refuses_rather_than_pretends():
     '''Tests that never asked for a queue must not silently get an empty one.'''
-    client = InMemoryBrokerClient(AsyncioBroker())
+    client = AsyncioBrokerClient(AsyncioBroker())
     with pytest.raises(RuntimeError, match='guild_queue'):
         await client.get_guild_queue(GUILD)
     with pytest.raises(RuntimeError, match='guild_queue'):

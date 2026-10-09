@@ -1,5 +1,5 @@
 '''
-In-memory YoutubeMusicSearchClient: a wrapper around a search worker.
+Asyncio YoutubeMusicSearchClient: a wrapper around a search worker.
 
 A test double only.
 The pod-facing implementation is HttpYoutubeMusicSearchClient
@@ -12,17 +12,17 @@ from discord_core.types.media_request import MediaRequest
 
 from discord_core.interfaces.youtube_music_search_protocols import YoutubeMusicSearchWorkerBase
 
-from tests.fakes.in_memory_queue_worker_client import InMemoryQueueWorkerClient
+from tests.fakes.asyncio_queue_worker_client import AsyncioQueueWorkerClient
 
 
-class InMemoryYoutubeMusicSearchClient(InMemoryQueueWorkerClient):
+class AsyncioYoutubeMusicSearchClient(AsyncioQueueWorkerClient):
     '''
-    In-memory YoutubeMusicSearchClient: a thin wrapper around a
+    Asyncio YoutubeMusicSearchClient: a thin wrapper around a
     YoutubeMusicSearchWorkerBase.
 
     The shared forwarding surface (submit / block_guild / clear_guild_queue /
     queue_size / failure_summary / backoff_seconds_remaining) comes
-    from InMemoryQueueWorkerClient; the worker owns the ytmusicapi call and input
+    from AsyncioQueueWorkerClient; the worker owns the ytmusicapi call and input
     queue.  What is specific to search is the pop/resolve half below — the loop
     that consumes it runs in the search pod in production (which is why
     HttpYoutubeMusicSearchClient has no counterpart).

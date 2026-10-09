@@ -1,5 +1,5 @@
 '''
-Tests for the InMemoryDownloadClient wrapper.
+Tests for the AsyncioDownloadClient wrapper.
 
 The wrapper is a thin delegator around a DownloadWorkerBase engine
 (the in-memory AsyncioDownloadWorker); these tests assert every method and
@@ -12,7 +12,7 @@ import pytest
 
 from discord_downloader.interfaces.download_protocols import ClearGuildResult
 
-from tests.fakes.in_memory_download_client import InMemoryDownloadClient
+from tests.fakes.asyncio_download_client import AsyncioDownloadClient
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 
 
@@ -23,7 +23,7 @@ def _make_worker() -> AsyncioDownloadWorker:
 
 def test_local_worker_exposes_wrapped_engine():
     worker = _make_worker()
-    client = InMemoryDownloadClient(worker)
+    client = AsyncioDownloadClient(worker)
     assert client.local_worker is worker
 
 
@@ -31,7 +31,7 @@ def test_local_worker_exposes_wrapped_engine():
 async def test_submit_delegates():
     worker = _make_worker()
     worker.submit = AsyncMock()
-    client = InMemoryDownloadClient(worker)
+    client = AsyncioDownloadClient(worker)
     media_request = MagicMock()
     await client.submit(42, media_request, priority=7)
     worker.submit.assert_called_once_with(42, media_request, priority=7)
@@ -41,7 +41,7 @@ async def test_submit_delegates():
 async def test_block_guild_delegates():
     worker = _make_worker()
     worker.block_guild = AsyncMock(return_value=True)
-    client = InMemoryDownloadClient(worker)
+    client = AsyncioDownloadClient(worker)
     assert await client.block_guild(42) is True
     worker.block_guild.assert_called_once_with(42)
 
@@ -51,7 +51,7 @@ async def test_clear_guild_queue_no_predicate_returns_result_with_empty_preserve
     worker = _make_worker()
     dropped = [MagicMock()]
     worker.clear_guild_queue = AsyncMock(return_value=dropped)
-    client = InMemoryDownloadClient(worker)
+    client = AsyncioDownloadClient(worker)
     result = await client.clear_guild_queue(42)
     assert isinstance(result, ClearGuildResult)
     assert result.dropped is dropped
@@ -76,7 +76,7 @@ async def test_clear_guild_queue_collects_preserved_bundle_uuids():
 
     worker = _make_worker()
     worker.clear_guild_queue = AsyncMock(side_effect=fake_clear)
-    client = InMemoryDownloadClient(worker)
+    client = AsyncioDownloadClient(worker)
     result = await client.clear_guild_queue(42, preserve_predicate=lambda r: not r.download_file)
     assert result.dropped == [download_item]
     assert result.preserved_bundle_uuids == {'keep-bundle'}
@@ -89,20 +89,20 @@ async def test_clear_guild_queue_collects_preserved_bundle_uuids():
 async def test_queue_size_delegates():
     worker = _make_worker()
     worker.queue_size = AsyncMock(return_value=3)
-    client = InMemoryDownloadClient(worker)
+    client = AsyncioDownloadClient(worker)
     assert await client.queue_size(42) == 3
     worker.queue_size.assert_called_once_with(42)
 
 
 def test_failure_summary_delegates():
     worker = _make_worker()
-    client = InMemoryDownloadClient(worker)
+    client = AsyncioDownloadClient(worker)
     assert client.failure_summary == worker.failure_summary
 
 
 def test_backoff_seconds_remaining_delegates():
     worker = _make_worker()
-    client = InMemoryDownloadClient(worker)
+    client = AsyncioDownloadClient(worker)
     assert client.backoff_seconds_remaining is None
     worker.set_wait_timestamp()
     assert client.backoff_seconds_remaining == worker.backoff_seconds_remaining
@@ -112,7 +112,7 @@ def test_backoff_seconds_remaining_delegates():
 async def test_run_delegates():
     worker = _make_worker()
     worker.run = AsyncMock()
-    client = InMemoryDownloadClient(worker)
+    client = AsyncioDownloadClient(worker)
     shutdown_event = MagicMock()
     await client.run(shutdown_event)
     worker.run.assert_awaited_once_with(shutdown_event)

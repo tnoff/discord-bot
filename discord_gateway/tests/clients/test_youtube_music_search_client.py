@@ -1,7 +1,7 @@
 '''
 Unit tests for the in-process YouTube-Music search client + worker passthroughs.
 
-These cover the InMemoryYoutubeMusicSearchClient surface and the worker edge
+These cover the AsyncioYoutubeMusicSearchClient surface and the worker edge
 branches that the cog's search loop does not itself exercise (queue_size,
 failure_summary, set_wait_timestamp via the client, and the no-backoff read).
 '''
@@ -17,7 +17,7 @@ from discord_core.utils.failure_queue import FailureQueue
 
 from discord_core.exceptions import YoutubeMusicRetryException
 
-from tests.fakes.in_memory_youtube_music_search_client import InMemoryYoutubeMusicSearchClient
+from tests.fakes.asyncio_youtube_music_search_client import AsyncioYoutubeMusicSearchClient
 from tests.fakes.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
 
 
@@ -53,7 +53,7 @@ def _client(stub=None, wait_minimum=30, wait_variance=10):
         wait_variance,
         queue_max_size=10,
     )
-    return InMemoryYoutubeMusicSearchClient(worker)
+    return AsyncioYoutubeMusicSearchClient(worker)
 
 
 def test_local_worker_exposes_wrapped_engine():

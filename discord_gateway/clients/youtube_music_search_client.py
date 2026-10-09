@@ -7,7 +7,7 @@ over the shared HttpQueueWorkerClient base.  It is the only implementation any
 deployment builds.
 
 The single-process sibling that used to live here moved to
-tests/fakes/in_memory_youtube_music_search_client.py with the rest of the
+tests/fakes/asyncio_youtube_music_search_client.py with the rest of the
 retired in-process stack: keeping it beside the live client is what kept
 clients/in_memory_queue_worker_client.py inside every image, reachable on paper
 while every one of its importers was dead.

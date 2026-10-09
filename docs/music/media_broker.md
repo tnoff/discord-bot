@@ -6,7 +6,7 @@
 > (`cli/broker.py`), keeps its state in Redis (`RedisBroker`) and serves the bot,
 > downloader and search pods over HTTP (`servers/broker_server.py`). The music
 > cog is now a client only — `music.broker_client.url` is required config and
-> there is no in-process fallback. `AsyncioBroker` and `InMemoryBrokerClient`
+> there is no in-process fallback. `AsyncioBroker` and `AsyncioBrokerClient`
 > still exist, but only as test doubles. The lifecycle model, the zone
 > transitions and the reference-counting rules below are all still accurate; the
 > deployment shape is not.
