@@ -2,7 +2,7 @@
 HTTP broker client — the HA half of the cog-facing broker surface.
 
 Split out of clients/broker_client.py so worker pods can talk to the broker
-without importing InMemoryBrokerClient, which pulls in MediaBrokerBase and with
+without importing AsyncioBrokerClient, which pulls in MediaBrokerBase and with
 it the broker ENGINE's dependencies (sqlalchemy via VideoCacheClient, boto3 via
 integrations.s3).  The bot and downloader images carry those anyway; the search
 pod installs the slim [search] extra and does not, so for it the split is the

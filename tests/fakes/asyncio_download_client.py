@@ -1,10 +1,10 @@
 '''
-In-memory DownloadClient: a thin wrapper around a DownloadWorkerBase.
+Asyncio DownloadClient: a thin wrapper around a DownloadWorkerBase.
 
 A test double only.
 The pod-facing implementation is HttpDownloadClient
 (clients/http_download_client.py), which forwards the same surface to the
-downloader pod. The shared forwarding half lives in InMemoryQueueWorkerClient;
+downloader pod. The shared forwarding half lives in AsyncioQueueWorkerClient;
 only run() -- the download consumer loop, which has no search-side equivalent
 -- is specific to this client.
 '''
@@ -12,16 +12,16 @@ import asyncio
 
 from discord_downloader.interfaces.download_protocols import DownloadWorkerBase
 
-from tests.fakes.in_memory_queue_worker_client import InMemoryQueueWorkerClient
+from tests.fakes.asyncio_queue_worker_client import AsyncioQueueWorkerClient
 
 
-class InMemoryDownloadClient(InMemoryQueueWorkerClient):
+class AsyncioDownloadClient(AsyncioQueueWorkerClient):
     '''
-    In-memory DownloadClient: a thin wrapper around a DownloadWorkerBase.
+    Asyncio DownloadClient: a thin wrapper around a DownloadWorkerBase.
 
     The shared forwarding surface (submit / block_guild / clear_guild_queue /
     queue_size / failure_summary / backoff_seconds_remaining) comes
-    from InMemoryQueueWorkerClient; the worker owns the yt-dlp pipeline and input
+    from AsyncioQueueWorkerClient; the worker owns the yt-dlp pipeline and input
     queues.  Only run() — the download consumer loop, which has no search-side
     equivalent — is specific to this client.
     '''

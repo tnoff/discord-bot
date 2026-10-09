@@ -1,8 +1,8 @@
 '''
-Shared in-memory client for the queue workers.
+Shared asyncio client for the queue workers.
 
-The test-double counterpart to http_queue_worker_client.py: InMemoryDownloadClient
-and InMemoryYoutubeMusicSearchClient both wrap a worker engine and forward the
+The test-double counterpart to http_queue_worker_client.py: AsyncioDownloadClient
+and AsyncioYoutubeMusicSearchClient both wrap a worker engine and forward the
 same submit / block / clear / queue_size / failure_summary / backoff surface to
 it, so that forwarding lives here once and each subclass adds only the half that
 is specific to its engine (the download consumer loop; the search pop/resolve
@@ -19,7 +19,7 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.clear_guild_result import ClearGuildResult
 
 
-class InMemoryQueueWorkerClient:
+class AsyncioQueueWorkerClient:
     '''Forwards the cog-facing queue-client surface to a wrapped worker engine.'''
 
     def __init__(self, worker):

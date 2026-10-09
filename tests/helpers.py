@@ -43,9 +43,9 @@ from discord_db.clients.playlist_client import PlaylistClient
 from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_db.database import BASE
 
-from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
-from tests.fakes.in_memory_download_client import InMemoryDownloadClient
-from tests.fakes.in_memory_youtube_music_search_client import InMemoryYoutubeMusicSearchClient
+from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
+from tests.fakes.asyncio_download_client import AsyncioDownloadClient
+from tests.fakes.asyncio_youtube_music_search_client import AsyncioYoutubeMusicSearchClient
 from tests.fakes.stub_youtube_music_client import StubYoutubeMusicClient
 from tests.fakes.asyncio_broker import AsyncioBroker
 from tests.fakes.asyncio_queues import make_guild_queue_for
@@ -220,14 +220,14 @@ def attach_in_process_broker(cog: Any, video_cache: Optional[Any] = None,
 
     The cog is an HTTP client only since the broker dual path was collapsed — the
     registry, the bundle state, the video cache and the S3 checkout all live in
-    the broker pod. AsyncioBroker, VideoCacheClient and InMemoryBrokerClient
+    the broker pod. AsyncioBroker, VideoCacheClient and AsyncioBrokerClient
     survive as test doubles (projects/discord-bot-ha-only), and this wires them
     exactly as the cog used to, so tests keep driving real broker behaviour
     through `cog.broker_client` instead of standing up a broker pod behind an
     aiohttp server.
 
     The client also gets a real GuildQueueBroker over the same engine (on fakeredis), so the
-    cog's queue calls run the broker's actual queue code; see tests/fakes/in_memory_broker_client.
+    cog's queue calls run the broker's actual queue code; see tests/fakes/asyncio_broker_client.
 
     Returns the engine, which is what tests reach for when they need to assert on
     registry state directly (the cog's old `cog.media_broker`).
@@ -268,16 +268,16 @@ def attach_in_process_broker(cog: Any, video_cache: Optional[Any] = None,
     # cog.media_broker / cog.video_cache — the cog has no such attributes any
     # more, and re-adding them would let a test assert against a shape production
     # cannot have. Tests that need the engine use the returned handle.
-    cog.broker_client = InMemoryBrokerClient(broker, guild_queue=make_guild_queue_for(broker))
+    cog.broker_client = AsyncioBrokerClient(broker, guild_queue=make_guild_queue_for(broker))
     return broker
 
-def attach_in_process_download(cog: Any, worker_cls: Optional[type] = None) -> InMemoryDownloadClient:
+def attach_in_process_download(cog: Any, worker_cls: Optional[type] = None) -> AsyncioDownloadClient:
     '''
     Rebuild the in-process download stack the cog no longer builds itself.
 
     The cog is an HTTP client only since the download dual path was collapsed —
     the consumer loop runs in the downloader pod. AsyncioDownloadWorker and
-    InMemoryDownloadClient survive as test doubles (projects/discord-bot-ha-only),
+    AsyncioDownloadClient survive as test doubles (projects/discord-bot-ha-only),
     and this wires them exactly as the cog used to, so tests keep driving the real
     worker with `await cog.download_client.run(...)` instead of standing up a
     downloader pod.
@@ -306,7 +306,7 @@ def attach_in_process_download(cog: Any, worker_cls: Optional[type] = None) -> I
         max_retries=cog.config.download.max_download_retries,
         retry_backoff_seconds_minimum=cog.config.download.retry_backoff_seconds_minimum,
     )
-    cog.download_client = InMemoryDownloadClient(worker)
+    cog.download_client = AsyncioDownloadClient(worker)
     return cog.download_client
 
 def attach_in_process_search(cog: Any, client: Optional[Any] = None) -> YoutubeMusicSearchDriver:
@@ -339,7 +339,7 @@ def attach_in_process_search(cog: Any, client: Optional[Any] = None) -> YoutubeM
         cog.config.download.youtube_wait_period_max_variance,
         queue_max_size=cog.config.player.queue_max_size * 2,
     )
-    cog.youtube_music_search_client = InMemoryYoutubeMusicSearchClient(worker)
+    cog.youtube_music_search_client = AsyncioYoutubeMusicSearchClient(worker)
     return YoutubeMusicSearchDriver(
         cog.youtube_music_search_client,
         cog.broker_client,

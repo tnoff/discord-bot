@@ -1,5 +1,5 @@
 '''
-Tests for InMemoryBrokerClient and HttpBrokerClient.
+Tests for AsyncioBrokerClient and HttpBrokerClient.
 '''
 import asyncio
 from tempfile import TemporaryDirectory
@@ -31,7 +31,7 @@ from discord_broker.interfaces.broker_protocols import Zone
 from tests.fakes.asyncio_queues import make_broker_http_server
 from tests.fakes.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
-from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
+from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
 from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
 from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
 
@@ -55,15 +55,15 @@ def _make_request():
 
 
 # ---------------------------------------------------------------------------
-# InMemoryBrokerClient
+# AsyncioBrokerClient
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-class TestInMemoryBrokerClient:
+class TestAsyncioBrokerClient:
     async def test_register_request_delegates(self):
         broker = _make_broker()
         mr = _make_request()
-        client = InMemoryBrokerClient(broker, asyncio.Queue())
+        client = AsyncioBrokerClient(broker, asyncio.Queue())
         await client.register_request(mr)
         entry = await broker.get_entry(str(mr.uuid))
         assert entry is not None
@@ -72,7 +72,7 @@ class TestInMemoryBrokerClient:
         broker = _make_broker()
         mr = _make_request()
         await broker.register_request(mr)
-        client = InMemoryBrokerClient(broker, asyncio.Queue())
+        client = AsyncioBrokerClient(broker, asyncio.Queue())
         await client.update_request_status(
             str(mr.uuid), LifecycleStatusUpdate(event=LifecycleEvent.IN_PROGRESS)
         )
@@ -84,7 +84,7 @@ class TestInMemoryBrokerClient:
         mr = _make_request()
         await broker.register_request(mr)
         result_queue: asyncio.Queue = asyncio.Queue()
-        client = InMemoryBrokerClient(broker, result_queue)
+        client = AsyncioBrokerClient(broker, result_queue)
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 result = DownloadResult(
@@ -104,7 +104,7 @@ class TestInMemoryBrokerClient:
         broker = _make_broker()
         mr = _make_request()
         search_queue: asyncio.Queue = asyncio.Queue()
-        client = InMemoryBrokerClient(broker, search_result_queue=search_queue)
+        client = AsyncioBrokerClient(broker, search_result_queue=search_queue)
         await client.register_search_result(SearchResolution(media_request=mr, span_context={'t': 1}))
         assert not search_queue.empty()
         assert search_queue.get_nowait().media_request is mr
@@ -112,7 +112,7 @@ class TestInMemoryBrokerClient:
     async def test_next_search_result_round_trip(self):
         broker = _make_broker()
         mr = _make_request()
-        client = InMemoryBrokerClient(broker)  # default AsyncioSearchResultQueue
+        client = AsyncioBrokerClient(broker)  # default AsyncioSearchResultQueue
         assert await client.next_search_result() is None
         await client.register_search_result(SearchResolution(media_request=mr))
         popped = await client.next_search_result()
@@ -120,13 +120,13 @@ class TestInMemoryBrokerClient:
         assert await client.next_search_result() is None
 
     async def test_search_result_queue_property(self):
-        client = InMemoryBrokerClient(_make_broker())
+        client = AsyncioBrokerClient(_make_broker())
         assert isinstance(client.search_result_queue, SearchResultQueue)
 
     async def test_checkout_returns_s3_key(self):
         broker = _make_broker()
         mr = _make_request()
-        client = InMemoryBrokerClient(broker, asyncio.Queue())
+        client = AsyncioBrokerClient(broker, asyncio.Queue())
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await broker.register_download(md)
@@ -136,14 +136,14 @@ class TestInMemoryBrokerClient:
 
     async def test_checkout_returns_none_for_unknown(self):
         broker = _make_broker()
-        client = InMemoryBrokerClient(broker, asyncio.Queue())
+        client = AsyncioBrokerClient(broker, asyncio.Queue())
         result = await client.checkout('nonexistent', 123)
         assert result is None
 
     async def test_checkout_marks_the_entry_checked_out(self):
         broker = _make_broker()
         mr = _make_request()
-        client = InMemoryBrokerClient(broker, asyncio.Queue())
+        client = AsyncioBrokerClient(broker, asyncio.Queue())
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await broker.register_download(md)
@@ -156,7 +156,7 @@ class TestInMemoryBrokerClient:
         broker = _make_broker()
         mr = _make_request()
         await broker.register_request(mr)
-        client = InMemoryBrokerClient(broker, asyncio.Queue())
+        client = AsyncioBrokerClient(broker, asyncio.Queue())
         await client.release(str(mr.uuid))
         assert await broker.get_entry(str(mr.uuid)) is None
 
@@ -488,36 +488,36 @@ class TestHttpBrokerClientCacheAndQueue:
 
 
 # ---------------------------------------------------------------------------
-# InMemoryBrokerClient bundle delegations
+# AsyncioBrokerClient bundle delegations
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-class TestInMemoryBrokerClientBundles:
+class TestAsyncioBrokerClientBundles:
     async def test_create_bundle_delegates_to_broker(self):
-        '''InMemoryBrokerClient.create_bundle calls broker.create_bundle.'''
+        '''AsyncioBrokerClient.create_bundle calls broker.create_bundle.'''
         broker = _make_broker()
-        client = InMemoryBrokerClient(broker)
+        client = AsyncioBrokerClient(broker)
         bundle_uuid = await client.create_bundle(100, 200, input_string='x')
         assert broker.get_bundle_state(bundle_uuid) is not None
         assert broker.get_bundle_state(bundle_uuid).input_string == 'x'
 
     async def test_finalize_bundle_delegates_to_broker(self):
         broker = _make_broker()
-        client = InMemoryBrokerClient(broker)
+        client = AsyncioBrokerClient(broker)
         bundle_uuid = await client.create_bundle(100, 200)
         await client.finalize_bundle(bundle_uuid)
         assert broker.get_bundle_state(bundle_uuid).all_requests_enqueued is True
 
     async def test_delete_bundle_delegates_to_broker(self):
         broker = _make_broker()
-        client = InMemoryBrokerClient(broker)
+        client = AsyncioBrokerClient(broker)
         bundle_uuid = await client.create_bundle(100, 200)
         await client.delete_bundle(bundle_uuid)
         assert broker.get_bundle_state(bundle_uuid) is None
 
     async def test_list_bundles_for_guild_delegates_to_broker(self):
         broker = _make_broker()
-        client = InMemoryBrokerClient(broker)
+        client = AsyncioBrokerClient(broker)
         a = await client.create_bundle(100, 200)
         b = await client.create_bundle(100, 201)
         await client.create_bundle(999, 200)
@@ -525,13 +525,13 @@ class TestInMemoryBrokerClientBundles:
 
 
 @pytest.mark.asyncio
-class TestInMemoryBrokerClientFullSurface:
+class TestAsyncioBrokerClientFullSurface:
     '''Cover the InMemory delegations the HTTP round-trip tests don't reach.'''
 
     async def test_result_queue_and_local_broker_properties(self):
         broker = _make_broker()
         q = AsyncioDownloadResultQueue()
-        client = InMemoryBrokerClient(broker, q)
+        client = AsyncioBrokerClient(broker, q)
         assert client.result_queue is q
         assert client.local_broker is broker
 
@@ -539,7 +539,7 @@ class TestInMemoryBrokerClientFullSurface:
         broker = _make_broker()
         mr = _make_request()
         await broker.register_request(mr)
-        client = InMemoryBrokerClient(broker, AsyncioDownloadResultQueue())
+        client = AsyncioBrokerClient(broker, AsyncioDownloadResultQueue())
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await client.register_download_result(_dl_result(mr, md.file_path))
@@ -550,7 +550,7 @@ class TestInMemoryBrokerClientFullSurface:
     async def test_register_download_remove_discard_delegate(self):
         broker = _make_broker()
         mr = _make_request()
-        client = InMemoryBrokerClient(broker, AsyncioDownloadResultQueue())
+        client = AsyncioBrokerClient(broker, AsyncioDownloadResultQueue())
         with TemporaryDirectory() as tmp_dir:
             with fake_media_download(tmp_dir, media_request=mr) as md:
                 await client.register_download(md)
@@ -566,7 +566,7 @@ class TestInMemoryBrokerClientFullSurface:
         broker.check_cache = AsyncMock(return_value='cached')
         broker.cache_cleanup = AsyncMock(return_value=True)
         broker.get_cache_count = AsyncMock(return_value=5)
-        client = InMemoryBrokerClient(broker, AsyncioDownloadResultQueue())
+        client = AsyncioBrokerClient(broker, AsyncioDownloadResultQueue())
         assert await client.check_cache(_make_request()) == 'cached'
         assert await client.cache_cleanup() is True
         assert await client.get_cache_count() == 5
@@ -658,12 +658,12 @@ class TestHttpBrokerClientPlayerSessionsPeerSkew:
 
 
 @pytest.mark.asyncio
-class TestInMemoryBrokerClientPlayerSessions:
-    '''InMemoryBrokerClient forwards the session surface to the local broker.'''
+class TestAsyncioBrokerClientPlayerSessions:
+    '''AsyncioBrokerClient forwards the session surface to the local broker.'''
 
     async def test_save_list_delete_delegate(self):
         broker = MediaBroker()
-        client = InMemoryBrokerClient(broker)
+        client = AsyncioBrokerClient(broker)
         session = PlayerSession(guild_id=5, voice_channel_id=6, text_channel_id=7)
 
         await client.save_player_session(session)

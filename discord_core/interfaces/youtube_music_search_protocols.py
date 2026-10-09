@@ -218,7 +218,7 @@ class YoutubeMusicSearchWorkerBase(ABC):
 @runtime_checkable
 class YoutubeMusicSearchClient(Protocol):
     '''
-    Cog-facing search handle.  InMemoryYoutubeMusicSearchClient forwards this
+    Cog-facing search handle.  AsyncioYoutubeMusicSearchClient forwards this
     surface to a wrapped worker; a future HttpYoutubeMusicSearchClient will
     forward it to a search pod.
     '''

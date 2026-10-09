@@ -33,9 +33,9 @@ from discord_gateway.types.cleanup_reason import CleanupReason
 from discord_gateway.utils.bot_metrics import BotMetricNaming
 from discord_downloader.interfaces.download_protocols import ClearGuildResult
 
-from tests.fakes.in_memory_broker_client import InMemoryBrokerClient
-from tests.fakes.in_memory_download_client import InMemoryDownloadClient
-from tests.fakes.in_memory_youtube_music_search_client import InMemoryYoutubeMusicSearchClient
+from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
+from tests.fakes.asyncio_download_client import AsyncioDownloadClient
+from tests.fakes.asyncio_youtube_music_search_client import AsyncioYoutubeMusicSearchClient
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.helpers import fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context, async_mock_session, fake_stores #pylint:disable=unused-import
@@ -1897,8 +1897,8 @@ def test_cog_builds_no_in_process_search_stack(fake_context):  #pylint:disable=r
     """
     A deployment-shaped config never constructs the in-process search doubles.
 
-    This is the distinction projects/discord-bot-ha-only draws: InMemory* and
-    Asyncio* keep existing as test doubles (tests.helpers.attach_in_process_search
+    This is the distinction projects/discord-bot-ha-only draws: the Asyncio*
+    classes keep existing as test doubles (tests.helpers.attach_in_process_search
     builds exactly this stack), but nothing a pod can be configured with reaches
     them. Asserted rather than assumed, because the failure mode is silent — a
     reintroduced fallback looks like working code until a pod quietly runs the
@@ -1910,9 +1910,9 @@ def test_cog_builds_no_in_process_search_stack(fake_context):  #pylint:disable=r
     """
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     assert isinstance(cog.youtube_music_search_client, HttpYoutubeMusicSearchClient)
-    assert not isinstance(cog.youtube_music_search_client, InMemoryYoutubeMusicSearchClient)
+    assert not isinstance(cog.youtube_music_search_client, AsyncioYoutubeMusicSearchClient)
     assert not hasattr(cog, 'youtube_music_search_driver')
-    for symbol in ('InMemoryYoutubeMusicSearchClient', 'AsyncioYoutubeMusicSearchWorker',
+    for symbol in ('AsyncioYoutubeMusicSearchClient', 'AsyncioYoutubeMusicSearchWorker',
                    'RedisYoutubeMusicSearchWorker', 'YoutubeMusicSearchDriver', 'youtube_music'):
         assert not hasattr(music_module, symbol), f'{symbol} is back in the cog module'
 
@@ -1929,8 +1929,8 @@ def test_cog_builds_no_in_process_download_stack(fake_context):  #pylint:disable
     """
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     assert isinstance(cog.download_client, HttpDownloadClient)
-    assert not isinstance(cog.download_client, InMemoryDownloadClient)
-    for symbol in ('InMemoryDownloadClient', 'AsyncioDownloadWorker', 'RedisDownloadWorker',
+    assert not isinstance(cog.download_client, AsyncioDownloadClient)
+    for symbol in ('AsyncioDownloadClient', 'AsyncioDownloadWorker', 'RedisDownloadWorker',
                    'FailureQueue'):
         assert not hasattr(music_module, symbol), f'{symbol} is back in the cog module'
 
@@ -1962,10 +1962,10 @@ def test_cog_builds_no_in_process_broker_stack(fake_context, fake_stores):  #pyl
     })
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
     assert isinstance(cog.broker_client, HttpBrokerClient)
-    assert not isinstance(cog.broker_client, InMemoryBrokerClient)
+    assert not isinstance(cog.broker_client, AsyncioBrokerClient)
     assert not hasattr(cog, 'media_broker')
     assert not hasattr(cog, 'video_cache')
-    for symbol in ('InMemoryBrokerClient', 'AsyncioBroker', 'RedisBroker',
+    for symbol in ('AsyncioBrokerClient', 'AsyncioBroker', 'RedisBroker',
                    'BrokerHttpServer', 'VideoCacheClient'):
         assert not hasattr(music_module, symbol), f'{symbol} is back in the cog module'
 

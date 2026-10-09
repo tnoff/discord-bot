@@ -10,7 +10,7 @@ loop that applies it, not with the queue implementation underneath.
 
 This lives in its own module because it had two drivers, in two different
 processes: the music cog's ``search_youtube_music`` loop against an
-InMemoryYoutubeMusicSearchClient, and ``cli/search.py`` inside the standalone
+AsyncioYoutubeMusicSearchClient, and ``cli/search.py`` inside the standalone
 search pod against a RedisYoutubeMusicSearchWorker and an HttpBrokerClient.  The
 cog's half is gone (projects/discord-bot-ha-only) — the pod is the only driver
 in production now, and the in-memory collaborators survive only as test doubles
@@ -69,11 +69,11 @@ class YoutubeMusicSearchDriver:
     search_client : anything with the pop/resolve half of the search surface —
         ``backoff_wait`` / ``backoff_seconds_remaining`` / ``get_input_nowait`` /
         ``resolve`` / ``submit``.  In-process that is an
-        InMemoryYoutubeMusicSearchClient; in the pod it is the
+        AsyncioYoutubeMusicSearchClient; in the pod it is the
         RedisYoutubeMusicSearchWorker itself (HttpYoutubeMusicSearchClient
         deliberately does NOT implement this half — under HA the loop runs where
         the queue and the ytmusicapi client are).
-    broker_client : InMemoryBrokerClient or HttpBrokerClient.  Receives the
+    broker_client : AsyncioBrokerClient or HttpBrokerClient.  Receives the
         lifecycle transitions and the finished SearchResolution.
     max_retries : re-enqueue budget per request before it is failed.
     queue_priority : {guild_id: priority} used when re-enqueueing a retry, so a

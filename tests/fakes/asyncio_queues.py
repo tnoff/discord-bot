@@ -170,7 +170,7 @@ def make_guild_queue_for(broker, dispatcher=None):
 def make_guild_queue_broker(bucket_name: str = 'test-bucket', dispatcher=None):
     '''A GuildQueueBroker over a RedisBroker on fakeredis -- the real engine, no Redis server.
 
-    Unlike the AsyncioBroker double the rest of this module wraps, there is no in-memory stand-in
+    Unlike the AsyncioBroker double the rest of this module wraps, there is no asyncio stand-in
     for the guild queue: its behavior is Lua scripts, which only a Redis (or fakeredis) runs, so
     a double would test a different implementation.  Tests that need the media half of the
     broker too can reach it as `.broker`.

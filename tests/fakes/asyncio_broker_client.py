@@ -1,5 +1,5 @@
 '''
-In-memory BrokerClient: a thin wrapper around a MediaBrokerBase.
+Asyncio BrokerClient: a thin wrapper around a MediaBrokerBase.
 
 A test double only.
 The pod-facing implementation is HttpBrokerClient (clients/http_broker_client.py);
@@ -15,7 +15,7 @@ meaning out of every test built on it rather than failing them.
 The guild queue half is NOT a second implementation. It delegates to the real
 GuildQueueBroker (Lua scripts and all, on fakeredis), so a test of the gateway
 exercises the same queue the broker pod runs, and only the HTTP hop is missing.
-That hop is what tests/clients/test_in_memory_guild_queue_contract.py checks: the same
+That hop is what tests/clients/test_asyncio_guild_queue_contract.py checks: the same
 scenario through this class and through HttpBrokerClient -> BrokerHttpServer must give
 identical answers.
 '''
@@ -39,7 +39,7 @@ from tests.fakes.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearch
 logger = logging.getLogger(__name__)
 
 
-class InMemoryBrokerClient: #pylint:disable=too-many-public-methods
+class AsyncioBrokerClient: #pylint:disable=too-many-public-methods
     '''
     BrokerClient backed by a local MediaBroker instance.  Used when all
     components run in the same process.
@@ -204,7 +204,7 @@ class InMemoryBrokerClient: #pylint:disable=too-many-public-methods
 
     def _queue(self):
         if self._guild_queue is None:
-            raise RuntimeError('This InMemoryBrokerClient was built without a guild_queue; '
+            raise RuntimeError('This AsyncioBrokerClient was built without a guild_queue; '
                                'pass one (tests.helpers.attach_in_process_broker does)')
         return self._guild_queue
 
