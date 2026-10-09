@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.0] - 2026-10-09
+
+### Changed
+
+- Serve the guild-queue routes (14 under /guilds/{guild_id}): queue, claim, heartbeat, skip, finish, history, close/open and a cheap /queue/state poll, over the GuildQueueBroker added in 3.1.0 (#1048). Bump the discord-core pin to core-v3.1.0.
+
 ## [3.1.0] - 2026-10-09
 
 ### Changed
