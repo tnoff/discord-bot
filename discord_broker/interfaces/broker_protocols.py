@@ -66,6 +66,9 @@ class BundleDispatchSink(Protocol):
     def remove_mutable(self, key: str) -> Any:
         '''Delete the mutable Discord message(s) for the given key.'''
 
+    def update_mutable_channel(self, key: str, guild_id: int, new_channel_id: int) -> Any:
+        '''Move the mutable Discord message for the given key to another channel.'''
+
     def send_message(self, guild_id: int, channel_id: int, content: str,
                      delete_after: int | None = None,
                      allow_404: bool = False,
@@ -111,6 +114,7 @@ class GuildQueue:
     playing: PlayingTrack | None = None
     skip_for: str | None = None
     closed: bool = False
+    text_channel_id: int | None = None
 
 
 @dataclass

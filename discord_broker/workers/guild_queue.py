@@ -9,12 +9,14 @@ player queue can change without touching how media moves through the broker.
 '''
 import logging
 
+from discord_core.cogs.music_helpers.common import MultipleMutableType
 from discord_core.types.checkout_result import CheckoutResult
 
 from discord_broker.interfaces.broker_protocols import (
-    BrokerEntry, ClaimedTrack, GuildQueue, PlayingTrack, Zone,
+    BrokerEntry, BundleDispatchSink, ClaimedTrack, GuildQueue, PlayingTrack, Zone,
 )
-from discord_broker.workers.guild_queue_registry import GuildQueueRegistry
+from discord_broker.workers.guild_queue_registry import ENQUEUE_OK, GuildQueueRegistry
+from discord_broker.workers.play_order import play_order_messages
 # Not public API, but it is the one definition of how a download is stored, and a history item
 # has to match it so the history worker can rebuild a MediaDownload from either.
 from discord_broker.workers.redis_broker import RedisBroker, _download_to_dict
@@ -30,9 +32,36 @@ class GuildQueueBroker:
     raised: callers turn them into user-facing messages.
     '''
 
-    def __init__(self, broker: RedisBroker, queues: GuildQueueRegistry):
+    def __init__(self, broker: RedisBroker, queues: GuildQueueRegistry,
+                 dispatcher: BundleDispatchSink | None = None):
+        '''
+        dispatcher: where the play-order message is pushed.  None disables the message entirely
+        (the queue still works), the way the broker's bundle UI does without a dispatcher.
+        '''
         self._broker = broker
         self._queues = queues
+        self._dispatcher = dispatcher
+
+    @staticmethod
+    def _play_order_key(guild_id: int) -> str:
+        return f'{MultipleMutableType.PLAY_ORDER.value}-{guild_id}'
+
+    async def _render(self, guild_id: int) -> None:
+        '''
+        Push the guild's play-order message to its text channel.
+
+        Called after every change to the queue or the playing track, so the message is always the
+        broker's current view.  An empty queue with nothing playing renders as no content, which
+        the dispatcher treats as removing the message.  A guild nobody has opened has no channel,
+        so there is nowhere to send it.
+        '''
+        if self._dispatcher is None:
+            return
+        queue = await self.get_queue(guild_id)
+        if queue.text_channel_id is None:
+            return
+        self._dispatcher.update_mutable(self._play_order_key(guild_id), guild_id,
+                                        play_order_messages(queue), queue.text_channel_id)
 
     async def enqueue(self, guild_id: int, media_request_uuid: str, max_size: int = 0) -> str:
         '''
@@ -41,7 +70,10 @@ class GuildQueueBroker:
         Returns one of the registry's ENQUEUE_* results: ok, closed, full or duplicate.  The
         entry must already be registered with register_download.
         '''
-        return await self._queues.queue_enqueue(guild_id, media_request_uuid, max_size)
+        result = await self._queues.queue_enqueue(guild_id, media_request_uuid, max_size)
+        if result == ENQUEUE_OK:
+            await self._render(guild_id)
+        return result
 
     async def get_queue(self, guild_id: int) -> GuildQueue:
         '''The guild's queue, now-playing track and pending skip, with entries loaded.'''
@@ -68,7 +100,8 @@ class GuildQueueBroker:
                 entry=by_uuid[playing_uuid],
             )
         return GuildQueue(version=state.version, items=items, playing=playing,
-                          skip_for=state.skip_for, closed=state.closed)
+                          skip_for=state.skip_for, closed=state.closed,
+                          text_channel_id=state.text_channel_id)
 
     async def poll(self, guild_id: int) -> tuple[int, str | None]:
         '''Cheap change check for the gateway: (queue version, uuid a skip is pending for).'''
@@ -85,6 +118,7 @@ class GuildQueueBroker:
         if not await self._queues.queue_remove(guild_id, media_request_uuid):
             return None
         await self._broker.remove(media_request_uuid)
+        await self._render(guild_id)
         return entry
 
     async def bump(self, guild_id: int, media_request_uuid: str) -> BrokerEntry | None:
@@ -92,17 +126,23 @@ class GuildQueueBroker:
         entry = await self._broker.get_entry(media_request_uuid)
         if not await self._queues.queue_bump(guild_id, media_request_uuid):
             return None
+        await self._render(guild_id)
         return entry
 
     async def shuffle(self, guild_id: int) -> bool:
         '''Shuffle the guild's queue.'''
-        return await self._queues.queue_shuffle(guild_id)
+        shuffled = await self._queues.queue_shuffle(guild_id)
+        if shuffled:
+            await self._render(guild_id)
+        return shuffled
 
     async def clear(self, guild_id: int) -> int:
         '''Empty the guild's queue, dropping every entry that was in it. Returns how many.'''
         uuids = await self._queues.queue_clear(guild_id)
         for uuid in uuids:
             await self._broker.remove(uuid)
+        if uuids:
+            await self._render(guild_id)
         return len(uuids)
 
     async def claim_next(self, guild_id: int, gateway_id: str) -> ClaimedTrack | None:
@@ -135,7 +175,9 @@ class GuildQueueBroker:
                 # The guild was closed (or the claim dropped) while we were checking out.
                 await self._broker.release(uuid)
                 return None
-            return ClaimedTrack(entry=await self._broker.get_entry(uuid), checkout=checkout)
+            claimed = ClaimedTrack(entry=await self._broker.get_entry(uuid), checkout=checkout)
+            await self._render(guild_id)
+            return claimed
 
     def _checkout_result(self, entry: BrokerEntry) -> CheckoutResult | None:
         '''CheckoutResult for an entry already checked out, None when it has no file to hand over.'''
@@ -179,6 +221,7 @@ class GuildQueueBroker:
                 }
         await self._queues.finish_track(guild_id, media_request_uuid, skipped, history_item, history_cap)
         await self._broker.release(media_request_uuid)
+        await self._render(guild_id)
 
     async def get_history(self, guild_id: int) -> list[dict]:
         '''Tracks that played to the end in this guild, oldest first.'''
@@ -194,8 +237,22 @@ class GuildQueueBroker:
         uuids = [uuid for uuid in (playing, claimed, *queued) if uuid]
         for uuid in uuids:
             await self._broker.release(uuid)
+        await self._render(guild_id)
         return len(uuids)
 
-    async def open(self, guild_id: int) -> None:
-        '''Reopen a closed guild so a new player can enqueue.'''
-        await self._queues.queue_open(guild_id)
+    async def open(self, guild_id: int, text_channel_id: int) -> str | None:
+        '''
+        A gateway takes ownership of the guild's player.
+
+        Reopens a closed guild, points the play-order message at text_channel_id (moving the
+        existing message if the channel changed), and puts a track the previous owner never
+        finished back at the head of the queue.  Returns that track's uuid, or None.
+        '''
+        previous, recovered = await self._queues.queue_open(guild_id, text_channel_id)
+        if previous is not None and previous != text_channel_id and self._dispatcher is not None:
+            self._dispatcher.update_mutable_channel(self._play_order_key(guild_id), guild_id,
+                                                    text_channel_id)
+        if recovered is not None:
+            # The recovered track is back at the head of the queue, which the message should show.
+            await self._render(guild_id)
+        return recovered

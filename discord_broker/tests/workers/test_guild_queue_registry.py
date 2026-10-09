@@ -15,7 +15,9 @@ from discord_broker.workers.guild_queue_registry import (
     ENQUEUE_FULL,
     ENQUEUE_OK,
     GCLAIM_KEY_PREFIX,
+    GCHANNEL_KEY_PREFIX,
     GCLOSED_KEY_PREFIX,
+    GCURRENT_KEY_PREFIX,
     GPLAYING_KEY_PREFIX,
     GQUEUE_KEY_PREFIX,
     GSKIP_KEY_PREFIX,
@@ -558,7 +560,7 @@ async def test_open_lets_a_closed_guild_enqueue_again():
     '''A new player reopens the guild its predecessor closed.'''
     reg, _ = _make()
     await reg.queue_close(GUILD)
-    await reg.queue_open(GUILD)
+    await reg.queue_open(GUILD, 555)
     assert await reg.queue_enqueue(GUILD, 'a') == ENQUEUE_OK
 
 
@@ -568,3 +570,117 @@ async def test_closed_flag_expires():
     reg, client = _make()
     await reg.queue_close(GUILD)
     assert 0 < await client.ttl(f'{GCLOSED_KEY_PREFIX}{GUILD}') <= guild_queue_registry.GUILD_QUEUE_TTL_SECONDS
+
+
+# ---------------------------------------------------------------------------
+# text channel, durable current track, recovery on open
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_open_records_the_text_channel_and_reports_the_one_it_replaced():
+    '''The first open has nothing to replace; a later one reports where the message was.'''
+    reg, client = _make()
+    assert await reg.queue_open(GUILD, 555) == (None, None)
+    assert await client.get(f'{GCHANNEL_KEY_PREFIX}{GUILD}') == '555'
+    assert 0 < await client.ttl(f'{GCHANNEL_KEY_PREFIX}{GUILD}') <= broker_registry_ttl()
+    assert await reg.queue_open(GUILD, 777) == (555, None)
+    assert (await reg.queue_state(GUILD)).text_channel_id == 777
+
+
+def broker_registry_ttl() -> int:
+    return guild_queue_registry.GUILD_QUEUE_TTL_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_an_unopened_guild_has_no_text_channel():
+    '''Nobody has said where its messages go.'''
+    reg, _ = _make()
+    assert (await reg.queue_state(GUILD)).text_channel_id is None
+
+
+@pytest.mark.asyncio
+async def test_confirming_a_claim_records_the_durable_current_track():
+    '''gcurrent is not on the heartbeat TTL; it outlives a gateway that stops refreshing.'''
+    reg, client = _make()
+    await _play(reg, 'a')
+    assert await client.get(f'{GCURRENT_KEY_PREFIX}{GUILD}') == 'a'
+    assert await client.ttl(f'{GCURRENT_KEY_PREFIX}{GUILD}') > guild_queue_registry.PLAYING_TTL_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_finishing_clears_the_current_track_only_for_that_track():
+    '''A late finish for an earlier track must not erase the current one.'''
+    reg, client = _make()
+    await _play(reg, 'b')
+    await reg.finish_track(GUILD, 'a', skipped=True, history_item=None, history_cap=5)
+    assert await client.get(f'{GCURRENT_KEY_PREFIX}{GUILD}') == 'b'
+    await reg.finish_track(GUILD, 'b', skipped=True, history_item=None, history_cap=5)
+    assert await client.exists(f'{GCURRENT_KEY_PREFIX}{GUILD}') == 0
+
+
+@pytest.mark.asyncio
+async def test_open_recovers_a_track_nobody_is_heartbeating():
+    '''The gateway died mid-track: its heartbeat lapsed, so the next owner gets the track back first.'''
+    reg, client = _make()
+    await _fill(reg, 'playing', 'next')
+    assert await reg.queue_claim_next(GUILD) == 'playing'
+    await reg.confirm_claim(GUILD, 'playing', 'gw-old')
+    await client.delete(f'{GPLAYING_KEY_PREFIX}{GUILD}')  # the heartbeat TTL ran out
+    before = await _version(client)
+
+    assert await reg.queue_open(GUILD, 555) == (None, 'playing')
+
+    assert (await reg.queue_state(GUILD)).queue == ['playing', 'next']
+    assert await client.exists(f'{GCURRENT_KEY_PREFIX}{GUILD}') == 0
+    assert await _version(client) == before + 1
+
+
+@pytest.mark.asyncio
+async def test_open_does_not_recover_while_the_old_gateway_is_still_heartbeating():
+    '''A live playing record means this is the owner re-pointing the channel, or a restart that
+    beat the heartbeat TTL; either way the track is not up for grabs.'''
+    reg, _ = _make()
+    await _fill(reg, 'playing', 'next')
+    await reg.queue_claim_next(GUILD)
+    await reg.confirm_claim(GUILD, 'playing', 'gw-old')
+    assert await reg.queue_open(GUILD, 555) == (None, None)
+    assert (await reg.queue_state(GUILD)).queue == ['next']
+
+
+@pytest.mark.asyncio
+async def test_open_with_no_current_track_recovers_nothing():
+    '''Nothing was playing, so there is nothing to put back.'''
+    reg, _ = _make()
+    await _fill(reg, 'a')
+    assert await reg.queue_open(GUILD, 555) == (None, None)
+    assert (await reg.queue_state(GUILD)).queue == ['a']
+
+
+@pytest.mark.asyncio
+async def test_open_does_not_queue_a_recovered_track_twice():
+    '''If the track is somehow already queued, recovery clears the marker without duplicating it.'''
+    reg, client = _make()
+    await _fill(reg, 'a')
+    await client.set(f'{GCURRENT_KEY_PREFIX}{GUILD}', 'a')
+    assert await reg.queue_open(GUILD, 555) == (None, 'a')
+    assert (await reg.queue_state(GUILD)).queue == ['a']
+
+
+@pytest.mark.asyncio
+async def test_close_releases_a_track_whose_heartbeat_lapsed():
+    '''The playing uuid falls back to the durable current track, so it is not left checked out.'''
+    reg, client = _make()
+    await _play(reg, 'dead')
+    await client.delete(f'{GPLAYING_KEY_PREFIX}{GUILD}')
+    queued, claimed, playing = await reg.queue_close(GUILD)
+    assert (queued, claimed, playing) == ([], None, 'dead')
+    assert await client.exists(f'{GCURRENT_KEY_PREFIX}{GUILD}') == 0
+
+
+@pytest.mark.asyncio
+async def test_close_keeps_the_text_channel():
+    '''The message needs to be taken down in the same channel it was put up in.'''
+    reg, _ = _make()
+    await reg.queue_open(GUILD, 555)
+    await reg.queue_close(GUILD)
+    assert (await reg.queue_state(GUILD)).text_channel_id == 555

@@ -71,7 +71,7 @@ def test_run_constructs_broker_with_dispatcher_and_health(mocker):
     # The guild queue is built over the same broker and Redis manager, and handed to the server.
     m['guild_queue_registry'].assert_called_once_with(m['redis_manager'].from_general_config.return_value)
     m['guild_queue'].assert_called_once_with(
-        m['broker'].return_value, m['guild_queue_registry'].return_value)
+        m['broker'].return_value, m['guild_queue_registry'].return_value, m['dispatch'].return_value)
     assert m['server'].call_args.kwargs['guild_queue'] is m['guild_queue'].return_value
     # Metrics poller built from the result queue + registry + search queue, handed to run_broker.
     m['metrics'].assert_called_once_with(
@@ -86,6 +86,8 @@ def test_run_without_dispatcher_or_health(mocker):
     m['dispatch'].assert_not_called()
     m['health'].assert_not_called()
     assert m['broker'].call_args.kwargs['dispatcher'] is None
+    # No dispatcher means no play-order message; the queue itself is still built.
+    assert m['guild_queue'].call_args.args[2] is None
     m['run_broker'].assert_called_once()
 
 

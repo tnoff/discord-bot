@@ -124,6 +124,8 @@ async def test_a_non_numeric_guild_is_unprocessable(env, route):
     (guild_queue_routes.CLAIM_TRACK, {}),
     (guild_queue_routes.PLAYING_HEARTBEAT, {}),
     (guild_queue_routes.SKIP_TRACK, {}),
+    (guild_queue_routes.OPEN_GUILD, {}),
+    (guild_queue_routes.OPEN_GUILD, {'text_channel_id': 'general'}),
     (guild_queue_routes.FINISH_TRACK, {'uuid': 'u'}),
     (guild_queue_routes.FINISH_TRACK, {'uuid': 'u', 'skipped': True}),
     (guild_queue_routes.FINISH_TRACK, {'uuid': 'u', 'skipped': True, 'history_cap': 'lots'}),
@@ -263,5 +265,44 @@ async def test_remove_and_bump_of_a_queued_entry_without_a_download_report_a_mis
     try:
         resp = await client.post(_path(route), json={'uuid': bare})
         assert (resp.status, await resp.json()) == (200, {flag: False, 'download': None})
+    finally:
+        await client.close()
+
+
+# ---------------------------------------------------------------------------
+# text channel and recovery
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_open_records_the_channel_and_the_queue_read_reports_it(env):
+    '''open takes the text channel; the read returns it (null for a guild nobody opened).'''
+    client = await _client(env.server)
+    try:
+        before = await (await client.get(_path(guild_queue_routes.GET_GUILD_QUEUE))).json()
+        assert before['text_channel_id'] is None
+
+        resp = await client.post(_path(guild_queue_routes.OPEN_GUILD), json={'text_channel_id': 4242})
+        assert (resp.status, await resp.json()) == (200, {'status': 'ok', 'recovered': None})
+
+        after = await (await client.get(_path(guild_queue_routes.GET_GUILD_QUEUE))).json()
+        assert after['text_channel_id'] == 4242
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_open_reports_the_track_it_recovered(env):
+    '''A gateway that died mid-track: the next open puts the track back and says which.'''
+    uuid = await _with_download(env.broker, 'interrupted')
+    await env.queue.enqueue(GUILD, uuid)
+    await env.queue.claim_next(GUILD, 'gw-old')
+    await env.queue._queues._client.delete(  # pylint: disable=protected-access
+        f'discord_bot:broker:gplaying:{GUILD}')
+    client = await _client(env.server)
+    try:
+        resp = await client.post(_path(guild_queue_routes.OPEN_GUILD), json={'text_channel_id': 1})
+        assert (await resp.json())['recovered'] == uuid
+        body = await (await client.get(_path(guild_queue_routes.GET_GUILD_QUEUE))).json()
+        assert [item['request']['uuid'] for item in body['items']] == [uuid]
     finally:
         await client.close()

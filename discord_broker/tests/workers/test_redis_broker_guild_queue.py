@@ -521,5 +521,5 @@ async def test_open_lets_the_next_player_enqueue():
     await queues.close(GUILD)
     uuid = await _available(broker, 'one')
     assert await queues.enqueue(GUILD, uuid) == ENQUEUE_CLOSED
-    await queues.open(GUILD)
+    await queues.open(GUILD, 555)
     assert await queues.enqueue(GUILD, uuid) == ENQUEUE_OK

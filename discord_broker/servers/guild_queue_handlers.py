@@ -99,6 +99,7 @@ class GuildQueueHandlersMixin:
             playing=playing,
             skip_for=queue.skip_for,
             closed=queue.closed,
+            text_channel_id=queue.text_channel_id,
         ).model_dump())
 
     async def _handle_remove_queued_track(self, request: web.Request) -> web.Response:
@@ -218,8 +219,12 @@ class GuildQueueHandlersMixin:
         return web.json_response(broker_responses.CloseGuildResponse(released=released).model_dump())
 
     async def _handle_open_guild(self, request: web.Request) -> web.Response:
-        ctx = extract(request.headers)
+        ctx, body = await self._read_body(request)
         guild_id = _guild_id(request)
+        try:
+            text_channel_id = int(body['text_channel_id'])
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper('broker.open_guild', context=ctx, kind=SpanKind.SERVER):
-            await self._guild_queue.open(guild_id)
-        return web.json_response(broker_responses.OpenGuildResponse().model_dump())
+            recovered = await self._guild_queue.open(guild_id, text_channel_id)
+        return web.json_response(broker_responses.OpenGuildResponse(recovered=recovered).model_dump())
