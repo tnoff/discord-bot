@@ -168,6 +168,13 @@ EXPECTED_WIRE_PATHS = {
         'GET /bundles', 'POST /bundles', 'POST /bundles/{uuid}/finalize',
         'DELETE /bundles/{uuid}', 'GET /sessions', 'PUT /sessions/{guild_id}',
         'DELETE /sessions/{guild_id}',
+        'POST /guilds/{guild_id}/queue', 'GET /guilds/{guild_id}/queue',
+        'POST /guilds/{guild_id}/queue/remove', 'POST /guilds/{guild_id}/queue/bump',
+        'POST /guilds/{guild_id}/queue/shuffle', 'POST /guilds/{guild_id}/queue/clear',
+        'GET /guilds/{guild_id}/queue/state', 'POST /guilds/{guild_id}/claim',
+        'POST /guilds/{guild_id}/playing/heartbeat', 'POST /guilds/{guild_id}/skip',
+        'POST /guilds/{guild_id}/finish', 'GET /guilds/{guild_id}/history',
+        'POST /guilds/{guild_id}/close', 'POST /guilds/{guild_id}/open',
     },
     'dispatch': {
         'POST /dispatch/send', 'POST /dispatch/delete',

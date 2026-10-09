@@ -6,8 +6,8 @@ it gets its own mixin rather than widening HttpBrokerClient further.  Mixed into
 HttpBrokerClient, which supplies _base_url, _bucket_name, _call_route, _route_url, _validate
 and _get_session.
 
-Its routes are declared in routes/guild_queue.py and are not in HttpBrokerClient.ROUTES_CALLED
-yet; see that module for why.
+Its routes are declared in routes/guild_queue.py and are part of the broker seam: they are in
+routes/broker.py's ALL, so in HttpBrokerClient.ROUTES_CALLED, and the peer route check covers them.
 
 Unlike the session mixin, a 404 is NOT swallowed.  A session that cannot be saved costs the
 next startup nothing it could not do without; a queue that cannot be reached means no track
@@ -74,6 +74,7 @@ class HttpGuildQueueMixin:
             playing=playing,
             skip_for=body.skip_for,
             closed=body.closed,
+            text_channel_id=body.text_channel_id,
         )
 
     async def remove_queued_track(self, guild_id: int, uuid: str) -> MediaDownload | None:
@@ -200,9 +201,16 @@ class HttpGuildQueueMixin:
             payload = await self._call_route(guild_queue_routes.CLOSE_GUILD, guild_id=guild_id)
         return self._validate(CloseGuildResponse, payload).released
 
-    async def open_guild(self, guild_id: int) -> None:
-        '''POST /guilds/{guild_id}/open.'''
+    async def open_guild(self, guild_id: int, text_channel_id: int) -> str | None:
+        '''
+        POST /guilds/{guild_id}/open — take ownership of the guild's player.
+
+        Reopens a closed guild, points its play-order message at text_channel_id (a second call
+        with another channel moves it), and requeues a track the previous owner started and never
+        finished.  Returns that track's uuid, or None.
+        '''
         async with async_otel_span_wrapper('broker.open_guild', kind=SpanKind.CLIENT,
-                                           attributes=_guild(guild_id)):
-            payload = await self._call_route(guild_queue_routes.OPEN_GUILD, guild_id=guild_id)
-        self._validate(OpenGuildResponse, payload)
+                                           attributes={**_guild(guild_id), 'music.text_channel_id': text_channel_id}):
+            payload = await self._call_route(guild_queue_routes.OPEN_GUILD,
+                                             {'text_channel_id': text_channel_id}, guild_id=guild_id)
+        return self._validate(OpenGuildResponse, payload).recovered

@@ -222,6 +222,9 @@ class GuildQueueResponse(BaseModel):
     playing: PlayingTrackBody | None = None
     skip_for: str | None = None
     closed: bool
+    # The channel the guild's play-order message is kept in. Optional so a broker that predates
+    # it, or a guild nobody has opened, still parses.
+    text_channel_id: int | None = None
 
 
 class RemoveQueuedTrackResponse(BaseModel):
@@ -302,4 +305,11 @@ class CloseGuildResponse(BaseModel):
 
 
 class OpenGuildResponse(_Ok):
-    '''200 from the open-guild route.'''
+    '''
+    200 from the open-guild route.
+
+    `recovered` is the uuid of a track the previous owner of this guild's player had started and
+    never finished, put back at the head of the queue; None if there was nothing to recover (and
+    always None from a broker that predates recovery).
+    '''
+    recovered: str | None = None

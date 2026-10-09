@@ -123,24 +123,21 @@ def test_the_mixin_calls_every_route_in_the_registry():
 
 
 def test_the_registry_is_well_formed():
-    '''Fourteen distinct routes, all under one guild, none shared with the broker seam yet.
-
-    Disjoint from routes/broker.py on purpose: the day this registry is folded in, this test
-    is the one that should be deleted deliberately rather than start failing by accident.
-    '''
+    '''Fourteen distinct routes, all under one guild.'''
     assert len(GUILD_ROUTES) == 14
     assert len(set(GUILD_ROUTES)) == 14
     assert all(route.template.startswith('/guilds/{guild_id}/') for route in GUILD_ROUTES)
-    assert not set(GUILD_ROUTES) & set(broker_routes.ALL)
 
 
-def test_the_peer_route_check_does_not_cover_these_routes_yet():
-    '''ROUTES_CALLED stays the broker seam until the broker serves these.
+def test_the_guild_routes_are_part_of_the_broker_seam():
+    '''They are served by the broker pod, so the seam registry and the peer route check cover them.
 
-    If it included them now, every client would report its broker as missing routes that no
-    broker can serve yet.
+    ROUTES_CALLED is what a client compares against the routes its broker advertises; leaving
+    these out would make the check blind to the whole queue.
     '''
-    assert not set(GUILD_ROUTES) & set(HttpBrokerClient.ROUTES_CALLED)
+    assert set(GUILD_ROUTES) <= set(broker_routes.ALL)
+    assert set(GUILD_ROUTES) <= set(HttpBrokerClient.ROUTES_CALLED)
+    assert len(broker_routes.ALL) == len(set(broker_routes.ALL))
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +223,7 @@ async def test_get_guild_queue_carries_playing_skip_and_closed():
         'version': 3, 'items': [],
         'playing': {'uuid': str(playing_request.uuid), 'started_at': 1000.5, 'gateway_id': 'gw-1',
                     'download': _track(playing_request, 'now')},
-        'skip_for': str(playing_request.uuid), 'closed': True})
+        'skip_for': str(playing_request.uuid), 'closed': True, 'text_channel_id': 777})
     async with _connected(stub) as client:
         queue = await client.get_guild_queue(GUILD)
 
@@ -236,6 +233,16 @@ async def test_get_guild_queue_carries_playing_skip_and_closed():
     assert queue.playing.download.title == 'now'
     assert queue.skip_for == str(playing_request.uuid)
     assert queue.closed is True
+    assert queue.text_channel_id == 777
+
+
+@pytest.mark.asyncio
+async def test_get_guild_queue_without_a_text_channel_reads_as_none():
+    '''A broker that predates the field, or a guild nobody opened, omits it.'''
+    stub = StubBroker()
+    stub.answer(guild_queue_routes.GET_GUILD_QUEUE, {'version': 0, 'items': [], 'closed': False})
+    async with _connected(stub) as client:
+        assert (await client.get_guild_queue(GUILD)).text_channel_id is None
 
 
 @pytest.mark.asyncio
@@ -468,13 +475,31 @@ async def test_history_returns_the_stored_records():
 
 
 @pytest.mark.asyncio
-async def test_close_and_open():
-    '''Close reports how many entries it released; open just succeeds.'''
+async def test_close_releases_and_reports_how_many():
+    '''Close reports how many entries it released.'''
     stub = StubBroker()
     stub.answer(guild_queue_routes.CLOSE_GUILD, {'released': 3})
-    stub.answer(guild_queue_routes.OPEN_GUILD, {'status': 'ok'})
     async with _connected(stub) as client:
         assert await client.close_guild(GUILD) == 3
-        assert await client.open_guild(GUILD) is None
     assert stub.last(guild_queue_routes.CLOSE_GUILD)['guild_id'] == str(GUILD)
-    assert stub.last(guild_queue_routes.OPEN_GUILD)['guild_id'] == str(GUILD)
+
+
+@pytest.mark.asyncio
+async def test_open_sends_the_text_channel_and_returns_what_was_recovered():
+    '''Opening names the channel for the play-order message and reports a requeued track.'''
+    stub = StubBroker()
+    stub.answer(guild_queue_routes.OPEN_GUILD, {'status': 'ok', 'recovered': 'abc'})
+    async with _connected(stub) as client:
+        assert await client.open_guild(GUILD, 555) == 'abc'
+    call = stub.last(guild_queue_routes.OPEN_GUILD)
+    assert call['guild_id'] == str(GUILD)
+    assert call['body'] == {'text_channel_id': 555}
+
+
+@pytest.mark.asyncio
+async def test_open_with_nothing_to_recover_returns_none():
+    '''The common case, and what a broker that predates recovery answers.'''
+    stub = StubBroker()
+    stub.answer(guild_queue_routes.OPEN_GUILD, {'status': 'ok'})
+    async with _connected(stub) as client:
+        assert await client.open_guild(GUILD, 555) is None

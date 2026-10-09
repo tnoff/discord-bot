@@ -51,5 +51,8 @@ class GuildQueueClient(Protocol):
     async def close_guild(self, guild_id: int) -> int:
         '''Shut the guild's player state down, refusing enqueues, and release everything it held.
         Returns how many entries were released.'''
-    async def open_guild(self, guild_id: int) -> None:
-        '''Reopen a closed guild so a new player can enqueue.'''
+    async def open_guild(self, guild_id: int, text_channel_id: int) -> str | None:
+        '''A gateway takes ownership of the guild's player: reopen it if closed, point its
+        play-order message at text_channel_id (calling again with another channel moves it), and
+        put a track the previous owner started and never finished back at the head of the queue.
+        Returns that track's uuid, or None if there was nothing to recover.'''

@@ -57,13 +57,7 @@ def _served(app: web.Application) -> set[tuple[str, str]]:
 
 
 def _declared() -> set[tuple[str, str]]:
-    '''The broker seam: its own registry plus the guild-queue registry its pod also serves.
-
-    The guild-queue routes are declared in their own module (see routes/guild_queue.py for why)
-    and join routes/broker.py at the next discord_core release, which also adds them to the
-    client's ROUTES_CALLED.  Until then the seam is the union.
-    '''
-    return {(route.method, route.template) for route in broker_routes.ALL + guild_queue_routes.ALL}
+    return {(route.method, route.template) for route in broker_routes.ALL}
 
 
 def test_router_and_registry_agree_exactly():
@@ -86,7 +80,7 @@ def test_every_registry_route_has_a_handler():
     is silently never registered — the failure this catches would otherwise
     only appear as a 404 at runtime.
     '''
-    assert set(_server().route_handlers()) == set(broker_routes.ALL) | set(guild_queue_routes.ALL)
+    assert set(_server().route_handlers()) == set(broker_routes.ALL)
 
 
 def test_a_route_dropped_server_side_is_caught():
@@ -162,7 +156,7 @@ def test_collect_finds_only_route_instances():
     '''ALL is derived, so a route that exists is a route these tests see.'''
     namespace = {'A': Route('GET', '/a'), 'NOT_A_ROUTE': 'GET /b', 'Route': Route}
     assert collect(namespace) == (namespace['A'],)
-    assert len(broker_routes.ALL) == 21
+    assert len(broker_routes.ALL) == 35
 
 
 def test_routes_called_matches_what_the_source_calls():
@@ -177,15 +171,21 @@ def test_routes_called_matches_what_the_source_calls():
     but does not declare is one the check will never notice is missing, which is
     silently the pre-project behaviour for that route.
     """
+    declared = set()
     referenced = set()
-    for module in (http_broker_client, http_player_session):
+    # Each client module names the registry it calls through under its own alias; the guild-queue
+    # routes are defined in their own registry module and included in the seam's ALL.
+    for module, alias, registry in ((http_broker_client, 'broker_routes', broker_routes),
+                                    (http_player_session, 'broker_routes', broker_routes),
+                                    (http_guild_queue, 'guild_queue_routes', guild_queue_routes)):
         tree = ast.parse(Path(inspect.getfile(module)).read_text(encoding='utf-8'))
         referenced |= {
-            node.attr for node in ast.walk(tree)
+            (alias, node.attr) for node in ast.walk(tree)
             if isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name) and node.value.id == 'broker_routes'
+            and isinstance(node.value, ast.Name) and node.value.id == alias
             and node.attr.isupper() and node.attr != 'ALL'
         }
-    declared = {name for name, value in vars(broker_routes).items()
-                if isinstance(value, Route) and value in HttpBrokerClient.ROUTES_CALLED}
+        declared |= {(alias, name) for name, value in vars(registry).items()
+                     if isinstance(value, Route) and value in HttpBrokerClient.ROUTES_CALLED}
     assert referenced == declared
+    assert set(HttpBrokerClient.ROUTES_CALLED) == set(broker_routes.ALL)
