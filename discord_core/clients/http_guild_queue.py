@@ -13,7 +13,6 @@ Unlike the session mixin, a 404 is NOT swallowed.  A session that cannot be save
 next startup nothing it could not do without; a queue that cannot be reached means no track
 plays.  A broker that predates these routes should fail loudly, not look like an empty queue.
 '''
-import aiohttp
 from opentelemetry.trace import SpanKind
 
 from discord_core.routes import guild_queue as guild_queue_routes
