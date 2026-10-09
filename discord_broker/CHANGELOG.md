@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.1.0] - 2026-10-09
+
+### Changed
+
+- Add the per-guild player queue to the broker (GuildQueueRegistry and GuildQueueBroker): ordered queue, claim/confirm, now-playing record, skip marker, history and a change version, as Redis Lua operations. No routes yet; nothing calls it until the gateway cutover (#1048). Entries now store cache_hit.
+
 ## [3.0.7] - 2026-10-08
 
 ### Changed
