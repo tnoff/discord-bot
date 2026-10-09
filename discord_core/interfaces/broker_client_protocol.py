@@ -18,13 +18,14 @@ from discord_core.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_core.types.media_download import MediaDownload
 from discord_core.types.search_resolution import SearchResolution
 
+from discord_core.interfaces.guild_queue_client import GuildQueueClient
 from discord_core.interfaces.player_session_store import PlayerSessionClient
 from discord_core.types.checkout_result import CheckoutResult
 
 __all__ = ['BrokerClient']
 
 
-class BrokerClient(PlayerSessionClient, Protocol):
+class BrokerClient(PlayerSessionClient, GuildQueueClient, Protocol):
     '''
     Cog-facing handle for the MediaBroker.  HttpBrokerClient
     (clients/http_broker_client.py) forwards calls to the broker pod's
