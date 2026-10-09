@@ -25,6 +25,7 @@ from discord_core.types.media_download import (MediaDownload, media_download_fro
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search_resolution import SearchResolution
 from discord_core.utils.otel import async_otel_span_wrapper
+from discord_core.clients.http_guild_queue import HttpGuildQueueMixin
 from discord_core.clients.http_player_session import HttpPlayerSessionMixin
 
 from discord_core.routes import broker as broker_routes
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 _PEER_ROUTE_MISSING_STATUS = 404
 
 
-class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
+class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin, HttpGuildQueueMixin):
     '''
     BrokerClient that forwards calls to a remote BrokerHttpServer over HTTP.
     Used when the broker runs in a separate process.
@@ -55,7 +56,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin):
     '''
     #: The seam this client speaks, for HttpClientMixin.start_seam_check.
     SEAM = 'broker'
-    #: Every route this client (with its player-session mixin) calls on the
+    #: Every route this client (with its player-session and guild-queue mixins) calls on the
     #: broker. It is the whole seam registry because this class calls all of it;
     #: tests/routes/test_broker_seam_contract.py asserts that against the symbols
     #: actually referenced in the source, so the declaration cannot quietly

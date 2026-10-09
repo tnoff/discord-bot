@@ -170,3 +170,136 @@ class ListPlayerSessionsResponse(BaseModel):
 class ListBundlesForGuildResponse(BaseModel):
     '''The bundle uuids a guild currently has.'''
     uuids: list[str]
+
+
+# ---------------------------------------------------------------------------
+# Guild queue
+# ---------------------------------------------------------------------------
+
+class QueuedDownload(BaseModel):
+    '''
+    A track in a guild's queue, in the shape `media_download_to_dict` writes.
+
+    Same fields as `CachedDownload`, deliberately a separate type: the cache seam and the queue
+    seam version independently. `request` stays a `dict` for the same reason it does there
+    (the server builds it with `model_dump(mode='json')`; re-parsing it to dump it again is
+    where the dispatch seam's datetime bug came from).
+    '''
+    request: dict
+    file_path: str | None = None
+    file_size_bytes: Any = None
+    cache_hit: Any = None
+    ytdl_data: CachedYtdlData
+
+
+class PlayingTrackBody(BaseModel):
+    '''
+    What the broker knows about a guild's playing track.
+
+    `download` is None when the entry has expired out from under the now-playing record, which
+    is rare and means the track keeps playing but its details are gone.
+    '''
+    uuid: str
+    started_at: float
+    gateway_id: str
+    download: QueuedDownload | None = None
+
+
+class EnqueueTrackResponse(BaseModel):
+    '''
+    Outcome of queueing a track: ok, or why not.
+
+    closed: the guild's player is shut down. full: the queue is at its cap. duplicate: the track
+    is already queued. Rejections are results, not errors; see the module comment on the routes.
+    '''
+    result: Literal['ok', 'closed', 'full', 'duplicate']
+
+
+class GuildQueueResponse(BaseModel):
+    '''A guild's queue in play order, its playing track, and the markers a poller watches.'''
+    version: int
+    items: list[QueuedDownload]
+    playing: PlayingTrackBody | None = None
+    skip_for: str | None = None
+    closed: bool
+
+
+class RemoveQueuedTrackResponse(BaseModel):
+    '''`removed` is False when the track was not queued; `download` is what was removed.'''
+    removed: bool
+    download: QueuedDownload | None = None
+
+
+class BumpQueuedTrackResponse(BaseModel):
+    '''`bumped` is False when the track was not queued; `download` is the track moved.'''
+    bumped: bool
+    download: QueuedDownload | None = None
+
+
+class ShuffleQueueResponse(BaseModel):
+    '''False only if the queue kept changing under every attempt to shuffle it.'''
+    shuffled: bool
+
+
+class ClearQueueResponse(BaseModel):
+    '''How many queued tracks were dropped.'''
+    cleared: int
+
+
+class PollGuildQueueResponse(BaseModel):
+    '''
+    The cheap change check: the queue version and the track a skip is pending for.
+
+    Answered 204 with no body when `?since=` equals the current version and no skip is pending,
+    so an idle poll is an empty response.
+    '''
+    version: int
+    skip_for: str | None = None
+
+
+class ClaimTrackMissResponse(BaseModel):
+    '''Nothing to claim. `claimed` is the discriminator the client branches on.'''
+    claimed: Literal[False] = False
+
+
+class ClaimTrackHitResponse(BaseModel):
+    '''
+    A track claimed and marked as playing.
+
+    `bucket_name` is absent for the same reason it is from `CheckoutS3Response`: the client
+    already knows which bucket it is configured against.
+    '''
+    claimed: Literal[True] = True
+    download: QueuedDownload
+    s3_key: str
+
+
+class PlayingHeartbeatResponse(BaseModel):
+    '''False if the track named is no longer the one playing.'''
+    alive: bool
+
+
+class SkipTrackResponse(BaseModel):
+    '''
+    ok: the skip is recorded and the gateway will act on it. no_player: nothing is playing.
+    not_current: the track named is not the one playing (it finished, or was already skipped).
+    '''
+    result: Literal['ok', 'no_player', 'not_current']
+
+
+class FinishTrackResponse(_Ok):
+    '''200 from the finish-track route.'''
+
+
+class GuildHistoryResponse(BaseModel):
+    '''Tracks that played to the end, oldest first. Each item is the history record as stored.'''
+    items: list[dict]
+
+
+class CloseGuildResponse(BaseModel):
+    '''How many entries were released when the guild's player state was shut down.'''
+    released: int
+
+
+class OpenGuildResponse(_Ok):
+    '''200 from the open-guild route.'''

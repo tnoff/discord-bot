@@ -18,6 +18,7 @@ from discord_core.routes import database as database_routes
 from discord_core.routes import broker as broker_routes
 from discord_core.routes import queue_worker as queue_worker_routes
 from discord_core.routes import dispatch as dispatch_routes
+from discord_core.routes import guild_queue as guild_queue_routes
 
 from discord_gateway.clients.http_download_client import HttpDownloadClient
 from discord_gateway.clients.http_markov_store import HttpMarkovStore
@@ -73,7 +74,7 @@ def test_the_two_queue_worker_pods_do_not_overlap():
         queue_worker_routes.YTMUSIC.all
 
 @pytest.mark.parametrize('registry', [
-    broker_routes, database_routes, dispatch_routes, media_search_routes,
+    broker_routes, database_routes, dispatch_routes, guild_queue_routes, media_search_routes,
     queue_worker_routes,
 ], ids=lambda r: r.__name__.rsplit('.', 1)[-1])
 def test_a_registry_declares_no_route_twice(registry):
