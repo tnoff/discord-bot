@@ -256,6 +256,11 @@ class AsyncioBroker(MediaBrokerBase):
     # Queries
     # ------------------------------------------------------------------
 
+    async def get_entries(self, media_request_uuids: List[str]) -> List[BrokerEntry | None]:
+        '''Several entries at once, None where one is gone; what GuildQueueBroker reads through
+        (RedisBroker does the same in one round trip).'''
+        return [await self.get_entry(uuid) for uuid in media_request_uuids]
+
     async def get_entry(self, media_request_uuid: str) -> BrokerEntry | None:
         return self._registry.get(media_request_uuid)
 

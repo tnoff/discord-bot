@@ -149,6 +149,23 @@ def make_broker_http_server(broker, **kwargs):
     return BrokerHttpServer(broker, **kwargs)
 
 
+def make_guild_queue_for(broker, dispatcher=None):
+    '''A GuildQueueBroker over `broker` (any engine with get_entry/get_entries/checkout/release/
+    remove), with its queue state on a fresh fakeredis.
+
+    This is how the in-process test stack gets the real queue next to the AsyncioBroker double
+    that holds the media entries.
+    '''
+    # Imported here so this fakes module stays importable without the broker pod.
+    # pylint: disable=import-outside-toplevel
+    import fakeredis.aioredis
+    from discord_core.clients.redis_client import RedisManager
+    from discord_broker.workers.guild_queue import GuildQueueBroker
+    from discord_broker.workers.guild_queue_registry import GuildQueueRegistry
+    manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
+    return GuildQueueBroker(broker, GuildQueueRegistry(manager), dispatcher)
+
+
 def make_guild_queue_broker(bucket_name: str = 'test-bucket', dispatcher=None):
     '''A GuildQueueBroker over a RedisBroker on fakeredis -- the real engine, no Redis server.
 

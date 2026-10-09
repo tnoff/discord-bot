@@ -48,6 +48,7 @@ from tests.fakes.in_memory_download_client import InMemoryDownloadClient
 from tests.fakes.in_memory_youtube_music_search_client import InMemoryYoutubeMusicSearchClient
 from tests.fakes.stub_youtube_music_client import StubYoutubeMusicClient
 from tests.fakes.asyncio_broker import AsyncioBroker
+from tests.fakes.asyncio_queues import make_guild_queue_for
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.fakes.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
 
@@ -225,6 +226,9 @@ def attach_in_process_broker(cog: Any, video_cache: Optional[Any] = None,
     through `cog.broker_client` instead of standing up a broker pod behind an
     aiohttp server.
 
+    The client also gets a real GuildQueueBroker over the same engine (on fakeredis), so the
+    cog's queue calls run the broker's actual queue code; see tests/fakes/in_memory_broker_client.
+
     Returns the engine, which is what tests reach for when they need to assert on
     registry state directly (the cog's old `cog.media_broker`).
 
@@ -264,7 +268,7 @@ def attach_in_process_broker(cog: Any, video_cache: Optional[Any] = None,
     # cog.media_broker / cog.video_cache — the cog has no such attributes any
     # more, and re-adding them would let a test assert against a shape production
     # cannot have. Tests that need the engine use the returned handle.
-    cog.broker_client = InMemoryBrokerClient(broker)
+    cog.broker_client = InMemoryBrokerClient(broker, guild_queue=make_guild_queue_for(broker))
     return broker
 
 def attach_in_process_download(cog: Any, worker_cls: Optional[type] = None) -> InMemoryDownloadClient:
