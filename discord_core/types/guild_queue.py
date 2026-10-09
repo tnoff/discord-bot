@@ -37,13 +37,14 @@ class GuildQueueSnapshot:
 
     version moves on every queue mutation, so a holder of an older version knows its view is
     stale without comparing contents.  skip_for is the uuid of the playing track a skip was
-    requested for.
+    requested for.  text_channel_id is where the guild's play-order message is kept.
     '''
     version: int
     items: List[MediaDownload] = field(default_factory=list)
     playing: PlayingSnapshot | None = None
     skip_for: str | None = None
     closed: bool = False
+    text_channel_id: int | None = None
 
 
 @dataclass

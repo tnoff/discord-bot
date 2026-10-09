@@ -157,7 +157,7 @@ async def test_clear_close_and_reopen():
         assert (await client.get_guild_queue(GUILD)).closed is True
         assert await client.enqueue_track(GUILD, await _track(broker, 'refused')) == 'closed'
 
-        await client.open_guild(GUILD)
+        assert await client.open_guild(GUILD, 555) is None
         assert await client.enqueue_track(GUILD, await _track(broker, 'welcome')) == 'ok'
 
 

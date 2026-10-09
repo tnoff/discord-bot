@@ -1,23 +1,12 @@
 '''
 The guild-queue routes: a guild's player queue, served by the broker pod.
 
-These are broker-seam routes in the sense that matters (the handlers will live in
-broker_server.py, the way /sessions* does), and they are declared HERE, not in routes/broker.py,
-for a deploy-order reason rather than a design one.
-
-Two things about this repo make adding a route to a served seam a two-step change:
-- The tests import `discord_core` from the checkout, and assert that a seam's registry and the
-  server that serves it agree exactly (test_broker_seam_contract). A route in routes/broker.py
-  with no handler fails them.
-- The images install `discord_core` from a pinned release tag. A broker built from the commit
-  that adds handlers would import route symbols its pinned core does not have yet.
-So the contract lands first, released as a core tag, in a registry nothing asserts against. The
-change that bumps the pins then serves these routes and folds this module into routes/broker.py
-(its ALL joins the seam's), at which point the agreement tests cover them.
-
-Until then nothing calls these routes: HttpBrokerClient's ROUTES_CALLED, which feeds the peer
-route check, deliberately does not include them yet, or every client would report its broker as
-missing routes it cannot serve.
+They are part of the broker seam: routes/broker.py includes this module's ALL in its own, so the
+seam registry, the client's ROUTES_CALLED and the agreement tests all cover them.  They are
+DEFINED here, as their own module, for a deploy-order reason that still holds: the broker image
+pins a released discord_core, and this module is where that release put the symbols the broker's
+handlers import.  Moving the definitions into routes/broker.py would break a broker built against
+the release that predates the move.
 
 Outcomes the caller is expected to handle (queue full, nothing to claim, track already gone)
 come back as a 200 with the answer in the body, never as an error status.  They are

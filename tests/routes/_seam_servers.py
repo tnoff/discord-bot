@@ -23,7 +23,6 @@ from discord_core.routes import database as database_routes
 from discord_core.routes import broker as broker_routes
 from discord_core.routes import queue_worker as queue_worker_routes
 from discord_core.routes import dispatch as dispatch_routes
-from discord_core.routes import guild_queue as guild_queue_routes
 
 from discord_db.servers.database_server import DatabaseHttpServer
 from discord_search.servers.media_search_server import MediaSearchHttpServer
@@ -52,8 +51,8 @@ def fully_configured_database():
 
 # (surface name, server factory, the routes that server should serve, serving image)
 SEAMS = [
-    ('broker', lambda: make_broker_http_server(AsyncioBroker()),
-     broker_routes.ALL + guild_queue_routes.ALL, 'discord-broker'),
+    ('broker', lambda: make_broker_http_server(AsyncioBroker()), broker_routes.ALL,
+     'discord-broker'),
     ('database', fully_configured_database, database_routes.ALL, 'discord-db'),
     ('dispatch', lambda: DispatchHttpServer(object(), object()), dispatch_routes.ALL,
      'discord-dispatcher'),
