@@ -7,8 +7,17 @@ does nothing.
 import asyncio
 import itertools
 
+import fakeredis.aioredis
+
+from discord_core.clients.redis_client import RedisManager
 from discord_core.interfaces.dispatch_protocols import BundleStore, WorkQueue
 from discord_core.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
+
+from discord_broker.servers.broker_server import BrokerHttpServer
+from discord_broker.workers.broker_registry import RedisBrokerRegistry
+from discord_broker.workers.guild_queue import GuildQueueBroker
+from discord_broker.workers.guild_queue_registry import GuildQueueRegistry
+from discord_broker.workers.redis_broker import RedisBroker
 
 
 class AsyncioBundleStore(BundleStore):
@@ -140,8 +149,6 @@ class AsyncioSearchResultQueue(_AsyncioResultQueue, SearchResultQueue):
 
 def make_broker_http_server(broker, **kwargs):
     '''BrokerHttpServer over in-memory result queues unless the test passes its own.'''
-    # Imported here so this fakes module stays importable without the broker pod.
-    from discord_broker.servers.broker_server import BrokerHttpServer  # pylint: disable=import-outside-toplevel
     kwargs.setdefault('result_queue', AsyncioDownloadResultQueue())
     kwargs.setdefault('search_result_queue', AsyncioSearchResultQueue())
     if 'guild_queue' not in kwargs:
@@ -156,12 +163,6 @@ def make_guild_queue_for(broker, dispatcher=None):
     This is how the in-process test stack gets the real queue next to the AsyncioBroker double
     that holds the media entries.
     '''
-    # Imported here so this fakes module stays importable without the broker pod.
-    # pylint: disable=import-outside-toplevel
-    import fakeredis.aioredis
-    from discord_core.clients.redis_client import RedisManager
-    from discord_broker.workers.guild_queue import GuildQueueBroker
-    from discord_broker.workers.guild_queue_registry import GuildQueueRegistry
     manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
     return GuildQueueBroker(broker, GuildQueueRegistry(manager), dispatcher)
 
@@ -174,14 +175,6 @@ def make_guild_queue_broker(bucket_name: str = 'test-bucket', dispatcher=None):
     a double would test a different implementation.  Tests that need the media half of the
     broker too can reach it as `.broker`.
     '''
-    # Imported here so this fakes module stays importable without the broker pod.
-    # pylint: disable=import-outside-toplevel
-    import fakeredis.aioredis
-    from discord_core.clients.redis_client import RedisManager
-    from discord_broker.workers.broker_registry import RedisBrokerRegistry
-    from discord_broker.workers.guild_queue import GuildQueueBroker
-    from discord_broker.workers.guild_queue_registry import GuildQueueRegistry
-    from discord_broker.workers.redis_broker import RedisBroker
     manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
     broker = RedisBroker(RedisBrokerRegistry(manager), bucket_name=bucket_name)
     guild_queue = GuildQueueBroker(broker, GuildQueueRegistry(manager), dispatcher)
