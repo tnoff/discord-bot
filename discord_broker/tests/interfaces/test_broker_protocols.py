@@ -150,7 +150,7 @@ def test_client_protocols_declare_their_surface():
     broker_methods = {n for n in vars(BrokerClient) if not n.startswith('_')}
     assert {'register_request', 'checkout', 'create_bundle', 'next_result'} <= broker_methods
     sink_methods = {n for n in vars(BundleDispatchSink) if not n.startswith('_')}
-    assert sink_methods == {'update_mutable', 'remove_mutable', 'send_message'}
+    assert sink_methods == {'update_mutable', 'remove_mutable', 'update_mutable_channel', 'send_message'}
 
 
 # ---------------------------------------------------------------------------

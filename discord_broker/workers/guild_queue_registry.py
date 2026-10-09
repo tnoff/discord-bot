@@ -15,6 +15,9 @@ Key schema:
     discord_bot:broker:gversion:{guild}    →  INT bumped by every queue mutation
     discord_bot:broker:gskip:{guild}       →  uuid of the playing track a skip was requested for (short TTL)
     discord_bot:broker:gclosed:{guild}     →  flag, set while the guild's player is shut down
+    discord_bot:broker:gchannel:{guild}    →  the text channel id the guild's play-order message lives in
+    discord_bot:broker:gcurrent:{guild}    →  uuid of the track last confirmed as playing; NOT on the short
+                                              heartbeat TTL, so it outlives a gateway that dies mid-track
 '''
 import json
 import random
@@ -30,6 +33,8 @@ GHISTORY_KEY_PREFIX = 'discord_bot:broker:ghistory:'
 GVERSION_KEY_PREFIX = 'discord_bot:broker:gversion:'
 GSKIP_KEY_PREFIX = 'discord_bot:broker:gskip:'
 GCLOSED_KEY_PREFIX = 'discord_bot:broker:gclosed:'
+GCHANNEL_KEY_PREFIX = 'discord_bot:broker:gchannel:'
+GCURRENT_KEY_PREFIX = 'discord_bot:broker:gcurrent:'
 # Guild queue keys share the entry TTL: a queue outliving the entries it points at
 # is useless, and a guild nobody has touched in a day should not squat in Redis.
 # Every write refreshes it.
@@ -137,13 +142,17 @@ redis.call('EXPIRE', KEYS[3], ARGV[1])
 return uuid
 """
 
-# KEYS: claim, playing                  ARGV: uuid, started_at, gateway_id, playing_ttl
+# gcurrent is the durable half of "now playing": the playing hash is liveness on a short TTL, so
+# after a gateway dies mid-track it vanishes within seconds, but the track still has to be found
+# again by whoever takes the guild over (see _OPEN_LUA).
+# KEYS: claim, playing, current         ARGV: uuid, started_at, gateway_id, playing_ttl, current_ttl
 _CONFIRM_CLAIM_LUA = """
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
 redis.call('DEL', KEYS[1])
 redis.call('DEL', KEYS[2])
 redis.call('HSET', KEYS[2], 'uuid', ARGV[1], 'started_at', ARGV[2], 'gateway_id', ARGV[3])
 redis.call('EXPIRE', KEYS[2], ARGV[4])
+redis.call('SET', KEYS[3], ARGV[1], 'EX', ARGV[5])
 return 1
 """
 
@@ -166,9 +175,11 @@ return 'ok'
 # End of a track. Clears the now-playing and skip markers for this uuid (and only this
 # uuid: a late finish for a track that is no longer current must not erase its successor),
 # then records it in history unless it was skipped.
-# KEYS: playing, skip, history, version ARGV: uuid, record_history (1/0), history_json, history_cap, ttl
+# KEYS: playing, skip, history, version, current
+# ARGV: uuid, record_history (1/0), history_json, history_cap, ttl
 _FINISH_LUA = """
 if redis.call('HGET', KEYS[1], 'uuid') == ARGV[1] then redis.call('DEL', KEYS[1]) end
+if redis.call('GET', KEYS[5]) == ARGV[1] then redis.call('DEL', KEYS[5]) end
 if redis.call('GET', KEYS[2]) == ARGV[1] then redis.call('DEL', KEYS[2]) end
 if ARGV[2] == '1' then
     redis.call('RPUSH', KEYS[3], ARGV[3])
@@ -182,18 +193,47 @@ return 1
 
 # Shut a guild's player down: refuse further enqueues and hand back everything that was
 # still held so the caller can release it.
-# KEYS: queue, claim, playing, history, skip, closed, version   ARGV: ttl
+# The playing uuid falls back to gcurrent: a gateway that died mid-track has let the playing hash
+# expire, but its entry is still checked out and still has to be released.
+# KEYS: queue, claim, playing, history, skip, closed, version, current   ARGV: ttl
 # Returns a flat list: the unconfirmed claim uuid ('' if none), the playing uuid ('' if
 # none), then the queued uuids in play order.
 _CLOSE_LUA = """
 local queued = redis.call('LRANGE', KEYS[1], 0, -1)
 local claimed = redis.call('GET', KEYS[2]) or ''
-local playing = redis.call('HGET', KEYS[3], 'uuid') or ''
-redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[4], KEYS[5])
+local playing = redis.call('HGET', KEYS[3], 'uuid') or redis.call('GET', KEYS[8]) or ''
+redis.call('DEL', KEYS[1], KEYS[2], KEYS[3], KEYS[4], KEYS[5], KEYS[8])
 redis.call('SET', KEYS[6], '1', 'EX', ARGV[1])
 redis.call('INCR', KEYS[7])
 redis.call('EXPIRE', KEYS[7], ARGV[1])
 return {claimed, playing, unpack(queued)}
+"""
+
+# A gateway takes ownership of a guild's player. Reopens it, records the text channel (replacing
+# any earlier one), and recovers a track the previous owner never finished: if gcurrent names a
+# track but nothing is heartbeating it (the playing hash has expired), that gateway is gone, so
+# the track goes back to the head of the queue. A live playing hash means the caller is the
+# owner re-pointing the channel, or a restart that came back inside the heartbeat TTL; the latter
+# can see the foreign gateway_id in the queue read and open again once it has expired.
+# KEYS: closed, channel, current, playing, queue, version   ARGV: text_channel_id, ttl
+# Returns {previous channel id or '', recovered uuid or ''}.
+_OPEN_LUA = """
+redis.call('DEL', KEYS[1])
+local previous = redis.call('GET', KEYS[2]) or ''
+redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])
+local current = redis.call('GET', KEYS[3])
+local recovered = ''
+if current and redis.call('EXISTS', KEYS[4]) == 0 then
+    if not redis.call('LPOS', KEYS[5], current) then
+        redis.call('LPUSH', KEYS[5], current)
+        redis.call('EXPIRE', KEYS[5], ARGV[2])
+    end
+    redis.call('DEL', KEYS[3])
+    redis.call('INCR', KEYS[6])
+    redis.call('EXPIRE', KEYS[6], ARGV[2])
+    recovered = current
+end
+return {previous, recovered}
 """
 
 
@@ -207,13 +247,15 @@ class GuildQueueState:
     version moves on every queue mutation, so a caller holding an older version knows its
     view is stale without comparing contents.  playing is the now-playing hash
     (uuid / started_at / gateway_id) or None when nothing is, or the gateway stopped
-    refreshing it.
+    refreshing it.  text_channel_id is the channel the play-order message lives in, or None
+    for a guild nobody has opened.
     '''
     version: int = 0
     queue: list[str] = field(default_factory=list)
     playing: dict | None = None
     skip_for: str | None = None
     closed: bool = False
+    text_channel_id: int | None = None
 
 
 class GuildQueueRegistry:
@@ -247,6 +289,8 @@ class GuildQueueRegistry:
             'version': f'{GVERSION_KEY_PREFIX}{guild_id}',
             'skip': f'{GSKIP_KEY_PREFIX}{guild_id}',
             'closed': f'{GCLOSED_KEY_PREFIX}{guild_id}',
+            'channel': f'{GCHANNEL_KEY_PREFIX}{guild_id}',
+            'current': f'{GCURRENT_KEY_PREFIX}{guild_id}',
         }
 
     async def queue_enqueue(self, guild_id: int, uuid: str, max_size: int = 0) -> str:
@@ -329,9 +373,9 @@ class GuildQueueRegistry:
         '''
         keys = self._guild_keys(guild_id)
         confirmed = await self._client.eval(
-            _CONFIRM_CLAIM_LUA, 2, keys['claim'], keys['playing'],
+            _CONFIRM_CLAIM_LUA, 3, keys['claim'], keys['playing'], keys['current'],
             uuid, started_at if started_at is not None else time.time(), gateway_id,
-            PLAYING_TTL_SECONDS)
+            PLAYING_TTL_SECONDS, GUILD_QUEUE_TTL_SECONDS)
         return bool(confirmed)
 
     async def playing_heartbeat(self, guild_id: int, uuid: str) -> bool:
@@ -361,8 +405,8 @@ class GuildQueueRegistry:
         keys = self._guild_keys(guild_id)
         record = not skipped and history_item is not None and history_cap > 0
         await self._client.eval(
-            _FINISH_LUA, 4, keys['playing'], keys['skip'], keys['history'], keys['version'],
-            uuid, 1 if record else 0, json.dumps(history_item) if record else '',
+            _FINISH_LUA, 5, keys['playing'], keys['skip'], keys['history'], keys['version'],
+            keys['current'], uuid, 1 if record else 0, json.dumps(history_item) if record else '',
             history_cap, GUILD_QUEUE_TTL_SECONDS)
 
     async def queue_state(self, guild_id: int) -> GuildQueueState:
@@ -374,13 +418,15 @@ class GuildQueueRegistry:
             pipe.hgetall(keys['playing'])
             pipe.get(keys['skip'])
             pipe.exists(keys['closed'])
-            queue, version, playing, skip_for, closed = await pipe.execute()
+            pipe.get(keys['channel'])
+            queue, version, playing, skip_for, closed, channel = await pipe.execute()
         return GuildQueueState(
             version=int(version) if version else 0,
             queue=queue,
             playing=playing or None,
             skip_for=skip_for,
             closed=bool(closed),
+            text_channel_id=int(channel) if channel else None,
         )
 
     async def queue_poll(self, guild_id: int) -> tuple[int, str | None]:
@@ -403,11 +449,21 @@ class GuildQueueRegistry:
         '''
         keys = self._guild_keys(guild_id)
         result = await self._client.eval(
-            _CLOSE_LUA, 7, keys['queue'], keys['claim'], keys['playing'], keys['history'],
-            keys['skip'], keys['closed'], keys['version'], GUILD_QUEUE_TTL_SECONDS)
+            _CLOSE_LUA, 8, keys['queue'], keys['claim'], keys['playing'], keys['history'],
+            keys['skip'], keys['closed'], keys['version'], keys['current'], GUILD_QUEUE_TTL_SECONDS)
         claimed, playing, *queued = result
         return queued, claimed or None, playing or None
 
-    async def queue_open(self, guild_id: int) -> None:
-        '''Reopen a closed guild so a new player can enqueue again.'''
-        await self._client.delete(self._guild_keys(guild_id)['closed'])
+    async def queue_open(self, guild_id: int, text_channel_id: int) -> tuple[int | None, str | None]:
+        '''
+        A gateway takes ownership of the guild's player: reopen it, record the text channel, and
+        recover a track the previous owner never finished.
+
+        Returns (the text channel it replaced or None, the uuid recovered or None).  Recovery
+        happens only when nothing is heartbeating the old track; see _OPEN_LUA.
+        '''
+        keys = self._guild_keys(guild_id)
+        previous, recovered = await self._client.eval(
+            _OPEN_LUA, 6, keys['closed'], keys['channel'], keys['current'], keys['playing'],
+            keys['queue'], keys['version'], text_channel_id, GUILD_QUEUE_TTL_SECONDS)
+        return (int(previous) if previous else None), (recovered or None)

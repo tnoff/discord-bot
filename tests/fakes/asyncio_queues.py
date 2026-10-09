@@ -149,7 +149,7 @@ def make_broker_http_server(broker, **kwargs):
     return BrokerHttpServer(broker, **kwargs)
 
 
-def make_guild_queue_broker(bucket_name: str = 'test-bucket'):
+def make_guild_queue_broker(bucket_name: str = 'test-bucket', dispatcher=None):
     '''A GuildQueueBroker over a RedisBroker on fakeredis -- the real engine, no Redis server.
 
     Unlike the AsyncioBroker double the rest of this module wraps, there is no in-memory stand-in
@@ -167,6 +167,6 @@ def make_guild_queue_broker(bucket_name: str = 'test-bucket'):
     from discord_broker.workers.redis_broker import RedisBroker
     manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
     broker = RedisBroker(RedisBrokerRegistry(manager), bucket_name=bucket_name)
-    guild_queue = GuildQueueBroker(broker, GuildQueueRegistry(manager))
+    guild_queue = GuildQueueBroker(broker, GuildQueueRegistry(manager), dispatcher)
     guild_queue.broker = broker
     return guild_queue

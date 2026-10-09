@@ -181,3 +181,33 @@ async def test_guilds_do_not_see_each_other():
         await client.enqueue_track(2, await _track(broker, 'b'))
         assert [i.title for i in (await client.get_guild_queue(1)).items] == ['a']
         assert [i.title for i in (await client.get_guild_queue(2)).items] == ['b']
+
+
+@pytest.mark.asyncio
+async def test_a_new_gateway_takes_over_after_the_old_one_dies():
+    '''The text channel round-trips, and open puts back the track the dead gateway had started.'''
+    async with _stack() as (client, broker):
+        interrupted, waiting = await _track(broker, 'interrupted'), await _track(broker, 'waiting')
+        assert await client.open_guild(GUILD, 111) is None
+        assert (await client.get_guild_queue(GUILD)).text_channel_id == 111
+        for uuid in (interrupted, waiting):
+            await client.enqueue_track(GUILD, uuid)
+        assert (await client.claim_next_track(GUILD, 'gw-old')) is not None
+
+        # The old gateway is still heartbeating, so a quick restart is not given its track yet.
+        assert await client.open_guild(GUILD, 222) is None
+        snapshot = await client.get_guild_queue(GUILD)
+        assert snapshot.text_channel_id == 222
+        assert snapshot.playing.gateway_id == 'gw-old'
+
+        # Its heartbeat lapses; the next open recovers the track at the head, ahead of the rest.
+        await broker._registry._client.delete(  # pylint: disable=protected-access
+            f'discord_bot:broker:gplaying:{GUILD}')
+        assert await client.open_guild(GUILD, 222) == interrupted
+        assert [str(i.media_request.uuid) for i in (await client.get_guild_queue(GUILD)).items] == [
+            interrupted, waiting]
+
+        # And the new gateway plays it, even though its entry is still checked out to the guild.
+        replayed = await client.claim_next_track(GUILD, 'gw-new')
+        assert str(replayed.download.media_request.uuid) == interrupted
+        assert replayed.checkout.s3_key == 'interrupted.mp3'

@@ -205,9 +205,9 @@ def run(settings: dict, general_config: GeneralConfig):
         ),
     )
 
-    # The per-guild player queue. Built here so the server owns it; no route serves it yet
-    # (those land with the core route contract), so for now it is only held.
-    guild_queue = GuildQueueBroker(broker, GuildQueueRegistry(redis_manager))
+    # The per-guild player queue, and the play-order message it keeps up to date through the same
+    # dispatcher the bundle UI uses (None without one: the queue still works, silently).
+    guild_queue = GuildQueueBroker(broker, GuildQueueRegistry(redis_manager), dispatcher)
 
     # Redis-backed bot-ready queues so multiple broker pods share them and a
     # pod restart doesn't lose in-flight DownloadResults / SearchResolutions.
