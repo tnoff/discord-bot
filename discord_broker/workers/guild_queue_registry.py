@@ -18,6 +18,10 @@ Key schema:
     discord_bot:broker:gchannel:{guild}    →  the text channel id the guild's play-order message lives in
     discord_bot:broker:gcurrent:{guild}    →  uuid of the track last confirmed as playing; NOT on the short
                                               heartbeat TTL, so it outlives a gateway that dies mid-track
+
+One key is not per guild:
+    discord_bot:broker:history_events      →  LIST of JSON play records waiting for the history worker, oldest
+                                              at the tail; pushed by finish, drained by workers/history_worker
 '''
 import json
 import random
@@ -35,6 +39,11 @@ GSKIP_KEY_PREFIX = 'discord_bot:broker:gskip:'
 GCLOSED_KEY_PREFIX = 'discord_bot:broker:gclosed:'
 GCHANNEL_KEY_PREFIX = 'discord_bot:broker:gchannel:'
 GCURRENT_KEY_PREFIX = 'discord_bot:broker:gcurrent:'
+HISTORY_EVENTS_KEY = 'discord_bot:broker:history_events'
+# The most play records kept waiting for the history worker. A db that stays down long enough to
+# fill this has bigger problems; past it the OLDEST records are dropped, so the newest plays are
+# the ones kept.
+HISTORY_EVENTS_MAX = 10000
 # Guild queue keys share the entry TTL: a queue outliving the entries it points at
 # is useless, and a guild nobody has touched in a day should not squat in Redis.
 # Every write refreshes it.
@@ -175,8 +184,11 @@ return 'ok'
 # End of a track. Clears the now-playing and skip markers for this uuid (and only this
 # uuid: a late finish for a track that is no longer current must not erase its successor),
 # then records it in history unless it was skipped.
-# KEYS: playing, skip, history, version, current
-# ARGV: uuid, record_history (1/0), history_json, history_cap, ttl
+# The play record goes to the guild's history list and, separately, onto the global list the
+# history worker drains; the two are independent so analytics are still recorded when the guild's
+# own history is switched off (cap 0).
+# KEYS: playing, skip, history, version, current, events
+# ARGV: uuid, record_history (1/0), play_json, history_cap, ttl, emit_event (1/0), events_max
 _FINISH_LUA = """
 if redis.call('HGET', KEYS[1], 'uuid') == ARGV[1] then redis.call('DEL', KEYS[1]) end
 if redis.call('GET', KEYS[5]) == ARGV[1] then redis.call('DEL', KEYS[5]) end
@@ -185,6 +197,11 @@ if ARGV[2] == '1' then
     redis.call('RPUSH', KEYS[3], ARGV[3])
     redis.call('LTRIM', KEYS[3], -tonumber(ARGV[4]), -1)
     redis.call('EXPIRE', KEYS[3], ARGV[5])
+end
+if ARGV[6] == '1' then
+    redis.call('LPUSH', KEYS[6], ARGV[3])
+    redis.call('LTRIM', KEYS[6], 0, tonumber(ARGV[7]) - 1)
+    redis.call('EXPIRE', KEYS[6], ARGV[5])
 end
 redis.call('INCR', KEYS[4])
 redis.call('EXPIRE', KEYS[4], ARGV[5])
@@ -397,17 +414,39 @@ class GuildQueueRegistry:
             _REQUEST_SKIP_LUA, 2, keys['playing'], keys['skip'], expect_uuid, SKIP_TTL_SECONDS)
 
     async def finish_track(self, guild_id: int, uuid: str, skipped: bool,
-                           history_item: dict | None, history_cap: int) -> None:
+                           history_item: dict | None, history_cap: int,
+                           emit_event: bool = False) -> None:
         '''
         Close out a track: clear its now-playing and skip markers, and append history_item to
         the guild's history (kept to the last history_cap) unless it was skipped.
+
+        With emit_event, a track that played out is also queued for the history worker (see
+        pop_history_event), whether or not the guild's own history keeps it.
         '''
         keys = self._guild_keys(guild_id)
-        record = not skipped and history_item is not None and history_cap > 0
+        played = not skipped and history_item is not None
+        record = played and history_cap > 0
+        emit = played and emit_event
         await self._client.eval(
-            _FINISH_LUA, 5, keys['playing'], keys['skip'], keys['history'], keys['version'],
-            keys['current'], uuid, 1 if record else 0, json.dumps(history_item) if record else '',
-            history_cap, GUILD_QUEUE_TTL_SECONDS)
+            _FINISH_LUA, 6, keys['playing'], keys['skip'], keys['history'], keys['version'],
+            keys['current'], HISTORY_EVENTS_KEY,
+            uuid, 1 if record else 0, json.dumps(history_item) if (record or emit) else '',
+            history_cap, GUILD_QUEUE_TTL_SECONDS, 1 if emit else 0, HISTORY_EVENTS_MAX)
+
+    async def pop_history_event(self) -> dict | None:
+        '''Take the oldest play record waiting for the history worker, or None.'''
+        raw = await self._client.rpop(HISTORY_EVENTS_KEY)
+        return json.loads(raw) if raw else None
+
+    async def requeue_history_event(self, event: dict) -> None:
+        '''Put a record the worker could not finish back at the end it is taken from, so the
+        next pop retries it before anything newer.'''
+        await self._client.rpush(HISTORY_EVENTS_KEY, json.dumps(event))
+        await self._client.expire(HISTORY_EVENTS_KEY, GUILD_QUEUE_TTL_SECONDS)
+
+    async def history_event_depth(self) -> int:
+        '''How many play records are waiting for the history worker.'''
+        return await self._client.llen(HISTORY_EVENTS_KEY)
 
     async def queue_state(self, guild_id: int) -> GuildQueueState:
         '''Read queue, version, now-playing, pending skip and closed flag as one snapshot.'''

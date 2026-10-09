@@ -18,8 +18,8 @@ def _general_config(health_enabled=True):
     return gc
 
 
-def _settings(dispatch_url='http://disp'):
-    return {
+def _settings(dispatch_url='http://disp', database_url='http://db', playlist=None):
+    settings = {
         'general': {
             'dispatch_http_url': dispatch_url,
             'broker_server': {'host': '0.0.0.0', 'port': 8081},
@@ -29,6 +29,11 @@ def _settings(dispatch_url='http://disp'):
             'download': {'max_download_retries': 5, 'max_youtube_music_search_retries': 4},
         },
     }
+    if database_url:
+        settings['general']['database_http_url'] = database_url
+    if playlist is not None:
+        settings['music']['playlist'] = playlist
+    return settings
 
 
 def _patch_run_deps(mocker, video_cache=None):
@@ -45,6 +50,11 @@ def _patch_run_deps(mocker, video_cache=None):
         'broker': mocker.patch('discord_broker.cli.broker.RedisBroker', return_value=MagicMock()),
         'guild_queue': mocker.patch('discord_broker.cli.broker.GuildQueueBroker', return_value=MagicMock()),
         'guild_queue_registry': mocker.patch('discord_broker.cli.broker.GuildQueueRegistry', return_value=MagicMock()),
+        'history_worker': mocker.patch('discord_broker.cli.broker.HistoryWorker', return_value=MagicMock()),
+        'history_playlists': mocker.patch('discord_broker.cli.broker.HttpHistoryPlaylistStore',
+                                          return_value=MagicMock()),
+        'history_analytics': mocker.patch('discord_broker.cli.broker.HttpPlayAnalyticsStore',
+                                          return_value=MagicMock()),
         'server': mocker.patch('discord_broker.cli.broker.BrokerHttpServer', return_value=MagicMock()),
         'health': mocker.patch('discord_broker.cli.broker.BrokerHealthServer', return_value=MagicMock()),
         'run_broker': mocker.patch('discord_broker.cli.broker.run_broker'),
@@ -71,7 +81,8 @@ def test_run_constructs_broker_with_dispatcher_and_health(mocker):
     # The guild queue is built over the same broker and Redis manager, and handed to the server.
     m['guild_queue_registry'].assert_called_once_with(m['redis_manager'].from_general_config.return_value)
     m['guild_queue'].assert_called_once_with(
-        m['broker'].return_value, m['guild_queue_registry'].return_value, m['dispatch'].return_value)
+        m['broker'].return_value, m['guild_queue_registry'].return_value, m['dispatch'].return_value,
+        record_plays=True)
     assert m['server'].call_args.kwargs['guild_queue'] is m['guild_queue'].return_value
     # Metrics poller built from the result queue + registry + search queue, handed to run_broker.
     m['metrics'].assert_called_once_with(
@@ -89,6 +100,41 @@ def test_run_without_dispatcher_or_health(mocker):
     # No dispatcher means no play-order message; the queue itself is still built.
     assert m['guild_queue'].call_args.args[2] is None
     m['run_broker'].assert_called_once()
+
+
+def test_run_builds_the_history_worker_over_the_db_pod(mocker):
+    '''Plays are recorded through the db pod, into the same registry the queue writes to.'''
+    m = _patch_run_deps(mocker)
+    general_config = _general_config(health_enabled=False)
+    broker_cli.run(_settings(database_url='http://discord-db:8085'), general_config)
+
+    m['history_playlists'].assert_called_once_with(
+        'http://discord-db:8085', seam_contract=general_config.seam_contract)
+    m['history_analytics'].assert_called_once_with(
+        'http://discord-db:8085', seam_contract=general_config.seam_contract)
+    m['history_worker'].assert_called_once_with(
+        m['guild_queue_registry'].return_value, m['history_playlists'].return_value,
+        m['history_analytics'].return_value, max_size=64)
+    assert m['run_broker'].call_args.kwargs['history_worker'] is m['history_worker'].return_value
+
+
+def test_run_reads_the_history_ceiling_from_the_playlist_config(mocker):
+    '''The same setting the gateway reads, so a guild's history keeps the size it always did.'''
+    m = _patch_run_deps(mocker)
+    broker_cli.run(_settings(playlist={'server_playlist_max_size': 10}), _general_config(health_enabled=False))
+    assert m['history_worker'].call_args.kwargs['max_size'] == 10
+
+
+def test_run_without_a_db_pod_records_nothing_and_says_so(mocker, caplog):
+    '''No db pod means nothing could drain the records, so none are queued.'''
+    m = _patch_run_deps(mocker)
+    with caplog.at_level('WARNING'):
+        broker_cli.run(_settings(database_url=None), _general_config(health_enabled=False))
+    m['history_worker'].assert_not_called()
+    m['history_playlists'].assert_not_called()
+    assert m['guild_queue'].call_args.kwargs['record_plays'] is False
+    assert m['run_broker'].call_args.kwargs['history_worker'] is None
+    assert 'cannot record plays' in caplog.text
 
 
 def test_build_video_cache_returns_none_when_disabled(caplog):
@@ -144,6 +190,26 @@ async def test_main_loop_drains_on_signal(mocker):
     broker_server.drain_and_stop.assert_awaited_once()
     redis_manager.close.assert_awaited_once()
     broker_metrics.run.assert_called_once()  # metrics poller was started
+
+
+@pytest.mark.asyncio
+async def test_main_loop_runs_and_closes_the_history_worker(mocker):
+    '''The worker runs until the stop event, and its db clients are closed on the way out.'''
+    captured = {}
+    mocker.patch('discord_broker.cli.broker.signal.signal', side_effect=captured.__setitem__)
+    broker_server = MagicMock(serve=AsyncMock(), drain_and_stop=AsyncMock())
+    redis_manager = MagicMock(start=AsyncMock(), close=AsyncMock())
+    broker_metrics = MagicMock(run=AsyncMock())
+    history_worker = MagicMock(run=AsyncMock(), close=AsyncMock())
+
+    task = asyncio.create_task(broker_cli.main_loop(
+        broker_server, None, redis_manager, broker_metrics, history_worker=history_worker))
+    await asyncio.sleep(0)
+    captured[_signal.SIGTERM](_signal.SIGTERM, None)
+    await task
+
+    history_worker.run.assert_called_once()
+    history_worker.close.assert_awaited_once()
 
 
 def test_run_broker_invokes_run_loop(mocker):

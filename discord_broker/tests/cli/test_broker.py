@@ -77,7 +77,8 @@ def test_run_warns_and_skips_dispatcher_when_unset(mocker):
     mocks['HttpDispatchClient'].assert_not_called()
     _, broker_kwargs = mocks['RedisBroker'].call_args
     assert broker_kwargs['dispatcher'] is None
-    warn.assert_called_once()
+    # Other settings may warn too (no db pod, say); the dispatcher one is the point here.
+    assert [call.args[0] for call in warn.call_args_list if 'dispatch_http_url' in call.args[0]]
 
 
 def test_run_passes_default_message_delete_after(mocker):

@@ -16,7 +16,9 @@ Configure with:
     general.database_http_url     — discord-db pod URL, e.g. http://discord-db:8085.
                                     Required when music.download.cache is enabled;
                                     without it the catalog is unreachable and the
-                                    cache is disabled with a warning.
+                                    cache is disabled with a warning. Also where the
+                                    history worker records plays; without it no play is
+                                    counted or added to a guild's history, with a warning.
     general.broker_server         — {host, port} for the HTTP server (default 0.0.0.0:8081)
     general.dispatch_http_url     — Dispatcher URL; the broker pushes bundle-UI
                                     edits / failure summaries through it.  Without
@@ -30,6 +32,8 @@ Configure with:
     music.general.message_delete_after — seconds before Discord auto-expires the
                                     bundle summary / failure summary messages this
                                     process sends (default 300)
+    music.playlist.server_playlist_max_size — ceiling on a guild's history playlist
+                                    (default 64, same as the gateway's setting)
 '''
 import asyncio
 import logging
@@ -46,6 +50,7 @@ from discord_core.workers.redis_queues import RedisDownloadResultQueue, RedisSea
 
 from discord_core.types.video_cache import MusicCacheConfig
 
+from discord_broker.clients.http_history_stores import HttpHistoryPlaylistStore, HttpPlayAnalyticsStore
 from discord_broker.clients.http_video_cache_store import HttpVideoCacheStore
 from discord_broker.servers.broker_health_server import BrokerHealthServer
 from discord_broker.servers.broker_server import BrokerHttpServer
@@ -53,6 +58,7 @@ from discord_broker.workers.broker_metrics import BrokerMetrics
 from discord_broker.workers.broker_registry import RedisBrokerRegistry
 from discord_broker.workers.guild_queue import GuildQueueBroker
 from discord_broker.workers.guild_queue_registry import GuildQueueRegistry
+from discord_broker.workers.history_worker import HistoryWorker
 from discord_broker.workers.redis_broker import RedisBroker
 
 logger = logging.getLogger(__name__)
@@ -103,7 +109,7 @@ def _build_video_cache(cache_cfg: dict, database_http_url: str | None,
 
 
 async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manager: RedisManager,
-                    broker_metrics: BrokerMetrics, video_cache=None):
+                    broker_metrics: BrokerMetrics, video_cache=None, history_worker=None):
     '''Run the broker until SIGTERM/SIGINT, then drain the HTTP server, Redis and the db client.
 
     The route checks for this pod's outbound clients -- its dispatch client and
@@ -128,6 +134,8 @@ async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manage
         asyncio.create_task(broker_server.serve())
         # Metrics poller exits on its own when stop_event is set.
         asyncio.create_task(broker_metrics.run(stop_event))
+        if history_worker is not None:
+            asyncio.create_task(history_worker.run(stop_event))
         logger.info('Main :: Broker running')
         await stop_event.wait()
     finally:
@@ -142,14 +150,16 @@ async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manage
         # shutdown path down with it.
         if video_cache is not None and hasattr(video_cache, 'close'):
             await video_cache.close()
+        if history_worker is not None:
+            await history_worker.close()
         logger.info('Main :: Shutdown complete')
 
 
 def run_broker(broker_server: BrokerHttpServer, health_server, redis_manager: RedisManager,
-               broker_metrics: BrokerMetrics, video_cache=None):
+               broker_metrics: BrokerMetrics, video_cache=None, history_worker=None):
     '''Schedule main_loop on an event loop.'''
     run_loop(main_loop(broker_server, health_server, redis_manager, broker_metrics,
-                       video_cache=video_cache))
+                       video_cache=video_cache, history_worker=history_worker))
 
 
 def run(settings: dict, general_config: GeneralConfig):
@@ -207,7 +217,25 @@ def run(settings: dict, general_config: GeneralConfig):
 
     # The per-guild player queue, and the play-order message it keeps up to date through the same
     # dispatcher the bundle UI uses (None without one: the queue still works, silently).
-    guild_queue = GuildQueueBroker(broker, GuildQueueRegistry(redis_manager), dispatcher)
+    guild_queues = GuildQueueRegistry(redis_manager)
+
+    # Plays are recorded (counted, added to the guild's history playlist) by a worker that drains
+    # what `finish` queues. It needs the db pod; without one, nothing would drain the records, so
+    # none are queued.
+    history_worker = None
+    if database_http_url:
+        history_worker = HistoryWorker(
+            guild_queues,
+            HttpHistoryPlaylistStore(database_http_url, seam_contract=general_config.seam_contract),
+            HttpPlayAnalyticsStore(database_http_url, seam_contract=general_config.seam_contract),
+            max_size=int(music_settings.get('playlist', {}).get('server_playlist_max_size', 64)),
+        )
+    else:
+        logger.warning(
+            'No general.database_http_url configured — the broker cannot record plays, so no '
+            'track will be counted or added to a guild history.'
+        )
+    guild_queue = GuildQueueBroker(broker, guild_queues, dispatcher, record_plays=history_worker is not None)
 
     # Redis-backed bot-ready queues so multiple broker pods share them and a
     # pod restart doesn't lose in-flight DownloadResults / SearchResolutions.
@@ -236,4 +264,4 @@ def run(settings: dict, general_config: GeneralConfig):
         )
 
     run_broker(broker_server, health_server, redis_manager, broker_metrics,
-               video_cache=video_cache)
+               video_cache=video_cache, history_worker=history_worker)

@@ -33,14 +33,18 @@ class GuildQueueBroker:
     '''
 
     def __init__(self, broker: RedisBroker, queues: GuildQueueRegistry,
-                 dispatcher: BundleDispatchSink | None = None):
+                 dispatcher: BundleDispatchSink | None = None, record_plays: bool = False):
         '''
         dispatcher: where the play-order message is pushed.  None disables the message entirely
         (the queue still works), the way the broker's bundle UI does without a dispatcher.
+        record_plays: queue every track that plays out for the history worker (workers/
+        history_worker).  Off when the broker has no db pod to record them in, so records do not
+        pile up in Redis with nothing to drain them.
         '''
         self._broker = broker
         self._queues = queues
         self._dispatcher = dispatcher
+        self._record_plays = record_plays
 
     @staticmethod
     def _play_order_key(guild_id: int) -> str:
@@ -219,7 +223,8 @@ class GuildQueueBroker:
                     'added_from_history': entry.request.added_from_history,
                     **(_download_to_dict(entry.download) if entry.download else {}),
                 }
-        await self._queues.finish_track(guild_id, media_request_uuid, skipped, history_item, history_cap)
+        await self._queues.finish_track(guild_id, media_request_uuid, skipped, history_item, history_cap,
+                                        emit_event=self._record_plays)
         await self._broker.release(media_request_uuid)
         await self._render(guild_id)
 
