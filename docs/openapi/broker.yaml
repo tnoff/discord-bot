@@ -73,6 +73,173 @@ paths:
       responses:
         default:
           description: See the handler; the seam contract covers the route, not the body.
+  /guilds/{guild_id}/claim:
+    post:
+      operationId: post-guilds-by-guild_id-claim
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /guilds/{guild_id}/close:
+    post:
+      operationId: post-guilds-by-guild_id-close
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /guilds/{guild_id}/finish:
+    post:
+      operationId: post-guilds-by-guild_id-finish
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /guilds/{guild_id}/history:
+    get:
+      operationId: get-guilds-by-guild_id-history
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /guilds/{guild_id}/open:
+    post:
+      operationId: post-guilds-by-guild_id-open
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /guilds/{guild_id}/playing/heartbeat:
+    post:
+      operationId: post-guilds-by-guild_id-playing-heartbeat
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /guilds/{guild_id}/queue:
+    get:
+      operationId: get-guilds-by-guild_id-queue
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: post-guilds-by-guild_id-queue
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /guilds/{guild_id}/queue/bump:
+    post:
+      operationId: post-guilds-by-guild_id-queue-bump
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /guilds/{guild_id}/queue/clear:
+    post:
+      operationId: post-guilds-by-guild_id-queue-clear
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /guilds/{guild_id}/queue/remove:
+    post:
+      operationId: post-guilds-by-guild_id-queue-remove
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /guilds/{guild_id}/queue/shuffle:
+    post:
+      operationId: post-guilds-by-guild_id-queue-shuffle
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /guilds/{guild_id}/queue/state:
+    get:
+      operationId: get-guilds-by-guild_id-queue-state
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /guilds/{guild_id}/skip:
+    post:
+      operationId: post-guilds-by-guild_id-skip
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
   /requests/{uuid}:
     post:
       operationId: post-requests-by-uuid

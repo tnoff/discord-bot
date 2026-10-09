@@ -22,10 +22,11 @@ from aiohttp import web
 
 from discord_core.routes import contract
 from discord_core.routes.route import Route, collect
-from discord_core.clients import http_broker_client, http_player_session
+from discord_core.clients import http_broker_client, http_guild_queue, http_player_session
 from discord_core.clients.http_broker_client import HttpBrokerClient
 
 from discord_core.routes import broker as broker_routes
+from discord_core.routes import guild_queue as guild_queue_routes
 
 from discord_broker.servers.broker_server import BrokerHttpServer
 
@@ -56,7 +57,13 @@ def _served(app: web.Application) -> set[tuple[str, str]]:
 
 
 def _declared() -> set[tuple[str, str]]:
-    return {(route.method, route.template) for route in broker_routes.ALL}
+    '''The broker seam: its own registry plus the guild-queue registry its pod also serves.
+
+    The guild-queue routes are declared in their own module (see routes/guild_queue.py for why)
+    and join routes/broker.py at the next discord_core release, which also adds them to the
+    client's ROUTES_CALLED.  Until then the seam is the union.
+    '''
+    return {(route.method, route.template) for route in broker_routes.ALL + guild_queue_routes.ALL}
 
 
 def test_router_and_registry_agree_exactly():
@@ -79,7 +86,7 @@ def test_every_registry_route_has_a_handler():
     is silently never registered — the failure this catches would otherwise
     only appear as a 404 at runtime.
     '''
-    assert set(_server().route_handlers()) == set(broker_routes.ALL)
+    assert set(_server().route_handlers()) == set(broker_routes.ALL) | set(guild_queue_routes.ALL)
 
 
 def test_a_route_dropped_server_side_is_caught():
@@ -102,7 +109,7 @@ def test_a_route_dropped_server_side_is_caught():
                         broker_routes.NEXT_SEARCH_RESULT.template)}
 
 
-@pytest.mark.parametrize('module', [http_broker_client, http_player_session])
+@pytest.mark.parametrize('module', [http_broker_client, http_guild_queue, http_player_session])
 def test_clients_build_no_urls_themselves(module):
     '''No client on this seam interpolates `_base_url` into a path.
 

@@ -25,6 +25,7 @@ from discord_core.types.player_session import PlayerSession
 from discord_broker.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
                                                      MediaBrokerBase)
 from discord_broker.workers.broker_metrics import BrokerMetricNaming
+from discord_broker.servers.guild_queue_handlers import GuildQueueHandlersMixin
 from discord_broker.workers.guild_queue import GuildQueueBroker
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ _RESULT_FETCH_COUNTER = METER_PROVIDER.create_counter(
 )
 
 
-class BrokerHttpServer(AiohttpServerBase):
+class BrokerHttpServer(GuildQueueHandlersMixin, AiohttpServerBase):
     '''
     aiohttp HTTP server wrapping a MediaBroker instance.  Exposes the full
     BrokerClient surface so a remote bot pod (HttpBrokerClient) can drive the
@@ -77,7 +78,7 @@ class BrokerHttpServer(AiohttpServerBase):
                  guild_queue: GuildQueueBroker | None = None):
         super().__init__()
         self._broker = broker
-        # The per-guild player queue. Held for the routes that serve it; none do yet.
+        # The per-guild player queue. Its routes are served only when one is configured.
         self._guild_queue = guild_queue
         self._host = host
         self._port = port
@@ -131,6 +132,7 @@ class BrokerHttpServer(AiohttpServerBase):
             broker_routes.LIST_SESSIONS: self._handle_list_player_sessions,
             broker_routes.SAVE_SESSION: self._handle_save_player_session,
             broker_routes.DELETE_SESSION: self._handle_delete_player_session,
+            **self.guild_queue_handlers(),
         }
 
     def build_app(self) -> web.Application:

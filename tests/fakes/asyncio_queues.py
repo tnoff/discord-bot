@@ -144,4 +144,29 @@ def make_broker_http_server(broker, **kwargs):
     from discord_broker.servers.broker_server import BrokerHttpServer  # pylint: disable=import-outside-toplevel
     kwargs.setdefault('result_queue', AsyncioDownloadResultQueue())
     kwargs.setdefault('search_result_queue', AsyncioSearchResultQueue())
+    if 'guild_queue' not in kwargs:
+        kwargs['guild_queue'] = make_guild_queue_broker()
     return BrokerHttpServer(broker, **kwargs)
+
+
+def make_guild_queue_broker(bucket_name: str = 'test-bucket'):
+    '''A GuildQueueBroker over a RedisBroker on fakeredis -- the real engine, no Redis server.
+
+    Unlike the AsyncioBroker double the rest of this module wraps, there is no in-memory stand-in
+    for the guild queue: its behavior is Lua scripts, which only a Redis (or fakeredis) runs, so
+    a double would test a different implementation.  Tests that need the media half of the
+    broker too can reach it as `.broker`.
+    '''
+    # Imported here so this fakes module stays importable without the broker pod.
+    # pylint: disable=import-outside-toplevel
+    import fakeredis.aioredis
+    from discord_core.clients.redis_client import RedisManager
+    from discord_broker.workers.broker_registry import RedisBrokerRegistry
+    from discord_broker.workers.guild_queue import GuildQueueBroker
+    from discord_broker.workers.guild_queue_registry import GuildQueueRegistry
+    from discord_broker.workers.redis_broker import RedisBroker
+    manager = RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True))
+    broker = RedisBroker(RedisBrokerRegistry(manager), bucket_name=bucket_name)
+    guild_queue = GuildQueueBroker(broker, GuildQueueRegistry(manager))
+    guild_queue.broker = broker
+    return guild_queue
