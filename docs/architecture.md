@@ -122,6 +122,8 @@ composite app.
 
 | caller | peer | seam | prefix | client | routes |
 |---|---|---|---|---|---|
+| `discord-broker` | `discord-db` | database | `/database/playlist` | `HttpHistoryPlaylistStore` | 16 |
+| `discord-broker` | `discord-db` | database | `/database/guild_analytics` | `HttpPlayAnalyticsStore` | 2 |
 | `discord-broker` | `discord-db` | database | `/database/video_cache` | `HttpVideoCacheStore` | 6 |
 | `discord-broker` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 8 |
 | `discord-downloader` | `discord-broker` | broker | — | `HttpBrokerClient` | 35 |

@@ -34,7 +34,10 @@ BUILT_CLIENTS = {
         'HttpGuildAnalyticsStore', 'HttpMarkovStore', 'HttpMediaSearchClient',
         'HttpPlaylistStore', 'HttpYoutubeMusicSearchClient',
     },
-    'discord-broker': {'HttpDispatchClient', 'HttpVideoCacheStore'},
+    'discord-broker': {
+        'HttpDispatchClient', 'HttpHistoryPlaylistStore', 'HttpPlayAnalyticsStore',
+        'HttpVideoCacheStore',
+    },
     'discord-downloader': {'HttpBrokerClient'},
     'discord-search': {'HttpBrokerClient'},
     # Serve-only pods. Empty sets, not absent keys: "this image calls nothing"

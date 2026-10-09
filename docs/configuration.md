@@ -95,7 +95,9 @@ Configure with:
     general.database_http_url     — discord-db pod URL, e.g. http://discord-db:8085.
                                     Required when music.download.cache is enabled;
                                     without it the catalog is unreachable and the
-                                    cache is disabled with a warning.
+                                    cache is disabled with a warning. Also where the
+                                    history worker records plays; without it no play is
+                                    counted or added to a guild's history, with a warning.
     general.broker_server         — {host, port} for the HTTP server (default 0.0.0.0:8081)
     general.dispatch_http_url     — Dispatcher URL; the broker pushes bundle-UI
                                     edits / failure summaries through it.  Without
@@ -109,6 +111,8 @@ Configure with:
     music.general.message_delete_after — seconds before Discord auto-expires the
                                     bundle summary / failure summary messages this
                                     process sends (default 300)
+    music.playlist.server_playlist_max_size — ceiling on a guild's history playlist
+                                    (default 64, same as the gateway's setting)
 ```
 
 ### discord-downloader

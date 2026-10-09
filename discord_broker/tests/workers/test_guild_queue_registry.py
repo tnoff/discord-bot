@@ -1,5 +1,6 @@
 '''Tests for GuildQueueRegistry, the Redis side of the per-guild player queue.'''
 import asyncio
+import json
 import random
 from unittest.mock import AsyncMock
 
@@ -22,6 +23,7 @@ from discord_broker.workers.guild_queue_registry import (
     GQUEUE_KEY_PREFIX,
     GSKIP_KEY_PREFIX,
     GVERSION_KEY_PREFIX,
+    HISTORY_EVENTS_KEY,
     GuildQueueRegistry,
     GuildQueueState,
     SKIP_NO_PLAYER,
@@ -684,3 +686,78 @@ async def test_close_keeps_the_text_channel():
     await reg.queue_open(GUILD, 555)
     await reg.queue_close(GUILD)
     assert (await reg.queue_state(GUILD)).text_channel_id == 555
+
+
+# ---------------------------------------------------------------------------
+# play records for the history worker
+# ---------------------------------------------------------------------------
+
+async def _events(client) -> list[dict]:
+    return [json.loads(raw) for raw in await client.lrange(HISTORY_EVENTS_KEY, 0, -1)]
+
+
+@pytest.mark.asyncio
+async def test_a_track_that_played_out_is_queued_for_the_history_worker():
+    '''finish puts the play record where the worker will find it, only when asked to.'''
+    reg, client = _make()
+    await reg.finish_track(GUILD, 'a', skipped=False, history_item={'n': 1}, history_cap=5)
+    assert await _events(client) == []
+    await reg.finish_track(GUILD, 'b', skipped=False, history_item={'n': 2}, history_cap=5, emit_event=True)
+    assert await _events(client) == [{'n': 2}]
+    assert 0 < await client.ttl(HISTORY_EVENTS_KEY) <= guild_queue_registry.GUILD_QUEUE_TTL_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_a_skipped_track_is_not_queued_for_the_history_worker():
+    '''Skipped tracks are not recorded anywhere, as before.'''
+    reg, client = _make()
+    await reg.finish_track(GUILD, 'a', skipped=True, history_item={'n': 1}, history_cap=5, emit_event=True)
+    assert await _events(client) == []
+
+
+@pytest.mark.asyncio
+async def test_finishing_without_a_record_queues_nothing():
+    '''No item to describe the play, so nothing to record.'''
+    reg, client = _make()
+    await reg.finish_track(GUILD, 'a', skipped=False, history_item=None, history_cap=5, emit_event=True)
+    assert await _events(client) == []
+
+
+@pytest.mark.asyncio
+async def test_plays_are_still_recorded_when_the_guilds_own_history_is_off():
+    '''A cap of 0 switches off the guild's history list, not the analytics.'''
+    reg, client = _make()
+    await reg.finish_track(GUILD, 'a', skipped=False, history_item={'n': 1}, history_cap=0, emit_event=True)
+    assert await reg.history_items(GUILD) == []
+    assert await _events(client) == [{'n': 1}]
+
+
+@pytest.mark.asyncio
+async def test_records_come_out_oldest_first_and_a_retry_goes_to_the_front():
+    '''FIFO for new records; a record put back is the next one taken.'''
+    reg, _ = _make()
+    for number in (1, 2, 3):
+        await reg.finish_track(GUILD, f'u{number}', skipped=False, history_item={'n': number},
+                               history_cap=5, emit_event=True)
+    assert await reg.history_event_depth() == 3
+    first = await reg.pop_history_event()
+    assert first == {'n': 1}
+    await reg.requeue_history_event({'n': 1, 'attempts': 1})
+    assert await reg.pop_history_event() == {'n': 1, 'attempts': 1}
+    assert await reg.pop_history_event() == {'n': 2}
+    assert await reg.pop_history_event() == {'n': 3}
+    assert await reg.pop_history_event() is None
+    assert await reg.history_event_depth() == 0
+
+
+@pytest.mark.asyncio
+async def test_the_record_backlog_is_bounded_and_keeps_the_newest(monkeypatch):
+    '''A db that stays down cannot grow Redis without limit; the oldest records go first.'''
+    monkeypatch.setattr(guild_queue_registry, 'HISTORY_EVENTS_MAX', 3)
+    reg, _ = _make()
+    for number in range(6):
+        await reg.finish_track(GUILD, f'u{number}', skipped=False, history_item={'n': number},
+                               history_cap=5, emit_event=True)
+    popped = [await reg.pop_history_event() for _ in range(3)]
+    assert popped == [{'n': 3}, {'n': 4}, {'n': 5}]
+    assert await reg.pop_history_event() is None

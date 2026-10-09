@@ -52,6 +52,7 @@ class BrokerMetricNaming(Enum):
     RESULT_FETCH = 'result_fetch'
     BROKER_ENTRIES = 'broker_entries'
     BROKER_BUNDLES = 'broker_bundles'
+    HISTORY_EVENT_QUEUE_DEPTH = 'history_event_queue_depth'
 
 
 _KNOWN_ZONES = ('in_flight', 'available', 'checked_out')

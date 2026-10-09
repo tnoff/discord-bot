@@ -523,3 +523,57 @@ async def test_open_lets_the_next_player_enqueue():
     assert await queues.enqueue(GUILD, uuid) == ENQUEUE_CLOSED
     await queues.open(GUILD, 555)
     assert await queues.enqueue(GUILD, uuid) == ENQUEUE_OK
+
+
+# ---------------------------------------------------------------------------
+# play records for the history worker
+# ---------------------------------------------------------------------------
+
+def _make_recording() -> tuple[RedisBroker, GuildQueueBroker]:
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    manager = RedisManager.from_client(client)
+    broker = RedisBroker(RedisBrokerRegistry(manager), bucket_name=BUCKET)
+    return broker, GuildQueueBroker(broker, GuildQueueRegistry(manager), record_plays=True)
+
+
+@pytest.mark.asyncio
+async def test_a_played_track_is_queued_for_recording_with_everything_the_worker_needs():
+    '''The record carries what the db calls take: guild, URL, title, uploader, duration, cache hit.'''
+    broker, queues = _make_recording()
+    request = _request(title_hint='hist')
+    request.added_from_history = True
+    await broker.register_request(request)
+    await broker.register_download(_download(request, 'hist', cache_hit=True))
+    await queues.enqueue(GUILD, str(request.uuid))
+    await queues.claim_next(GUILD, 'gw-1')
+
+    await queues.finish(GUILD, str(request.uuid), skipped=False, history_cap=5)
+
+    event = await queues._queues.pop_history_event()  # pylint: disable=protected-access
+    assert event['guild_id'] == GUILD
+    assert event['webpage_url'] == 'https://example.com/hist'
+    assert event['title'] == 'hist'
+    assert event['uploader'] == 'Someone'
+    assert event['duration'] == 90
+    assert event['cache_hit'] is True
+    assert event['added_from_history'] is True
+
+
+@pytest.mark.asyncio
+async def test_a_skipped_track_is_not_queued_for_recording():
+    '''Skipped tracks were never recorded.'''
+    broker, queues = _make_recording()
+    [uuid] = await _queued(broker, queues, 'one')
+    await queues.claim_next(GUILD, 'gw-1')
+    await queues.finish(GUILD, uuid, skipped=True, history_cap=5)
+    assert await queues._queues.history_event_depth() == 0  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_nothing_is_queued_for_recording_unless_asked():
+    '''Without a db pod to record in, records would pile up in Redis with nothing to drain them.'''
+    broker, queues = _make()
+    [uuid] = await _queued(broker, queues, 'one')
+    await queues.claim_next(GUILD, 'gw-1')
+    await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
+    assert await queues._queues.history_event_depth() == 0  # pylint: disable=protected-access
