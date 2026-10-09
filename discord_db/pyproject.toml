@@ -18,7 +18,7 @@ dependencies = [
     # checkout path -- criterion 8 step 7. All six pods pin the IDENTICAL tag
     # string; tests/cli/test_package_pins.py enforces that they never drift
     # apart.
-    "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.0.5.tar.gz#subdirectory=discord_core",
+    "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.1.0.tar.gz#subdirectory=discord_core",
     "SQLAlchemy==2.0.52",
     # No import site. SQLAlchemy's async driver, named in the URL cli/_lib/db
     # builds ("postgresql+asyncpg"); absent, nothing can open the database.
