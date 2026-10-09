@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.3.0] - 2026-10-09
+
+### Changed
+
+- Render the guild's play-order message from the broker (a port of MusicPlayer.get_queue_order_messages) on every queue change, in the text channel given to open; open now takes that channel, moves the message when it changes, and puts a track the previous gateway started and never finished back at the head of the queue. Keeps a durable current-track marker (gcurrent) for that recovery. Bump the discord-core pin to core-v3.2.0 (#1048).
+
 ## [3.2.0] - 2026-10-09
 
 ### Changed
