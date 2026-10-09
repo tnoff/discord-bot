@@ -51,6 +51,8 @@ from discord_broker.servers.broker_health_server import BrokerHealthServer
 from discord_broker.servers.broker_server import BrokerHttpServer
 from discord_broker.workers.broker_metrics import BrokerMetrics
 from discord_broker.workers.broker_registry import RedisBrokerRegistry
+from discord_broker.workers.guild_queue import GuildQueueBroker
+from discord_broker.workers.guild_queue_registry import GuildQueueRegistry
 from discord_broker.workers.redis_broker import RedisBroker
 
 logger = logging.getLogger(__name__)
@@ -203,6 +205,10 @@ def run(settings: dict, general_config: GeneralConfig):
         ),
     )
 
+    # The per-guild player queue. Built here so the server owns it; no route serves it yet
+    # (those land with the core route contract), so for now it is only held.
+    guild_queue = GuildQueueBroker(broker, GuildQueueRegistry(redis_manager))
+
     # Redis-backed bot-ready queues so multiple broker pods share them and a
     # pod restart doesn't lose in-flight DownloadResults / SearchResolutions.
     result_queue = RedisDownloadResultQueue(redis_manager)
@@ -217,6 +223,7 @@ def run(settings: dict, general_config: GeneralConfig):
         port=int(broker_cfg.get('port', 8081)),
         result_queue=result_queue,
         search_result_queue=search_result_queue,
+        guild_queue=guild_queue,
     )
 
     health_server = None

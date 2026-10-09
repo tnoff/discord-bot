@@ -43,6 +43,8 @@ def _patch_run_deps(mocker, video_cache=None):
         'video_cache': mocker.patch('discord_broker.cli.broker._build_video_cache', return_value=video_cache),
         'dispatch': mocker.patch('discord_broker.cli.broker.HttpDispatchClient', return_value=MagicMock()),
         'broker': mocker.patch('discord_broker.cli.broker.RedisBroker', return_value=MagicMock()),
+        'guild_queue': mocker.patch('discord_broker.cli.broker.GuildQueueBroker', return_value=MagicMock()),
+        'guild_queue_registry': mocker.patch('discord_broker.cli.broker.GuildQueueRegistry', return_value=MagicMock()),
         'server': mocker.patch('discord_broker.cli.broker.BrokerHttpServer', return_value=MagicMock()),
         'health': mocker.patch('discord_broker.cli.broker.BrokerHealthServer', return_value=MagicMock()),
         'run_broker': mocker.patch('discord_broker.cli.broker.run_broker'),
@@ -66,6 +68,11 @@ def test_run_constructs_broker_with_dispatcher_and_health(mocker):
     # Server gets the Redis-backed result queues (download + search), no ha_mode.
     assert m['server'].call_args.kwargs['result_queue'] is m['result_queue'].return_value
     assert m['server'].call_args.kwargs['search_result_queue'] is m['search_result_queue'].return_value
+    # The guild queue is built over the same broker and Redis manager, and handed to the server.
+    m['guild_queue_registry'].assert_called_once_with(m['redis_manager'].from_general_config.return_value)
+    m['guild_queue'].assert_called_once_with(
+        m['broker'].return_value, m['guild_queue_registry'].return_value)
+    assert m['server'].call_args.kwargs['guild_queue'] is m['guild_queue'].return_value
     # Metrics poller built from the result queue + registry + search queue, handed to run_broker.
     m['metrics'].assert_called_once_with(
         m['result_queue'].return_value, m['registry'].return_value,

@@ -225,3 +225,10 @@ class RedisBrokerRegistry:
             return True
         finally:
             await self._client.delete(lock_key)
+
+    async def get_entries(self, uuids: list[str]) -> list[dict | None]:
+        '''Fetch several entries in one round trip, None where an entry is gone.'''
+        if not uuids:
+            return []
+        raws = await self._client.mget([f'{ENTRY_KEY_PREFIX}{uuid}' for uuid in uuids])
+        return [json.loads(raw) if raw else None for raw in raws]

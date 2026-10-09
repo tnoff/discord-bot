@@ -30,7 +30,7 @@ requires-python = ">=3.11"
 [project.optional-dependencies]
 test = [
     "bandit==1.9.4",
-    "fakeredis==2.37.1",
+    "fakeredis[lua]==2.37.1",
     "freezegun==1.5.5",
     # Validates the generated docs/openapi/*.yaml are real OpenAPI rather than
     # plausible-looking YAML. The generator is deterministic, so the risk is an

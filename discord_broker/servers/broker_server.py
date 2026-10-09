@@ -25,6 +25,7 @@ from discord_core.types.player_session import PlayerSession
 from discord_broker.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
                                                      MediaBrokerBase)
 from discord_broker.workers.broker_metrics import BrokerMetricNaming
+from discord_broker.workers.guild_queue import GuildQueueBroker
 
 logger = logging.getLogger(__name__)
 
@@ -72,9 +73,12 @@ class BrokerHttpServer(AiohttpServerBase):
     # bandit B104: '0.0.0.0' default is intentional — worker/bot pods reach the broker across the docker/k8s network; callers override host via constructor arg
     def __init__(self, broker: MediaBrokerBase, host: str = '0.0.0.0', port: int = 8081,  # nosec B104
                  *, result_queue: DownloadResultQueue,
-                 search_result_queue: SearchResultQueue):
+                 search_result_queue: SearchResultQueue,
+                 guild_queue: GuildQueueBroker | None = None):
         super().__init__()
         self._broker = broker
+        # The per-guild player queue. Held for the routes that serve it; none do yet.
+        self._guild_queue = guild_queue
         self._host = host
         self._port = port
         # The broker pod passes Redis-backed queues so multiple broker pods

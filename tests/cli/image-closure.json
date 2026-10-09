@@ -20,6 +20,8 @@
         "discord_broker.workers",
         "discord_broker.workers.broker_metrics",
         "discord_broker.workers.broker_registry",
+        "discord_broker.workers.guild_queue",
+        "discord_broker.workers.guild_queue_registry",
         "discord_broker.workers.media_bundle",
         "discord_broker.workers.redis_broker",
         "discord_core",
