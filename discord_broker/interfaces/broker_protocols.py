@@ -11,7 +11,7 @@ broker pod's BrokerHttpServer; the cog only depends on BrokerClient.
 import asyncio
 import logging
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, List, Protocol
 
@@ -87,6 +87,37 @@ class BrokerEntry:
     download: MediaDownload | None = None
     zone: Zone = Zone.IN_FLIGHT
     checked_out_by: int | None = None
+
+
+@dataclass
+class PlayingTrack:
+    '''The track a guild's player is playing, as the broker last heard from the gateway.'''
+    uuid: str
+    started_at: float
+    gateway_id: str
+    entry: BrokerEntry | None = None
+
+
+@dataclass
+class GuildQueue:
+    '''
+    A guild's queue, hydrated: entries in play order, not bare uuids.
+
+    version moves on every queue mutation.  items skips uuids whose entry is gone (evicted, or
+    expired) -- they are dead weight in the list and a claim will drop them.
+    '''
+    version: int = 0
+    items: List[BrokerEntry] = field(default_factory=list)
+    playing: PlayingTrack | None = None
+    skip_for: str | None = None
+    closed: bool = False
+
+
+@dataclass
+class ClaimedTrack:
+    '''A track the gateway has taken off the queue and is about to play.'''
+    entry: BrokerEntry
+    checkout: CheckoutResult
 
 
 class MediaBrokerBase(PlayerSessionStore, ABC):

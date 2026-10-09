@@ -35,6 +35,7 @@ def _download_to_dict(media_download: MediaDownload) -> dict:
         'uploader': media_download.uploader,
         'extractor': media_download.extractor,
         'file_size_bytes': media_download.file_size_bytes,
+        'cache_hit': media_download.cache_hit,
     }
 
 
@@ -50,6 +51,7 @@ def _download_from_dict(data: dict, media_request: MediaRequest) -> MediaDownloa
     file_path = Path(data['file_path']) if data.get('file_path') else None
     md = MediaDownload(file_path, ytdl_data, media_request)
     md.file_size_bytes = data.get('file_size_bytes')
+    md.cache_hit = bool(data.get('cache_hit', False))
     return md
 
 
@@ -281,6 +283,11 @@ class RedisBroker(MediaBrokerBase):
         if data is None:
             return None
         return _entry_from_dict(data)
+
+    async def get_entries(self, media_request_uuids: List[str]) -> List[BrokerEntry | None]:
+        '''Several entries in one round trip, None where an entry is gone.'''
+        return [_entry_from_dict(data) if data else None
+                for data in await self._registry.get_entries(media_request_uuids)]
 
     async def get_cache_count(self) -> int:
         if not self.video_cache:

@@ -26,7 +26,7 @@ see — name, description, unit, and which pod.
 | `broker_entries` | Broker registry entries by zone | `1` | broker | `discord_broker/workers/broker_metrics.py:77` |
 | `cache_filesystem_max_bytes` | Max size of cache filesystem | `bytes` | gateway | `discord_gateway/cogs/music.py:390` |
 | `cache_filesystem_used_bytes` | Used size of cache filesystem | `bytes` | gateway | `discord_gateway/cogs/music.py:391` |
-| `heartbeat` | Broker HTTP server heartbeat | `1` | broker | `discord_broker/servers/broker_server.py:90` |
+| `heartbeat` | Broker HTTP server heartbeat | `1` | broker | `discord_broker/servers/broker_server.py:94` |
 | `heartbeat` | Delete message loop heartbeat | `1` | gateway | `discord_gateway/cogs/delete_messages.py:63` |
 | `heartbeat` | Delete message result loop heartbeat | `1` | gateway | `discord_gateway/cogs/delete_messages.py:65` |
 | `heartbeat` | Download HTTP server heartbeat | `1` | downloader | `discord_core/servers/queue_worker_server.py:75` |
