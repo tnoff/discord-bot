@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.3] - 2026-10-10
+
+### Changed
+
+- Save the player session before stopping the player loop on shutdown: stopping the loop clears the track it was playing, so the session was being written with was_playing=False mid-track. Resume decides by what is queued, so nothing broke, but the stored state was wrong. Also bring the music docs (flow, terminology, messaging, music) in line with the broker-owned queue: the player claims from the broker instead of keeping its own `_play_queue`, the broker renders the play-order message, and history is kept by the broker (#1048).
+
 ## [3.2.2] - 2026-10-10
 
 ### Changed
