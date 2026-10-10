@@ -1,6 +1,7 @@
 '''Tests for resume-after-restart: saving where a guild's player is on shutdown and
 picking its queue back up on the next startup.  The queue itself lives in the broker and
 survives the restart; the session only says which channels to rejoin.'''
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -22,6 +23,25 @@ from tests.helpers import (attach_in_process_broker, attach_in_process_download,
                            attach_in_process_search, FakeChannel,
                            FakeGuild, FakeVoiceClient, fake_engine, fake_context,
                            fake_media_download)
+
+
+class _StopsOnDisconnect(FakeVoiceClient):
+    '''
+    A voice client that behaves like the real one on disconnect: it stops what is playing,
+    which fires the callback play() was given, the same one a track ending fires.
+    '''
+    def __init__(self, guild=None):
+        super().__init__(guild=guild)
+        self.after = None
+
+    def play(self, *_args, after=None, **_kwargs):
+        self.after = after
+        return True
+
+    async def disconnect(self):
+        if self.after:
+            self.after()
+        return True
 
 
 class _FakeMember:
@@ -356,6 +376,41 @@ async def test_resume_does_not_wait_for_its_own_gateway(mocker, fake_context):  
 
             sleeper.assert_not_awaited()
             assert guild_id in cog.players
+
+
+@pytest.mark.asyncio
+async def test_a_restart_leaves_the_interrupted_track_for_the_next_gateway(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''
+    Restarting mid-track disconnects voice, which stops playback the way a track ending does.
+    The track was not played out: it must not land in the guild's history, and the next
+    gateway has to get it back at the head of the queue.
+    '''
+    cog, voice_channel = _resumable_cog(fake_context, mocker, [_FakeMember()])
+    guild_id = fake_context['guild'].id
+    player = await cog.get_player(guild_id, ctx=fake_context['context'])
+    voice_client = _StopsOnDisconnect(guild=fake_context['guild'])
+    voice_client.channel = voice_channel
+    fake_context['guild'].voice_client = voice_client
+    async with _queued_track(cog, fake_context) as interrupted:
+        async with _queued_track(cog, fake_context) as waiting:
+            task = asyncio.create_task(player.player_loop())
+            for _ in range(200):
+                if player.current_media_download is not None:
+                    break
+                await asyncio.sleep(0.005)
+            assert player.current_media_download is not None
+
+            await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
+            await asyncio.wait_for(task, timeout=1)
+
+            assert await cog.broker_client.get_guild_history(guild_id) == []
+
+            # The next gateway comes up once the old one's heartbeat has lapsed
+            await _lapse_heartbeat(cog, guild_id)
+            await cog.resume_player_sessions()
+
+            assert await _queued_uuids(cog, guild_id) == [
+                str(interrupted.media_request.uuid), str(waiting.media_request.uuid)]
 
 
 @pytest.mark.asyncio

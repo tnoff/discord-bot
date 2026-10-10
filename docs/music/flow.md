@@ -581,6 +581,8 @@ broker_client.finish_track(guild, uuid, skipped, queue_max_size)
     - played out: the broker records it in the guild's history and queues a play
       record for the history worker
     - skipped:    released, not recorded
+    - player stopped (e.g. a restart disconnecting voice): not told at all; the
+      track stays with the broker for the next gateway to recover
     ↓
 Discard the staged copy, stop the heartbeat, loop to the next track
 ```
