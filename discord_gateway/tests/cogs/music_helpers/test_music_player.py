@@ -696,6 +696,60 @@ async def test_a_stopped_track_is_left_with_the_broker(fake_context): #pylint:di
 
 
 @pytest.mark.asyncio
+async def test_stop_loop_cancels_the_loop_and_waits_for_it(fake_context): #pylint:disable=redefined-outer-name
+    '''The loop is gone when stop_loop returns, and the track it was playing is still the broker's'''
+    fake_context['guild'].voice_client = _HoldingVoiceClient()
+    with with_music_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            await queue_track(player, media_download)
+            player._player_task = asyncio.create_task(player.player_loop()) #pylint:disable=protected-access
+            await until(lambda: player.current_media_download is not None)
+
+            await player.stop_loop()
+
+            assert player._player_task.done() #pylint:disable=protected-access
+            assert player.current_media_download is None
+            assert await history(player) == []
+            assert (await queue_of(player)).playing.uuid == str(media_download.media_request.uuid)
+
+
+@pytest.mark.asyncio
+async def test_stop_loop_with_no_loop_running_is_a_noop(fake_context): #pylint:disable=redefined-outer-name
+    with with_music_player(fake_context) as player:
+        await player.stop_loop()
+        assert player._player_task is None #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_a_stopped_player_claims_nothing_more(fake_context): #pylint:disable=redefined-outer-name
+    '''
+    The loop runner re-enters player_loop the moment it returns. A claim made after the player
+    was stopped would mark a second track as playing and hide the interrupted one.
+    '''
+    with with_mock_broker_player(fake_context) as player:
+        player.shutdown_called = True
+        with pytest.raises(ExitEarlyException):
+            await player.player_loop()
+        player.broker.claim_next_track.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_player_stopped_while_waiting_claims_nothing_more(fake_context): #pylint:disable=redefined-outer-name
+    '''Stopped between polls, the wait ends without another claim'''
+    with patch.object(music_player_module, 'CLAIM_POLL_SECONDS', 0.01):
+        with with_mock_broker_player(fake_context) as player:
+            player.disconnect_timeout = 5
+            task = asyncio.create_task(player.player_loop())
+            await until(lambda: player.broker.claim_next_track.await_count >= 2)
+            player.shutdown_called = True
+            with pytest.raises(ExitEarlyException):
+                await asyncio.wait_for(task, timeout=1)
+            claims = player.broker.claim_next_track.await_count
+            await asyncio.sleep(0.05)
+            assert player.broker.claim_next_track.await_count == claims
+
+
+@pytest.mark.asyncio
 async def test_finish_tells_the_broker_how_the_track_ended(fake_context): #pylint:disable=redefined-outer-name
     '''The broker is told the track, whether it was skipped, and how much history to keep'''
     fake_context['guild'].voice_client = FakeVoiceClient()

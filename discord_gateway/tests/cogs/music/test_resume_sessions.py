@@ -5,11 +5,13 @@ import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from discord_core.types.player_session import PlayerSession
+from discord_core.utils.common import return_loop_runner
 
 from discord_broker.workers.guild_queue_registry import GPLAYING_KEY_PREFIX
 
@@ -28,19 +30,27 @@ from tests.helpers import (attach_in_process_broker, attach_in_process_download,
 class _StopsOnDisconnect(FakeVoiceClient):
     '''
     A voice client that behaves like the real one on disconnect: it stops what is playing,
-    which fires the callback play() was given, the same one a track ending fires.
+    which fires the callback play() was given, the same one a track ending fires, and takes
+    time doing it.
     '''
     def __init__(self, guild=None):
         super().__init__(guild=guild)
         self.after = None
+        self.player = None
+        self.player_shut_down_at_disconnect = None
 
     def play(self, *_args, after=None, **_kwargs):
         self.after = after
         return True
 
     async def disconnect(self):
+        if self.player:
+            self.player_shut_down_at_disconnect = self.player.shutdown_called
         if self.after:
             self.after()
+        # The real disconnect takes time (it is a websocket close), and during it the loop the
+        # callback just woke gets to run. Without this the cleanup would cancel it first.
+        await asyncio.sleep(0.05)
         return True
 
 
@@ -382,35 +392,45 @@ async def test_resume_does_not_wait_for_its_own_gateway(mocker, fake_context):  
 async def test_a_restart_leaves_the_interrupted_track_for_the_next_gateway(mocker, fake_context):  #pylint:disable=redefined-outer-name
     '''
     Restarting mid-track disconnects voice, which stops playback the way a track ending does.
-    The track was not played out: it must not land in the guild's history, and the next
-    gateway has to get it back at the head of the queue.
+    The track was not played out: it must not land in the guild's history, the player must not
+    go on to claim another (the broker keeps one marker per guild, so that would hide the
+    interrupted one), and the next gateway has to get it back at the head of the queue.
+
+    Drives the real loop runner, which re-enters player_loop as soon as it returns.
     '''
     cog, voice_channel = _resumable_cog(fake_context, mocker, [_FakeMember()])
     guild_id = fake_context['guild'].id
     player = await cog.get_player(guild_id, ctx=fake_context['context'])
     voice_client = _StopsOnDisconnect(guild=fake_context['guild'])
     voice_client.channel = voice_channel
+    voice_client.player = player
     fake_context['guild'].voice_client = voice_client
+    bot = SimpleNamespace(wait_until_ready=AsyncMock(), is_closed=lambda: False)
     async with _queued_track(cog, fake_context) as interrupted:
         async with _queued_track(cog, fake_context) as waiting:
-            task = asyncio.create_task(player.player_loop())
-            for _ in range(200):
-                if player.current_media_download is not None:
-                    break
-                await asyncio.sleep(0.005)
-            assert player.current_media_download is not None
+            async with _queued_track(cog, fake_context) as last:
+                player._player_task = asyncio.create_task(  #pylint:disable=protected-access
+                    return_loop_runner(player.player_loop, bot, player.logger, None)())
+                for _ in range(200):
+                    if player.current_media_download is not None:
+                        break
+                    await asyncio.sleep(0.005)
+                assert player.current_media_download is not None
 
-            await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
-            await asyncio.wait_for(task, timeout=1)
+                await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
 
-            assert await cog.broker_client.get_guild_history(guild_id) == []
+                # The cleanup_players loop must not see a shut-down player and start a second,
+                # differently-reasoned cleanup on top of this one
+                assert voice_client.player_shut_down_at_disconnect is False
+                assert await cog.broker_client.get_guild_history(guild_id) == []
 
-            # The next gateway comes up once the old one's heartbeat has lapsed
-            await _lapse_heartbeat(cog, guild_id)
-            await cog.resume_player_sessions()
+                # The next gateway comes up once the old one's heartbeat has lapsed
+                await _lapse_heartbeat(cog, guild_id)
+                await cog.resume_player_sessions()
 
-            assert await _queued_uuids(cog, guild_id) == [
-                str(interrupted.media_request.uuid), str(waiting.media_request.uuid)]
+                assert await _queued_uuids(cog, guild_id) == [
+                    str(interrupted.media_request.uuid), str(waiting.media_request.uuid),
+                    str(last.media_request.uuid)]
 
 
 @pytest.mark.asyncio

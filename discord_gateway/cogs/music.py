@@ -1059,9 +1059,11 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             self.logger.info(f'Starting cleanup on guild {guild.id}, reason: {reason.value}')
             player = await self.get_player(guild.id, create_player=False)
             if player:
-                # Before the voice disconnect below: that stops playback, and the player must
-                # know it was stopped rather than that its track finished.
-                player.shutdown_called = True
+                # Before the voice disconnect below: that stops playback, which looks to the
+                # player like its track finishing. Not by marking the player shut down: the
+                # cleanup_players loop would see that and start a second cleanup, with the wrong
+                # reason, on top of this one.
+                await player.stop_loop()
             if reason == CleanupReason.BOT_SHUTDOWN and player:
                 # Capture the session before anything below tears state down: the
                 # voice disconnect drops the channel we need to rejoin. The queue needs no

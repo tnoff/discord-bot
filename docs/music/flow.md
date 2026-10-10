@@ -680,7 +680,9 @@ Disconnect from voice
     ↓
 Clean up temp files
     ↓
-Bot restart (BOT_SHUTDOWN): the guild's queue stays in the broker and the session
+Bot restart (BOT_SHUTDOWN): the player loop is cancelled before voice is disconnected
+(the disconnect looks like a track ending), so the interrupted track stays with the
+broker. The guild's queue stays in the broker and the session
 (voice and text channel) is kept, so the next gateway picks the queue up again.
 Any other reason: the broker closes the guild, releasing its queue, its
 now-playing track and the play-order message.
