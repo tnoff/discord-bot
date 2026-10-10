@@ -816,6 +816,16 @@ async def test_the_heartbeat_does_not_wait_for_staging(fake_context): #pylint:di
 
 
 @pytest.mark.asyncio
+async def test_the_heartbeat_ends_when_told_to_stop(fake_context): #pylint:disable=redefined-outer-name
+    '''Setting the stop event ends the heartbeat on its own, without a cancel and without another beat'''
+    with with_mock_broker_player(fake_context) as player:
+        stop = asyncio.Event()
+        stop.set()
+        await asyncio.wait_for(player._heartbeat('some-uuid', stop), timeout=1) #pylint:disable=protected-access
+        player.broker.playing_heartbeat.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_a_failing_heartbeat_does_not_stop_the_music(fake_context): #pylint:disable=redefined-outer-name
     '''The broker blipping is not a reason to cut the track off'''
     fake_context['guild'].voice_client = _HoldingVoiceClient()
