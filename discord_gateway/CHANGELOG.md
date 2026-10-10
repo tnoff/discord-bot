@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.2] - 2026-10-10
+
+### Changed
+
+- Fix a graceful restart still losing the track it interrupted, and a duplicate cleanup. #1059 marked the player as shut down before disconnecting voice, but the loop runner re-enters the player loop as soon as it returns, so the player went on to claim another track; the broker keeps one now-playing marker per guild, so that hid the interrupted track and the resume recovered the wrong one. Marking the player shut down also made the cleanup_players loop start a second cleanup with the default queue_timeout reason, which closes the guild's queue. Cleanup now calls MusicPlayer.stop_loop() before the voice disconnect, which cancels the loop and waits for it, and a stopped player refuses to claim (#1048).
+
 ## [3.2.1] - 2026-10-10
 
 ### Changed
