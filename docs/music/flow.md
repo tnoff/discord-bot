@@ -17,7 +17,7 @@ flowchart TD
     BUNDLE --> ROUTE{"For each MediaRequest —<br/>search_type?"}
 
     ROUTE -->|"DIRECT / YOUTUBE"| CACHE1{"Cache hit?"}
-    CACHE1 -->|HIT| PLAYQ(["Add to player._play_queue<br/>mark COMPLETED"])
+    CACHE1 -->|HIT| PLAYQ(["Enqueue in the broker's guild queue<br/>mark COMPLETED"])
     CACHE1 -->|MISS| DLSUBMIT["Submit to discord-downloader over HTTP<br/>mark QUEUED"]
 
     ROUTE -->|"Spotify / text search"| SEARCHSUBMIT["Submit to discord-search over HTTP"]
@@ -417,7 +417,7 @@ Check media_request.search_result.search_type:
         ↓
         ├─ Cache HIT?
         │   ↓
-        │   Create MediaDownload from cache, add to player._play_queue
+        │   Create MediaDownload from cache, enqueue it in the broker's guild queue
         │   ↓
         │   Push a COMPLETED lifecycle event (the broker's bundle counts it)
         │
@@ -795,11 +795,12 @@ error-rate alert doesn't page on ordinary user input.
 
 ### **Queue Full**
 ```
-_play_queue.put_nowait() raises QueueFull
+broker_client.enqueue_track(...) returns 'full'
     ↓
-self._push_state(media_request, LifecycleEvent.DISCARDED)  -- notifies the broker's bundle
+self._push_state(media_request, LifecycleEvent.FAILED)  -- notifies the broker's bundle
+    (with a failure_reason when the item is part of a bundle)
     ↓
-Stop adding more items to queue
+broker_client.discard(uuid) releases the registered entry; add_source_to_player returns False
 ```
 
 ### **Player Disconnected**
@@ -840,7 +841,7 @@ Create a broker-owned bundle (BundleState/BundleRenderer) for progress tracking
     ↓
 Enqueue each MediaRequest:
     ├─ Check cache first
-    │   └─ HIT: Add directly to player._play_queue
+    │   └─ HIT: Enqueue directly in the broker's guild queue
     ├─ Spotify/text search: submit to the discord-search pod over HTTP
     │   └─ Search worker converts to YouTube URL → posts to broker →
     │      bot's Process Search Results Loop submits to discord-downloader
@@ -854,17 +855,17 @@ discord-downloader pod processes downloads:
     └─ Post the DownloadResult back to the broker
     ↓
 Bot pod: Process Download Results Loop checks out the file from the broker,
-adds MediaDownload to player._play_queue
+registers the MediaDownload with the broker and enqueues it (enqueue_track)
     ↓
 Player Loop:
-    ├─ Get next item from _play_queue
-    ├─ Check out the file from the broker, read into memory
+    ├─ Claim the next track from the broker (claim_next_track)
+    ├─ Start the heartbeat, stage the file (S3 or local), read into memory
     ├─ Create PCMAudio source (not FFmpegPCMAudio)
     ├─ voice_client.play(audio_source)
     ├─ Update "Now Playing" message
     ├─ Wait for track to finish
-    ├─ Add to history
-    ├─ Release the file back to the broker
+    ├─ finish_track: the broker records it in history (unless skipped) and
+    │  releases the entry
     └─ Loop to next track
 ```
 
