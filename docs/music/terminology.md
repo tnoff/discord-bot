@@ -240,9 +240,9 @@ today:
 - **Purpose**: Pull completed YouTube Music search resolutions back from the `discord-search` pipeline
 - **Processes**: Results polled via `youtube_music_search_client`/`broker_client`
 
-### **Post-Play Processing Loop** (`post_play_processing`)
-- **Purpose**: Record playback history/analytics to the `discord-db` pod and run cache cleanup after each track finishes — this merges what used to be a separate "Cache Cleanup Loop" and "Playlist History Update Loop"
-- **Processes**: `history_playlist_queue` items; evicts stale cached files via the broker
+### **History Worker** (`HistoryWorker`, broker pod)
+- **Purpose**: Record playback history/analytics to the `discord-db` pod after each track plays out — this replaced the gateway's `post_play_processing` loop when the player queue moved into the broker
+- **Processes**: play records the broker's `finish_track` pushes onto the `history_events` list (skipped tracks are never recorded)
 
 See the [background documentation](./background.md) for detailed explanation of background loops.
 

@@ -514,59 +514,75 @@ Poll the broker for the next finished result
 ├─ Terminal failure: distinguish a rejection (video declined) from a
 │  genuine fault, notify the user, mark FAILED
 └─ Success: check out the file from the broker (S3 or local), add to
-   player._play_queue, mark COMPLETED
+   the guild's queue in the broker (`enqueue_track`), mark COMPLETED
 ```
 
 ---
 
 ### **Phase 4: Player Queue & Playback**
 
-**Step 4.1: Add to Player Queue**
+**Step 4.1: Add to the Guild's Queue**
+
+The queue is the broker's, not the player's. `add_source_to_player` registers the
+download with the broker, then asks it to enqueue the track:
 
 ```
-player.add_to_play_queue(media_download)
+broker_client.register_download(media_download)
     ↓
-player._play_queue.put_nowait(media_download)
+broker_client.enqueue_track(guild_id, uuid, queue_max_size)
     ↓
-Update play order message queue
+├─ ok:        queued; the player is woken (notify_enqueued) and the prefetch
+│             window is restaged
+├─ duplicate: already queued, so it will play; nothing to undo
+├─ full:      the track is discarded and the request marked FAILED
+└─ closed:    the guild is shutting down; discarded
+    ↓
+The broker re-renders the guild's play-order message
 ```
 
-**Step 4.2: Player Loop Processes Queue**
+Registration comes first so the player can never claim a track the broker does
+not know about yet.
 
-The `MusicPlayer.player_loop()` runs continuously:
+**Step 4.2: Player Loop Claims and Plays**
+
+`MusicPlayer.player_loop()` plays one track per pass; `_player_task` runs it in a
+loop. The claim, the now-playing record, the history and the skip marker all live
+in the broker (see [Player queue](./background.md#per-guild-player-queue-broker)):
 
 ```
-player_loop() (infinite loop)
+player_loop()
     ↓
-Wait for next track:
-    - If queue empty: Wait with timeout
-    - If timeout: Disconnect and cleanup
-    - If item available: Continue
+Claim the next track (broker_client.claim_next_track(guild, gateway_id)):
+    - Nothing queued: wait for notify_enqueued, polling the broker every second
+    - Nothing within disconnect_timeout: destroy the player and exit
     ↓
-media_download = await _play_queue.get()
+The claim is parked until confirmed, and carries the S3 location to fetch from
     ↓
-Check out the file from the broker (self.broker.checkout) -- S3 fetch or
-local copy, resolved to a local file_path; skip the track if no file
-resolves (e.g. broker has no entry yet)
+Start the heartbeat (playing_heartbeat every 5s; the broker lets the record lapse
+after 15s without one)
+    ↓
+Stage the file: reuse the prefetched copy, else fetch from S3 (or use the local
+file when no bucket is configured); skip the track if no file resolves
     ↓
 Read the whole file into memory: BytesIO(open(file_path, 'rb').read())
     ↓
 audio_source = PCMAudio(audio_data)   -- NOT FFmpegPCMAudio; no ffmpeg
                                           subprocess, no streaming from disk
     ↓
-Set current_audio_source = audio_source
+Wait for a voice client (a resumed session reaches here before the handshake ends)
     ↓
 voice_client.play(audio_source, after=set_next)
     ↓
 Update "Now Playing" message
     ↓
-Add to history queue (for analytics)
-    ↓
 Wait for track to finish (self.next.wait())
     ↓
-Release the file from the broker (self.broker.release)
+broker_client.finish_track(guild, uuid, skipped, queue_max_size)
+    - played out: the broker records it in the guild's history and queues a play
+      record for the history worker
+    - skipped:    released, not recorded
     ↓
-Loop to next track
+Discard the staged copy, stop the heartbeat, loop to the next track
 ```
 
 ---
@@ -623,7 +639,7 @@ NO: Submit directly to the discord-downloader pod
 
 ## Player Queue States
 
-The player queue (`_play_queue`) has several states:
+The guild's queue (held by the broker; the player claims from it) has several states:
 
 ### **Empty Queue**
 ```
@@ -656,15 +672,16 @@ When current finishes, immediately play next
 ```
 Player.shutdown_called = True
     ↓
-Stop accepting new queue items
-    ↓
-Finish current track
-    ↓
-Clear queue
+Stop claiming new tracks
     ↓
 Disconnect from voice
     ↓
 Clean up temp files
+    ↓
+Bot restart (BOT_SHUTDOWN): the guild's queue stays in the broker and the session
+(voice and text channel) is kept, so the next gateway picks the queue up again.
+Any other reason: the broker closes the guild, releasing its queue, its
+now-playing track and the play-order message.
 ```
 
 ---

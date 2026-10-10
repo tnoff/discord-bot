@@ -188,10 +188,11 @@ async def test_cleanup_bot_shutdown_keeps_bundle(mocker, fake_context):  # pylin
 
 
 @pytest.mark.asyncio
-async def test_cleanup_bot_shutdown_clears_queue_message(mocker, fake_context):  # pylint: disable=redefined-outer-name
-    """BOT_SHUTDOWN clears the play-order message rather than stranding a queue
-    listing in the channel that describes a play queue no process owns."""
+async def test_cleanup_bot_shutdown_leaves_the_queue_and_its_message(mocker, fake_context):  # pylint: disable=redefined-outer-name
+    """BOT_SHUTDOWN keeps the guild's queue open and its play-order message up: the queue is what the
+    next gateway picks up, and the broker (not the cog) owns that message."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -200,10 +201,8 @@ async def test_cleanup_bot_shutdown_clears_queue_message(mocker, fake_context): 
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
 
     play_order_key = f'{MultipleMutableType.PLAY_ORDER.value}-{fake_context["guild"].id}'
-    calls = [call.args for call in cog.dispatcher.update_mutable.call_args_list]
-    assert play_order_key in [call[0] for call in calls]
-    # Player is already popped, so the rendered content is empty — the table clears
-    assert [call[2] for call in calls if call[0] == play_order_key] == [[]]
+    assert play_order_key not in [call.args[0] for call in cog.dispatcher.update_mutable.call_args_list]
+    assert (await cog.broker_client.get_guild_queue(fake_context['guild'].id)).closed is False
 
 
 @pytest.mark.asyncio
@@ -296,6 +295,7 @@ async def test_cleanup_removes_guild_player_dir(mocker, fake_context):  # pylint
 async def test_cleanup_skips_player_dir_on_bot_shutdown(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup does not remove guild player dir on BOT_SHUTDOWN (cog_unload handles it)."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -355,6 +355,7 @@ async def test_cleanup_orphaned_voice_client_disconnected(fake_context):  # pyli
 async def test_cleanup_orphaned_skips_backed_and_guildless(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """The sweep leaves alone clients backed by a player, or with no guild."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')

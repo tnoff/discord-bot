@@ -42,7 +42,7 @@ async def test_download_queue(mocker, fake_context, fake_stores):  #pylint:disab
             await cog.download_client.submit(fake_context['guild'].id, sd.media_request)
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
-            assert cog.players[fake_context['guild'].id].get_queue_items()
+            assert (await cog.broker_client.get_guild_queue(fake_context['guild'].id)).items
 
 @pytest.mark.asyncio()
 async def test_download_queue_hits_cache(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
@@ -71,7 +71,7 @@ async def test_download_queue_hits_cache(mocker, fake_context, fake_stores):  #p
             await cog.download_client.submit(fake_context['guild'].id, sd.media_request)
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
-            assert cog.players[fake_context['guild'].id].get_queue_items()
+            assert (await cog.broker_client.get_guild_queue(fake_context['guild'].id)).items
 
 def yield_download_worker_bot_flagged():
     class FakeDownloadWorker(AsyncioDownloadWorker):
@@ -102,7 +102,7 @@ async def test_download_queue_bot_warning(mocker, fake_context):  #pylint:disabl
     await cog.download_client.submit(fake_context['guild'].id, s)
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
-    assert not cog.players[fake_context['guild'].id].get_queue_items()
+    assert not (await cog.broker_client.get_guild_queue(fake_context['guild'].id)).items
 
 @pytest.mark.asyncio()
 async def test_download_queue_download_exception(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -121,7 +121,7 @@ async def test_download_queue_download_exception(mocker, fake_context):  #pylint
     await cog.download_client.submit(fake_context['guild'].id, s)
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
-    assert not cog.players[fake_context['guild'].id].get_queue_items()
+    assert not (await cog.broker_client.get_guild_queue(fake_context['guild'].id)).items
 
 @pytest.mark.asyncio()
 async def test_download_queue_download_error(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -136,7 +136,7 @@ async def test_download_queue_download_error(mocker, fake_context):  #pylint:dis
     await cog.download_client.submit(fake_context['guild'].id, s)
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
-    assert not cog.players[fake_context['guild'].id].get_queue_items()
+    assert not (await cog.broker_client.get_guild_queue(fake_context['guild'].id)).items
 
 @pytest.mark.asyncio()
 async def test_download_queue_no_result(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -151,7 +151,7 @@ async def test_download_queue_no_result(mocker, fake_context):  #pylint:disable=
     await cog.download_client.submit(fake_context['guild'].id, s)
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
-    assert not cog.players[fake_context['guild'].id].get_queue_items()
+    assert not (await cog.broker_client.get_guild_queue(fake_context['guild'].id)).items
 
 @pytest.mark.asyncio()
 async def test_download_queue_player_shutdown(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -168,7 +168,7 @@ async def test_download_queue_player_shutdown(mocker, fake_context):  #pylint:di
             cog.players[fake_context['guild'].id].shutdown_called = True
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
-            assert not cog.players[fake_context['guild'].id].get_queue_items()
+            assert not (await cog.broker_client.get_guild_queue(fake_context['guild'].id)).items
 
 @pytest.mark.asyncio()
 async def test_download_queue_no_player_queue(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -242,7 +242,7 @@ async def test_download_retry_limit_exceeded(mocker, fake_context):  # pylint: d
     await cog.download_client.submit(fake_context['guild'].id, s)
     await cog.download_client.run(cog.bot_shutdown_event)
     await cog.process_download_results()
-    assert not cog.players[fake_context['guild'].id].get_queue_items()
+    assert not (await cog.broker_client.get_guild_queue(fake_context['guild'].id)).items
 
 
 def _make_playlist_add_request(fake_context):  # pylint: disable=redefined-outer-name

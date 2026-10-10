@@ -1,34 +1,24 @@
 import asyncio
-from asyncio import Event, QueueEmpty, QueueFull, TimeoutError as async_timeout, Task
-from datetime import timedelta
+from asyncio import Event, TimeoutError as async_timeout, Task
 from io import BytesIO
 from pathlib import Path
-from re import sub
 from time import time, monotonic
-from typing import List
 
-from async_timeout import timeout
-from dappertable import DapperTable, Column, Columns, PaginationLength
 from discord import PCMAudio
 from discord.errors import ClientException
 from opentelemetry.trace import SpanKind
 
-from discord_core.cogs.music_helpers.common import MultipleMutableType
-from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_core.exceptions import ExitEarlyException
 from discord_core.types.media_download import MediaDownload, media_download_attributes
 from discord_core.utils.common import get_logger, LoggingConfig
 from discord_core.utils.common import return_loop_runner
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.otel import async_otel_span_wrapper, span_links_from_context
-from discord_core.types.queue import Queue
-
 from discord_core.interfaces.broker_client_protocol import BrokerClient
-from discord_core.types.checkout_result import CheckoutResult
+from discord_core.types.guild_queue import ClaimedDownload
 from discord_core.utils.integrations.s3 import ObjectStorageException, get_file
 
 from discord_gateway.types.cleanup_reason import CleanupReason
-from discord_gateway.types.history_playlist_item import HistoryPlaylistItem
 
 
 # Staging a track for playback (broker checkout + S3 fetch) happens between a
@@ -43,6 +33,14 @@ PLAY_STAGING_SLOW_SECONDS = 5.0
 # voice connection completing, during a rollout.
 VOICE_CLIENT_WAIT_SECONDS = 60.0
 VOICE_CLIENT_POLL_SECONDS = 0.5
+
+# How often the broker is told this process is still playing the track it claimed. The broker's
+# now-playing record expires after 15s, so this survives two missed beats; a gateway that dies
+# stops beating and the record lapses, which is what lets a replacement take the track over.
+HEARTBEAT_INTERVAL_SECONDS = 5.0
+# How often an idle player asks the broker for its next track. The gateway's own enqueue wakes it
+# at once (see notify_enqueued), so this only bounds how long a track added by anything else waits.
+CLAIM_POLL_SECONDS = 1.0
 
 
 
@@ -70,10 +68,8 @@ class MusicPlayer:
     def __init__(self, bot, guild, text_channel,
                  logging_config: LoggingConfig,
                  queue_max_size: int, disconnect_timeout: int, file_dir: Path,
-                 dispatcher,
-                 history_playlist_id: int,
-                 history_playlist_queue: Queue,
-                 broker: BrokerClient | None = None,
+                 broker: BrokerClient,
+                 gateway_id: str,
                  prefetch_limit: int = 5,
                  bucket_name: str | None = None):
         '''
@@ -82,6 +78,16 @@ class MusicPlayer:
         Takes bot / guild / text_channel rather than a Context: these three were
         all a Context was ever read for, and a player resumed at startup is built
         from a stored session with no command behind it.
+
+        The player does not own the queue. The broker does (queue, history and the
+        now-playing record), so a restart of this process loses none of it. What stays
+        here is what has to share a process with discord.py: the voice connection,
+        the audio, and the staged copies of the files about to be played.
+
+        broker : Where the guild's queue lives, and how this player claims tracks.
+        gateway_id : Names this process in the broker's now-playing record, so a
+            replacement can tell another gateway's heartbeat from its own.
+        queue_max_size : How many played tracks the broker keeps as history.
         '''
         self.logger = get_logger(__name__, logging_config)
         self.bot = bot
@@ -90,16 +96,11 @@ class MusicPlayer:
 
         self.disconnect_timeout: int = disconnect_timeout
         self.file_dir: Path = file_dir
+        self.queue_max_size: int = queue_max_size
 
-        # Queues
-        self._play_queue: Queue[MediaDownload] = Queue(maxsize=queue_max_size)
-        self._history: Queue[MediaDownload] = Queue(maxsize=queue_max_size)
         self.next: Event = Event()
-        self.dispatcher = dispatcher
-
-        # History playlist
-        self.history_playlist_id: int = history_playlist_id
-        self.history_playlist_queue: Queue[HistoryPlaylistItem] = history_playlist_queue
+        # Set when something is queued, so an idle player claims at once rather than on its poll.
+        self._wake: Event = Event()
 
         # Tasks
         self._player_task: Task | None = None
@@ -108,15 +109,14 @@ class MusicPlayer:
         # Random things to store
         self.current_media_download: MediaDownload | None = None
         self.current_audio_source: PCMAudio | None = None
-        self.np_message: str = ''
         self.video_skipped: bool = False
-        self.queue_messages: list[str] = [] # Show current queue
         # Shutdown called externally
         self.shutdown_called: bool = False
         self.shutdown_reason: CleanupReason | None = None
         # Inactive timestamp for bot timeout
         self.inactive_timestamp: int | None = None
-        self.broker: BrokerClient | None = broker
+        self.broker: BrokerClient = broker
+        self.gateway_id: str = gateway_id
         self.prefetch_limit: int = prefetch_limit
         # Bucket the queued items' file paths are object keys in. None means the
         # downloads are local files already, so there is nothing to stage.
@@ -173,44 +173,115 @@ class MusicPlayer:
         )
         return None
 
+    def notify_enqueued(self):
+        '''
+        Tell an idle player something was queued, so it claims now instead of on its next poll.
+        '''
+        self._wake.set()
+
+    async def _claim_next(self) -> ClaimedDownload:
+        '''
+        Wait for the broker to hand over the next track.
+
+        If nothing arrives within disconnect_timeout the player shuts itself down, exactly as it
+        did when it waited on its own queue.
+        '''
+        deadline = monotonic() + self.disconnect_timeout
+        while True:
+            # Clear BEFORE asking: a wake that lands while the claim is in flight must still
+            # end the wait below, or it would sit unnoticed until the poll.
+            self._wake.clear()
+            claimed = await self.broker.claim_next_track(self.guild.id, self.gateway_id)
+            if claimed is not None:
+                return claimed
+            remaining = deadline - monotonic()
+            if remaining <= 0:
+                self.logger.info(f'Bot reached timeout on queue in guild "{self.guild.id}"')
+                self.destroy()
+                raise ExitEarlyException('MusicPlayer hit timeout waiting for the next track')
+            try:
+                await asyncio.wait_for(self._wake.wait(), timeout=min(CLAIM_POLL_SECONDS, remaining))
+            except async_timeout:
+                pass
+
+    async def _heartbeat(self, media_uuid: str, stop: Event):
+        '''
+        Keep the broker's now-playing record alive until `stop` is set.
+
+        A failed beat is logged and retried rather than raised: the broker blipping must not
+        stop the music, and the record only lapses after three missed beats.
+        '''
+        while True:
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=HEARTBEAT_INTERVAL_SECONDS)
+                return
+            except async_timeout:
+                pass
+            try:
+                if not await self.broker.playing_heartbeat(self.guild.id, media_uuid):
+                    self.logger.warning(
+                        f'Broker no longer lists "{media_uuid}" as playing in guild {self.guild.id}')
+            except Exception as exc:  #pylint:disable=broad-except
+                self.logger.warning(f'Heartbeat for guild {self.guild.id} failed: {exc}')
+
+    async def _finish_track(self, media_download: MediaDownload, skipped: bool):
+        '''
+        Tell the broker this track is done: it clears the now-playing record, records the play
+        (unless skipped) and releases the entry.
+        '''
+        await self.broker.finish_track(self.guild.id, str(media_download.media_request.uuid),
+                                       skipped, self.queue_max_size)
+
     async def player_loop(self):
         '''
         Player loop logic
         '''
         self.next.clear()
 
-        try:
-            # Wait for the next video. If we timeout cancel the player and disconnect...
-            async with timeout(self.disconnect_timeout):
-                media_download = await self._play_queue.get()
-        except async_timeout as e:
-            self.logger.info(f'Bot reached timeout on queue in guild "{self.guild.id}"')
-            self.destroy()
-            raise ExitEarlyException('MusicPlayer hit async timeout on player wait') from e
+        claimed = await self._claim_next()
+        media_download = claimed.download
+        media_uuid = str(media_download.media_request.uuid)
         self.current_media_download = media_download
-        # Span the active play-start path — broker checkout, file staging and the
-        # voice_client.play() call — so a failed/absent voice client (the
-        # "Voice client unavailable" case) is recorded as an ERROR span instead of
-        # only a log line. Scoped to track start, not the preceding queue wait or
-        # the song's full playback, to keep the span bounded. Linked back to the
+        # Started before staging, not after: fetching a large file from S3 can outlast the
+        # broker's 15s now-playing window, and a lapsed record is how a replacement decides the
+        # track is orphaned.
+        stop_heartbeat = Event()
+        heartbeat = asyncio.create_task(self._heartbeat(media_uuid, stop_heartbeat))
+        try:
+            audio_source = await self._start_track(claimed)
+            if audio_source is None:
+                return
+            await self.next.wait()
+            cleanup_source(audio_source)
+            # skipped tracks are released but not recorded in the guild's history
+            await self._finish_track(media_download, self.video_skipped)
+            self._discard_staged(media_download)
+        finally:
+            stop_heartbeat.set()
+            heartbeat.cancel()
+            self.current_media_download = None
+
+    async def _start_track(self, claimed: ClaimedDownload) -> PCMAudio | None:
+        '''
+        Stage the claimed track's file and start it playing.
+
+        Returns the audio source, or None when the track could not be started (it has been
+        released). Raises ExitEarlyException when there is no voice connection to play into.
+        '''
+        media_download = claimed.download
+        # Span the active play-start path — file staging and the voice_client.play() call —
+        # so a failed/absent voice client (the "Voice client unavailable" case) is recorded as
+        # an ERROR span instead of only a log line. Scoped to track start, not the preceding
+        # queue wait or the song's full playback, to keep the span bounded. Linked back to the
         # request that queued the track so the play correlates with its download.
         span_attributes = media_download_attributes(media_download)
         span_attributes[DiscordContextNaming.GUILD.value] = self.guild.id
         async with async_otel_span_wrapper(
                 'music.play_track', kind=SpanKind.INTERNAL, attributes=span_attributes,
                 links=span_links_from_context(media_download.media_request.span_context)):
-            checkout_result: CheckoutResult | None = None
-            checkout_seconds = 0.0
-            if self.broker:
-                checkout_started = monotonic()
-                checkout_result = await self.broker.checkout(
-                    str(media_download.media_request.uuid), self.guild.id
-                )
-                checkout_seconds = monotonic() - checkout_started
-
-            # Default to the download's own path; override with whatever the broker
-            # checked out. s3_key means the broker pod holds it in S3 and the bot
-            # must fetch it before playback.
+            # The claim already checked the entry out; its checkout says where the file is.
+            # s3_key means the broker pod holds it in S3 and the bot must fetch it first.
+            checkout_result = claimed.checkout
             file_path = media_download.file_path
             s3_fetch_seconds = 0.0
             media_uuid = str(media_download.media_request.uuid)
@@ -221,34 +292,28 @@ class MusicPlayer:
                                                       checkout_result.s3_key)
                 s3_fetch_seconds = monotonic() - s3_fetch_started
             elif self.bucket_name and self._staged_path(media_uuid, media_download.file_path).exists():
-                # The broker has no entry any more (e.g. the cache evicted it), but
-                # the prefetch window already staged the file.
+                # The prefetch window already staged the file.
                 file_path = self._staged_path(media_uuid, media_download.file_path)
-            # Surface how long staging this track took: broker checkout + the
-            # S3 fetch sit between the track leaving the play queue and audio starting,
-            # so a slow broker or S3 GET reads as dead air. DEBUG normally; escalated
-            # to WARNING past PLAY_STAGING_SLOW_SECONDS so a prod stall is visible
-            # without DEBUG logging, and splits the two phases to say which was slow.
-            staging_seconds = checkout_seconds + s3_fetch_seconds
-            staging_log = (self.logger.warning if staging_seconds >= PLAY_STAGING_SLOW_SECONDS
+            # Surface how long staging this track took: the S3 fetch sits between the track
+            # leaving the queue and audio starting, so a slow GET reads as dead air. DEBUG
+            # normally; escalated to WARNING past PLAY_STAGING_SLOW_SECONDS so a prod stall is
+            # visible without DEBUG logging.
+            staging_log = (self.logger.warning if s3_fetch_seconds >= PLAY_STAGING_SLOW_SECONDS
                            else self.logger.debug)
             staging_log(
-                'Play staging for "%s" in guild %s took %.2fs (broker checkout %.2fs, S3 fetch %.2fs)',
-                media_download.webpage_url, self.guild.id, staging_seconds,
-                checkout_seconds, s3_fetch_seconds,
+                'Play staging for "%s" in guild %s took %.2fs (S3 fetch)',
+                media_download.webpage_url, self.guild.id, s3_fetch_seconds,
             )
-            # A checkout miss (e.g. the broker has no entry yet) leaves file_path
-            # pointing at the download's own path, which in S3 mode is the object key
-            # ("cache/…"), not a local file. Skip the track rather than letting open()
-            # raise and take the whole player loop down for this guild.
+            # A missing file leaves file_path pointing at the download's own path, which in S3
+            # mode is the object key ("cache/…"), not a local file. Skip the track rather than
+            # letting open() raise and take the whole player loop down for this guild.
             if file_path is None or not Path(file_path).exists():
                 self.logger.warning(
                     f'No playable file for "{media_download.webpage_url}" in guild {self.guild.id} '
                     f'(resolved path {str(file_path)!r} does not exist); skipping track'
                 )
-                if self.broker:
-                    await self.broker.release(str(media_download.media_request.uuid))
-                return
+                await self._finish_track(media_download, True)
+                return None
             self.logger.debug(f'Gathered new file to play {str(file_path)}')
             with open(file_path, 'rb') as f:
                 audio_data = BytesIO(f.read())
@@ -261,89 +326,18 @@ class MusicPlayer:
             except (AttributeError, ClientException) as e:
                 self.logger.warning(
                     f'Voice client unavailable for guild {self.guild.id} ({type(e).__name__}: {e}), '
-                    f'shutting down player with {self._play_queue.size()} item(s) still queued'
+                    f'shutting down player'
                 )
-                self.np_message = ''
                 cleanup_source(audio_source)
-                if self.broker:
-                    await self.broker.release(str(media_download.media_request.uuid))
+                await self._finish_track(media_download, True)
                 if not self.shutdown_called:
                     self.destroy(reason=CleanupReason.VOICE_DISCONNECT)
                 raise ExitEarlyException('No voice client in guild, ending loop') from e
             self.trigger_prefetch()
             self.logger.info(f'Now playing "{media_download.webpage_url}" requested '
-                                f'by "{media_download.media_request.requester_id}" in guild {self.guild.id}, url '
-                                f'"{media_download.webpage_url}"')
-            self.np_message = f'Now playing {media_download.webpage_url} requested by {media_download.media_request.requester_name}'
-            key = f'{MultipleMutableType.PLAY_ORDER.value}-{self.guild.id}'
-            self.dispatcher.update_mutable(key, self.guild.id,
-                                           self.get_queue_order_messages(), self.text_channel.id)
-
-        await self.next.wait()
-        self.np_message = ''
-        cleanup_source(audio_source)
-        if self.broker:
-            await self.broker.release(str(media_download.media_request.uuid))
-        self._discard_staged(media_download)
-
-        # Add video to history if possible
-        # Add here to history playlist queue to save items for metrics as well
-        # Check on the other side if this was added from history
-        if not self.video_skipped:
-            if self.history_playlist_id:
-                self.history_playlist_queue.put_nowait(HistoryPlaylistItem(self.history_playlist_id, media_download))
-
-            try:
-                self._history.put_nowait(media_download)
-            except QueueFull:
-                await self._history.get()
-                self._history.put_nowait(media_download)
-
-        # Make sure we delete queue messages if nothing left
-        if self._play_queue.empty():
-            key = f'{MultipleMutableType.PLAY_ORDER.value}-{self.guild.id}'
-            self.dispatcher.update_mutable(key, self.guild.id,
-                                           self.get_queue_order_messages(), self.text_channel.id)
-
-    def get_queue_order_messages(self):
-        '''
-        Get full queue message
-        '''
-        queue_items = self._play_queue.items()
-        # Always include the now playing message if it exists, even when queue is empty
-        items = [self.np_message] if self.np_message else []
-
-        if not queue_items:
-            return items
-        headers = [
-            Column('Pos', 3, zero_pad=True),
-            Column('Wait Time', 9),
-            Column('Title', 48),
-            Column('Uploader', 48)
-        ]
-        table = DapperTable(columns=Columns(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
-                            enclosure_start='```', enclosure_end='```')
-        duration = 0
-        # The now playing message should show as a distinct message since you want the embed of the video played right under that message
-        # and then before the rest of the queue is shown
-        if self.current_media_download:
-            duration = int(self.current_media_download.duration) if self.current_media_download.duration else 0
-        for (count, item) in enumerate(queue_items):
-            uploader = item.uploader or ''
-            delta = timedelta(seconds=duration)
-            delta_string = sub(r'^0:(?=\d{2}:\d{2})', '', str(delta))
-            duration += int(item.duration) if item.duration else 0
-            table.add_row([
-                f'{count + 1}',
-                f'{delta_string}',
-                f'{item.title}',
-                f'{uploader}',
-            ])
-        # Manually add code block formatting to table output
-        table_output = table.render()
-        if not isinstance(table_output, list):
-            table_output = [table_output]
-        return items + table_output
+                             f'by "{media_download.media_request.requester_id}" in guild {self.guild.id}, url '
+                             f'"{media_download.webpage_url}"')
+            return audio_source
 
     def set_next(self, *_args, **_kwargs):
         '''
@@ -441,12 +435,13 @@ class MusicPlayer:
         if self.bucket_name and self.prefetch_limit > 0:
             if self._prefetch_task and not self._prefetch_task.done():
                 self._prefetch_task.cancel()
-            self._prefetch_task = asyncio.create_task(self._prefetch(self.get_queue_items()))
+            self._prefetch_task = asyncio.create_task(self._prefetch())
             self._prefetch_task.add_done_callback(self._on_prefetch_done)
 
-    async def _prefetch(self, queue_items: List[MediaDownload]):
-        '''Stage the first prefetch_limit queued items, in queue order.'''
-        for item in queue_items[:self.prefetch_limit]:
+    async def _prefetch(self):
+        '''Stage the first prefetch_limit queued items, in queue order, as the broker has them now.'''
+        queue = await self.broker.get_guild_queue(self.guild.id)
+        for item in queue.items[:self.prefetch_limit]:
             try:
                 await self._ensure_staged(str(item.media_request.uuid), self.bucket_name, str(item.file_path))
             except ObjectStorageException as exc:
@@ -502,112 +497,21 @@ class MusicPlayer:
             task.cancel()
         self._staged_path(media_uuid, media_download.file_path).unlink(missing_ok=True)
 
-    def add_to_play_queue(self, source_download: MediaDownload) -> bool:
-        '''
-        Add source download to this play queue
-        '''
-        self._play_queue.put_nowait(source_download)
-        return True
-
-    def check_queue_empty(self) -> bool:
-        '''
-        Check if queue is empty
-        '''
-        return self._play_queue.empty()
-
-    async def clear_queue(self) -> List[MediaDownload]:
-        '''
-        Clear queue and return items
-        '''
-        items = self._play_queue.clear()
-        for item in items:
-            self._discard_staged(item)
-            if self.broker:
-                await self.broker.remove(str(item.media_request.uuid))
-        return items
-
-    def shuffle_queue(self) -> bool:
-        '''
-        Shuffle play queue
-        '''
-        self._play_queue.shuffle()
-        return True
-
-    def remove_queue_item(self, queue_index: int) -> MediaDownload:
-        '''
-        Remove item from queue
-        '''
-        item = self._play_queue.remove_item(queue_index)
-        self._discard_staged(item)
-        return item
-
-    def bump_queue_item(self, queue_index: int) -> MediaDownload:
-        '''
-        Bump queue item
-        '''
-        return self._play_queue.bump_item(queue_index)
-
-    def get_queue_items(self) -> List[MediaDownload]:
-        '''
-        Get a copy of the queue items
-        '''
-        return self._play_queue.items()
-
-    def get_history_items(self) -> List[MediaDownload]:
-        '''
-        Get a copy of the history items
-        '''
-        return self._history.items()
-
-    def check_history_empty(self) -> bool:
-        '''
-        Check if history is empty
-        '''
-        return self._history.empty()
-
-    def queued_media_downloads(self) -> List[MediaDownload]:
-        '''
-        The current track plus everything queued behind it, in play order.
-
-        Replaces get_file_paths, which projected the same traversal down to
-        file paths and had no callers outside its own tests.  Callers take the
-        field they need: .file_path for staged files, .media_request for the
-        session written at shutdown.  The in-progress track leads, since a resume
-        restarts it from the beginning rather than seeking into it.
-        '''
-        items = []
-        if self.current_media_download:
-            items.append(self.current_media_download)
-        items.extend(self._play_queue.items())
-        return items
+    def discard_staged(self, media_download: MediaDownload):
+        '''Delete the staged copy of a track that left the queue without playing.'''
+        self._discard_staged(media_download)
 
     async def cleanup(self):
         '''
-        Cleanup all resources for player
+        Release this process's resources for the guild: the audio, the staged files, and the
+        tasks.
+
+        Deliberately leaves the broker alone. Whether the guild's queue goes with the player
+        is the caller's decision: a stop or a timeout closes the guild, a restart does not (the
+        queue is what the next gateway resumes). See Music.cleanup.
         '''
         self.logger.info(f'Clearing out resources for player in {self.guild.id}')
-        self._play_queue.block()
         cleanup_source(self.current_audio_source)
-        if self.broker and self.current_media_download:
-            await self.broker.release(str(self.current_media_download.media_request.uuid))
-        # Delete any messages from download queue
-        # Delete any files in play queue that are already added
-        while True:
-            try:
-                media_download = self._play_queue.get_nowait()
-                self.logger.debug(f'Removing item {media_download} from play queue')
-                if self.broker:
-                    await self.broker.remove(str(media_download.media_request.uuid))
-            except QueueEmpty:
-                break
-
-        # Clear out all the queues
-        self.logger.debug('Calling clear on queues and queue messages')
-        self._history.clear()
-        self._play_queue.clear()
-        # Clear any messages in the current queue
-        self.np_message = ''
-
         if self._prefetch_task and not self._prefetch_task.done():
             self._prefetch_task.cancel()
             self._prefetch_task = None

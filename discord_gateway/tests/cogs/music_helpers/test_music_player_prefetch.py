@@ -10,26 +10,33 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from discord_core.types.queue import Queue
+from discord_core.types.checkout_result import CheckoutResult
+from discord_core.types.guild_queue import ClaimedDownload
 from discord_core.utils.integrations.s3 import ObjectStorageException
 
-from discord_broker.interfaces.broker_protocols import CheckoutResult
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 
+from tests.fakes.asyncio_broker import AsyncioBroker
+from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
+from tests.fakes.asyncio_queues import make_guild_queue_for
 from tests.helpers import fake_context, fake_media_download, FakeVoiceClient #pylint:disable=unused-import
 
 GET_FILE = 'discord_gateway.cogs.music_helpers.music_player.get_file'
 
 
 def _player(fake_context, tmp_dir, bucket_name='my-bucket', prefetch_limit=2): #pylint:disable=redefined-outer-name
-    broker = Mock()
-    broker.checkout = AsyncMock(return_value=None)
-    broker.release = AsyncMock()
-    broker.remove = AsyncMock()
+    '''A player over the real guild queue, with the bucket configured on both sides.'''
+    engine = AsyncioBroker(bucket_name=bucket_name)
+    broker = AsyncioBrokerClient(engine, guild_queue=make_guild_queue_for(engine))
     return MusicPlayer(
         fake_context['bot'], fake_context['guild'], fake_context['channel'], {}, 10, 0.01, Path(tmp_dir),
-        Mock(), None, Queue(), broker=broker, prefetch_limit=prefetch_limit, bucket_name=bucket_name,
+        broker, 'gw-test', prefetch_limit=prefetch_limit, bucket_name=bucket_name,
     )
+
+
+async def _enqueue(player, media_download):
+    await player.broker.register_download(media_download)
+    assert await player.broker.enqueue_track(player.guild.id, str(media_download.media_request.uuid), 10) == 'ok'
 
 
 def _writes_audio(_bucket, _key, dest):
@@ -49,7 +56,7 @@ async def test_prefetch_stages_only_the_window(fake_context): #pylint:disable=re
         for _ in range(3):
             cm = fake_media_download(tmp_dir, fake_context=fake_context)
             items.append(cm.__enter__())
-            player.add_to_play_queue(items[-1])
+            await _enqueue(player, items[-1])
         with patch(GET_FILE, side_effect=_writes_audio) as mock_get:
             player.trigger_prefetch()
             await _settle(player)
@@ -64,7 +71,7 @@ async def test_prefetch_skips_what_is_already_on_disk(fake_context): #pylint:dis
     with TemporaryDirectory() as tmp_dir:
         player = _player(fake_context, tmp_dir)
         with fake_media_download(tmp_dir, fake_context=fake_context) as md:
-            player.add_to_play_queue(md)
+            await _enqueue(player, md)
             with patch(GET_FILE, side_effect=_writes_audio) as mock_get:
                 player.trigger_prefetch()
                 await _settle(player)
@@ -80,7 +87,7 @@ async def test_prefetch_is_a_noop_without_a_bucket_or_limit(fake_context): #pyli
         for kwargs in ({'bucket_name': None}, {'prefetch_limit': 0}):
             player = _player(fake_context, tmp_dir, **kwargs)
             with fake_media_download(tmp_dir, fake_context=fake_context) as md:
-                player.add_to_play_queue(md)
+                await _enqueue(player, md)
                 with patch(GET_FILE) as mock_get:
                     player.trigger_prefetch()
                 assert player._prefetch_task is None #pylint:disable=protected-access
@@ -94,8 +101,8 @@ async def test_a_failed_prefetch_is_survivable(fake_context): #pylint:disable=re
         player = _player(fake_context, tmp_dir)
         with fake_media_download(tmp_dir, fake_context=fake_context) as first, \
                 fake_media_download(tmp_dir, fake_context=fake_context) as second:
-            player.add_to_play_queue(first)
-            player.add_to_play_queue(second)
+            await _enqueue(player, first)
+            await _enqueue(player, second)
             calls = []
 
             def _first_fails(bucket, key, dest):
@@ -122,10 +129,8 @@ async def test_playback_reuses_a_prefetched_file(fake_context): #pylint:disable=
     with TemporaryDirectory() as tmp_dir:
         player = _player(fake_context, tmp_dir)
         with fake_media_download(tmp_dir, fake_context=fake_context) as md:
-            key = str(md.file_path)
-            player.broker.checkout = AsyncMock(return_value=CheckoutResult(s3_key=key, bucket_name='my-bucket'))
-            player.add_to_play_queue(md)
-            staged = player._staged_path(str(md.media_request.uuid), key) #pylint:disable=protected-access
+            await _enqueue(player, md)
+            staged = player._staged_path(str(md.media_request.uuid), md.file_path) #pylint:disable=protected-access
             with patch(GET_FILE, side_effect=_writes_audio) as mock_get:
                 player.trigger_prefetch()
                 await _settle(player)
@@ -162,14 +167,18 @@ async def test_playback_joins_a_download_already_in_flight(fake_context): #pylin
 
 @pytest.mark.asyncio
 async def test_playback_falls_back_to_the_staged_file_on_a_checkout_miss(fake_context): #pylint:disable=redefined-outer-name
-    '''If the broker lost the entry (checkout None) but the file is already staged, it still plays.'''
+    '''If the broker's claim carries no S3 key but the file is already staged, it still plays.'''
     fake_context['guild'].voice_client = FakeVoiceClient()
     with TemporaryDirectory() as tmp_dir:
         player = _player(fake_context, tmp_dir)
         with fake_media_download(tmp_dir, fake_context=fake_context) as md:
             staged = player._staged_path(str(md.media_request.uuid), md.file_path) #pylint:disable=protected-access
             staged.write_bytes(b'audio')
-            player.add_to_play_queue(md)
+            player.broker = Mock()
+            player.broker.claim_next_track = AsyncMock(
+                return_value=ClaimedDownload(download=md, checkout=CheckoutResult(s3_key=None, bucket_name=None)))
+            player.broker.finish_track = AsyncMock()
+            player.broker.playing_heartbeat = AsyncMock(return_value=True)
             with patch.object(player.logger, 'warning') as warning:
                 await player.player_loop()
             assert not any('No playable file' in str(call) for call in warning.call_args_list)
@@ -177,23 +186,20 @@ async def test_playback_falls_back_to_the_staged_file_on_a_checkout_miss(fake_co
             assert not staged.exists()
 
 
-@pytest.mark.asyncio
-async def test_removing_or_clearing_discards_staged_files(fake_context): #pylint:disable=redefined-outer-name
-    '''A track that leaves the queue unplayed takes its staged copy with it.'''
+def test_discarding_a_track_discards_only_its_staged_file(fake_context): #pylint:disable=redefined-outer-name
+    '''A track that leaves the queue unplayed takes its staged copy with it, and no one else's.'''
     with TemporaryDirectory() as tmp_dir:
         player = _player(fake_context, tmp_dir)
         with fake_media_download(tmp_dir, fake_context=fake_context) as first, \
                 fake_media_download(tmp_dir, fake_context=fake_context) as second:
-            player.add_to_play_queue(first)
-            player.add_to_play_queue(second)
             paths = []
             for item in (first, second):
                 path = player._staged_path(str(item.media_request.uuid), item.file_path) #pylint:disable=protected-access
                 path.write_bytes(b'audio')
                 paths.append(path)
-            player.remove_queue_item(1)
+            player.discard_staged(first)
             assert not paths[0].exists() and paths[1].exists()
-            await player.clear_queue()
+            player.discard_staged(second)
             assert not paths[1].exists()
 
 
@@ -221,7 +227,7 @@ async def test_a_new_trigger_supersedes_the_running_prefetch(fake_context): #pyl
         player = _player(fake_context, tmp_dir)
         blocked = _BlockedDownload()
         with fake_media_download(tmp_dir, fake_context=fake_context) as md:
-            player.add_to_play_queue(md)
+            await _enqueue(player, md)
             with patch(GET_FILE, side_effect=blocked) as mock_get:
                 player.trigger_prefetch()
                 first = player._prefetch_task #pylint:disable=protected-access
