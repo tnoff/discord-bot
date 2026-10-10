@@ -423,6 +423,9 @@ async def test_a_restart_leaves_the_interrupted_track_for_the_next_gateway(mocke
                 # differently-reasoned cleanup on top of this one
                 assert voice_client.player_shut_down_at_disconnect is False
                 assert await cog.broker_client.get_guild_history(guild_id) == []
+                # The session is taken before the loop is stopped, which clears the playing track
+                [session] = await cog.broker_client.list_player_sessions()
+                assert session.was_playing is True
 
                 # The next gateway comes up once the old one's heartbeat has lapsed
                 await _lapse_heartbeat(cog, guild_id)

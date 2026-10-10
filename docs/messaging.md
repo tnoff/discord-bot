@@ -160,9 +160,9 @@ The `should_clear_messages()` method checks if messages are still at the bottom 
 
 ## Queue System Integration
 
-### **Player Queue** (`MusicPlayer.get_queue_order_messages()`)
+### **Player Queue** (`discord_broker/workers/play_order.py`)
 
-Shows current playback and upcoming tracks.
+Shows current playback and upcoming tracks. The broker renders it and updates it on every change to the guild's queue; the gateway no longer does.
 
 **Behavior**:
 - Displays "Now Playing" message followed by queue table

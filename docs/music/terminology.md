@@ -8,7 +8,7 @@ This document defines all key components, types, and concepts used throughout th
 
 ### **`MusicPlayer`**
 - Per-guild music player instance that manages playback
-- Maintains its own play queue (`_play_queue`) and history queue
+- Plays from the guild's queue, which the broker holds: it claims each track, heartbeats while it plays and reports how it ended
 - Runs a background loop (`player_loop()`) that continuously plays queued tracks
 - Handles voice connection, and track transitions
 - One instance per Discord server (guild) that has active music playback
@@ -27,7 +27,7 @@ This document defines all key components, types, and concepts used throughout th
 - Represents a successfully downloaded audio file
 - Contains: file path, metadata (title, uploader, duration), yt-dlp data
 - Created after yt-dlp downloads complete
-- Added to `MusicPlayer._play_queue` for playback
+- Enqueued in the broker's guild queue for playback
 - Deleted from disk after track finishes playing
 - Located in `discord_core/types/media_download.py`
 
@@ -115,7 +115,7 @@ the "Redis" variants are what actually runs.
 ### **Standard `Queue`**
 - Simple FIFO (First In, First Out) queue
 - Single queue for all items
-- Used for: player play queue (`_play_queue`), history queue
+- Used for: the failure queue (`discord_core/utils/failure_queue.py`); the player's queue is the broker's, not this type
 - Located in `discord_core/types/queue.py`
 
 ---

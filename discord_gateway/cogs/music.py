@@ -1058,17 +1058,18 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.cleanup', kind=SpanKind.CONSUMER, attributes={DiscordContextNaming.GUILD.value: guild.id}):
             self.logger.info(f'Starting cleanup on guild {guild.id}, reason: {reason.value}')
             player = await self.get_player(guild.id, create_player=False)
+            if reason == CleanupReason.BOT_SHUTDOWN and player:
+                # Capture the session before anything below tears state down: the
+                # voice disconnect drops the channel we need to rejoin, and stopping the
+                # loop clears the track it was playing (was_playing). The queue needs no
+                # capturing; it stays in the broker.
+                await self._save_player_session(guild, player)
             if player:
                 # Before the voice disconnect below: that stops playback, which looks to the
                 # player like its track finishing. Not by marking the player shut down: the
                 # cleanup_players loop would see that and start a second cleanup, with the wrong
                 # reason, on top of this one.
                 await player.stop_loop()
-            if reason == CleanupReason.BOT_SHUTDOWN and player:
-                # Capture the session before anything below tears state down: the
-                # voice disconnect drops the channel we need to rejoin. The queue needs no
-                # capturing; it stays in the broker.
-                await self._save_player_session(guild, player)
             if reason == CleanupReason.BOT_SHUTDOWN and player and self.dispatcher:
                 self.dispatcher.send_message(player.guild.id, player.text_channel.id,
                     'Bot is restarting. The play queue is saved and playback will resume when '

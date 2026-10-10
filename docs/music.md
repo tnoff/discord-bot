@@ -51,7 +51,7 @@ Stop the bot from playing audio and delete the queue
 !stop
 ```
 
-Show history of videos played by the bot during its current session
+Show history of videos played by the bot (kept by the broker, so it survives a restart)
 
 ```
 !history
