@@ -127,7 +127,7 @@ music.playlist play  (SERVER)
 | `music.add_source_to_player` | INTERNAL | `discord-gateway`, `discord_gateway/cogs/music.py` | Final handoff into the player queue |
 
 Other spans `discord_gateway/cogs/music.py` emits (`music.process_search_results`,
-`music.post_play_processing`, `music.resume_player_session`,
+`music.resume_player_session`,
 `music.get_player`, `music.ensure_player`, `music.cleanup`,
 `music.cog_unload`) follow the same `span_links_from_context` pattern where
 they carry a `MediaRequest`; see the source for the current full list rather

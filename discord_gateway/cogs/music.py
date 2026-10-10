@@ -3,7 +3,7 @@
 
 import asyncio
 from asyncio import sleep
-from asyncio import QueueEmpty, QueueFull, TimeoutError as async_timeout
+from asyncio import QueueFull, TimeoutError as async_timeout
 from functools import partial
 from pathlib import Path
 import random
@@ -11,6 +11,7 @@ from shutil import disk_usage
 from tempfile import TemporaryDirectory
 from time import time
 from typing import List, Optional
+from uuid import uuid4
 
 from dappertable import shorten_string, DapperTable, Columns, Column, PaginationLength
 from discord.ext.commands import Bot, Context, group, command
@@ -22,7 +23,7 @@ from opentelemetry.metrics import Observation
 from pydantic import BaseModel, Field, model_validator
 
 from discord_core.clients.http_client_base import start_seam_checks
-from discord_core.cogs.music_helpers.common import SearchType, MultipleMutableType, PLAYHISTORY_PREFIX
+from discord_core.cogs.music_helpers.common import SearchType, PLAYHISTORY_PREFIX
 from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
 from discord_core.types.download import LifecycleEvent, LifecycleStatusUpdate, is_rejection
@@ -45,7 +46,6 @@ from discord_core.interfaces.download_client_protocol import (
     DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
 )
 from discord_core.types.queue import PutsBlocked
-from discord_core.types.queue import Queue
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.types.player_session import PlayerSession
 from discord_core.clients.dispatch_client_base import DispatchClientBase
@@ -59,7 +59,6 @@ from discord_gateway.cogs.common import CogHelperBase
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_gateway.types.cleanup_reason import CleanupReason
-from discord_gateway.types.history_playlist_item import HistoryPlaylistItem
 from discord_gateway.types.playlist_add_result import PlaylistAddResult
 from discord_gateway.utils.bot_metrics import BotMetricNaming
 from discord_gateway.utils.otel_command import command_wrapper
@@ -220,10 +219,17 @@ OTEL_SPAN_PREFIX = 'music'
 # Idle backoff for process_download_results when the broker has no finished
 # result ready — this paces the remote GET /results/next poll.
 _BROKER_POLL_INTERVAL_SECONDS = 1.0
-# Idle backoff for the post_play_processing / process_search_results loops when
-# their queue is empty. Sleeping ONLY on the empty path (not every iteration)
-# keeps busy work back-to-back while cutting idle allocation churn (OOM fix).
+# Idle backoff for the process_search_results loop when its queue is empty. Sleeping ONLY on
+# the empty path (not every iteration) keeps busy work back-to-back while cutting idle
+# allocation churn (OOM fix).
 _IDLE_POLL_BACKOFF_SECONDS = 0.25
+# How long a restarted gateway waits for the previous one's now-playing record to lapse before
+# taking over a guild anyway. The broker expires the record 15s after the last heartbeat.
+FOREIGN_PLAYER_WAIT_SECONDS = 20.0
+# What enqueue_track answers when it does not accept a track (the broker's own spellings).
+ENQUEUE_FULL = 'full'
+ENQUEUE_CLOSED = 'closed'
+ENQUEUE_DUPLICATE = 'duplicate'
 
 # Background-loop names. Used as both the LoopHealth registry key and the
 # heartbeat gauge's background_job attribute, so the metric series and the health
@@ -231,7 +237,6 @@ _IDLE_POLL_BACKOFF_SECONDS = 0.25
 LOOP_CLEANUP_PLAYERS = 'cleanup_players'
 LOOP_PROCESS_DOWNLOAD_RESULTS = 'process_download_results'
 LOOP_PROCESS_SEARCH_RESULTS = 'process_search_results'
-LOOP_POST_PLAY_PROCESSING = 'post_play_processing'
 
 #
 def _tagged(observation: Observation, tracked_by: str) -> Observation:
@@ -276,16 +281,14 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         self._cleanup_task = None
         self._result_task = None
         self._search_result_task = None
-        self._post_play_processing_task = None
         self._init_task = None
+        # Names this process in the broker's now-playing record, so a restarted gateway can tell
+        # a heartbeat it did not make from its own.
+        self.gateway_id = uuid4().hex
 
         # Keep track of when bot is in shutdown mode
         self.bot_shutdown_event = asyncio.Event()
         self._message_delete_after = self.config.general.message_delete_after
-        # History Playlist Queue
-        self.history_playlist_queue: Queue[HistoryPlaylistItem] | None = None
-        if self.stores:
-            self.history_playlist_queue = Queue()
 
         # Every playlist read and write goes through this. It was annotated against
         # the Protocol rather than PlaylistClient so the HTTP store could drop in
@@ -399,7 +402,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 (LOOP_CLEANUP_PLAYERS, 'Cleanup player loop heartbeat'),
                 (LOOP_PROCESS_DOWNLOAD_RESULTS, 'Download result processing loop heartbeat'),
                 (LOOP_PROCESS_SEARCH_RESULTS, 'Search result processing loop heartbeat'),
-                (LOOP_POST_PLAY_PROCESSING, 'Playlist update loop heartbeat'),
         ):
             create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
                                     partial(loop_heartbeat_observations, job_name), description)
@@ -526,17 +528,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # and emits no heartbeat for one — the search pod publishes that series
         # instead (cli/search.py's LOOP_SEARCH_WORKER, the same loop name).
         await self.youtube_music_search_client.start(self.bot, self.bot_shutdown_event)
-        # No embedded BrokerHttpServer: the broker pod serves that surface.
-        if self.stores:
-            self._start_tasks()
-
-    def _start_tasks(self):
-        # Only reached when the stores are configured — without them this loop
-        # never starts, never registers, and emits no heartbeat series.
-        self._post_play_processing_task = self.bot.loop.create_task(
-            return_loop_runner(self.post_play_processing, self.bot, self.logger,
-                               health=LOOP_HEALTH.register(LOOP_POST_PLAY_PROCESSING))()
-        )
+        # No embedded BrokerHttpServer: the broker pod serves that surface. Recording plays
+        # (analytics and the history playlist) is the broker's history worker now.
 
     async def cog_unload(self):
         '''
@@ -557,7 +550,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             # these stopped here: a cancelled loop is a deliberate shutdown, not
             # a wedge, and must not fail the liveness probe while the pod drains.
             LOOP_HEALTH.mark_stopped(LOOP_CLEANUP_PLAYERS, LOOP_PROCESS_DOWNLOAD_RESULTS,
-                                     LOOP_PROCESS_SEARCH_RESULTS, LOOP_POST_PLAY_PROCESSING)
+                                     LOOP_PROCESS_SEARCH_RESULTS)
             if self._init_task:
                 self._init_task.cancel()
             if self._cleanup_task:
@@ -571,8 +564,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 self._result_task.cancel()
             if self._search_result_task:
                 self._search_result_task.cancel()
-            if self._post_play_processing_task:
-                self._post_play_processing_task.cancel()
 
             self.logger.info('Cog unload: Removing directories')
             # Remove contents of download dir by default
@@ -583,55 +574,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
 
             return True
 
-
-    async def post_play_processing(self):
-        '''
-        Update history playlists
-        '''
-        try:
-            history_item = self.history_playlist_queue.get_nowait()
-        except QueueEmpty:
-            if self.bot_shutdown_event.is_set():
-                raise ExitEarlyException('Exiting history cleanup') #pylint:disable=raise-missing-from
-            # Idle: nothing to process — back off before the loop runner re-calls
-            # rather than busy-spinning every ~10ms.
-            await sleep(_IDLE_POLL_BACKOFF_SECONDS)
-            return
-
-        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.post_play_processing', kind=SpanKind.CONSUMER):
-            # One call, one transaction, one row lock. This was a
-            # read-modify-write over four counters, run inside a session the
-            # loop held open across the Discord dispatch below.
-            await self.guild_analytics_store.record_play(
-                history_item.media_download.media_request.guild_id,
-                history_item.media_download.duration,
-                history_item.media_download.cache_hit)
-
-            # Skip if added from history
-            if history_item.media_download.media_request.added_from_history:
-                self.logger.info(f'Played video "{history_item.media_download.webpage_url}" was original played from history, skipping history add')
-                return
-
-            self.logger.info(f'Attempting to add url "{history_item.media_download.webpage_url}" to history playlist {history_item.playlist_id} for server {history_item.media_download.media_request.guild_id}')
-            # One call for what was a delete-by-url, a count, a conditional bulk
-            # delete and an insert -- plus the insert's own count and duplicate
-            # check. Six statements the loop happened to run in sequence, and six
-            # round trips once this store is remote.
-            recorded = await self.playlist_store.record_history_item(
-                history_item.playlist_id,
-                PlaylistItemWrite(video_url=history_item.media_download.webpage_url,
-                                  title=history_item.media_download.title,
-                                  uploader=history_item.media_download.uploader),
-                self.config.playlist.server_playlist_max_size)
-            if not recorded:
-                self.logger.warning(f'History playlist {history_item.playlist_id} no longer exists, dropping history item')
-
-    def _get_play_order_content(self, guild_id: int) -> list:
-        '''
-        Get queue order message content for a guild.
-        '''
-        player = self.players.get(guild_id)
-        return player.get_queue_order_messages() if player else []
 
     async def create_bundle(self, guild_id: int, channel_id: int,
                             input_string: str | None = None,
@@ -716,48 +658,46 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
 
     async def add_source_to_player(self, media_download: MediaDownload, player: MusicPlayer):
         '''
-        Add source to player queue
+        Queue a downloaded track for the guild's player.
 
-        media_request : Standard media_request for pre-download
         media_download : Standard MediaDownload for post download
         player : MusicPlayer
-        skiP_update_queue_strings : Skip queue string update
         '''
         attributes = media_download_attributes(media_download)
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.add_source_to_player', kind=SpanKind.INTERNAL, attributes=attributes, links=span_links_from_context(media_download.media_request.span_context)):
-            try:
-                # Register with the broker BEFORE the item becomes visible to the
-                # player queue. For a cache hit this is the only point the broker
-                # learns of the entry, and the concurrent player_loop can pop +
-                # checkout the instant it is enqueued. If that race puts the
-                # checkout ahead of registration the broker has no entry, checkout
-                # returns None, and the player falls back to the raw S3 cache key
-                # (crashing on open()). Registering first closes the window.
-                await self.broker_client.register_download(media_download)
-                player.add_to_play_queue(media_download)
-                self.logger.info(f'Adding "{media_download.webpage_url}" '
-                                 f'to queue in guild {media_download.media_request.guild_id}')
-                player.trigger_prefetch()
-                await self._push_state(media_download.media_request, LifecycleEvent.COMPLETED)
-                key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
-                req_id = self.dispatcher.update_mutable(key, player.guild.id,
-                    self._get_play_order_content(player.guild.id), player.text_channel.id)
-                self.logger.debug('add_source_to_player: dispatched play order update key=%s dispatch.request_id=%s', key, req_id)
-
-                return True
-            except QueueFull:
+            media_uuid = str(media_download.media_request.uuid)
+            # Register with the broker BEFORE the track becomes visible in the queue. For a
+            # cache hit this is the only point the broker learns of the entry, and the
+            # player can claim the track the instant it is queued. If that race puts the
+            # claim ahead of registration the broker has no entry to check out, and the
+            # player would fall back to the raw S3 cache key (crashing on open()).
+            # Registering first closes the window.
+            await self.broker_client.register_download(media_download)
+            result = await self.broker_client.enqueue_track(
+                media_download.media_request.guild_id, media_uuid, self.config.player.queue_max_size)
+            if result == ENQUEUE_FULL:
                 self.logger.info(f'Play queue full, aborting download of item "{str(media_download.media_request)}"')
                 reason = (f'Cannot add item "{media_download.title}" to play queue, play queue is full'
                           if media_download.media_request.bundle_uuid else None)
                 await self._push_state(media_download.media_request, LifecycleEvent.FAILED, failure_reason=reason)
-                await self.broker_client.discard(str(media_download.media_request.uuid))
+                await self.broker_client.discard(media_uuid)
                 return False
                 # Dont return to loop, file was downloaded so we can iterate on cache at least
-            except PutsBlocked:
-                self.logger.info(f'Puts Blocked on queue in guild "{media_download.media_request.guild_id}", assuming shutdown')
+            if result == ENQUEUE_CLOSED:
+                self.logger.info(f'Queue closed in guild "{media_download.media_request.guild_id}", assuming shutdown')
                 await self._push_state(media_download.media_request, LifecycleEvent.DISCARDED)
-                await self.broker_client.discard(str(media_download.media_request.uuid))
+                await self.broker_client.discard(media_uuid)
                 return False
+            if result == ENQUEUE_DUPLICATE:
+                # Already queued, so the track will play; nothing to undo.
+                self.logger.warning(f'"{media_download.webpage_url}" was already queued in guild '
+                                    f'{media_download.media_request.guild_id}')
+            self.logger.info(f'Adding "{media_download.webpage_url}" '
+                             f'to queue in guild {media_download.media_request.guild_id}')
+            player.notify_enqueued()
+            player.trigger_prefetch()
+            await self._push_state(media_download.media_request, LifecycleEvent.COMPLETED)
+            return True
 
     # Take both source dict and media download
     # Since media download might be none
@@ -963,7 +903,12 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
 
     async def __get_history_playlist(self, guild_id: int):
         '''
-        Get history playlist for guild
+        Make sure the guild has a history playlist, and return it.
+
+        The broker's history worker records plays into it, but it only gets there after a
+        track has played. Creating it as the guild's player starts keeps the playlist list
+        (where history is index 0) stable from the first command, as it was when the gateway
+        recorded plays itself.
 
         guild_id : Guild id
         '''
@@ -977,11 +922,14 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
 
     async def _save_player_session(self, guild, player: MusicPlayer) -> None:
         '''
-        Persist a guild's player state so the next startup can resume it.
+        Remember where this guild's player is, so a restart can rejoin it.
 
-        No session is written when the bot is not in a voice channel: there is
-        nothing to rejoin, and a session with no channel would only be discarded
-        on the way back up.
+        Only the voice and text channels are kept: the queue itself lives in the broker and
+        survives the restart on its own. Saved when the player joins voice (and on shutdown), so
+        a crash leaves a session behind too.
+
+        No session is written when the bot is not in a voice channel: there is nothing to
+        rejoin, and a session with no channel would only be discarded on the way back up.
         '''
         voice_client = guild.voice_client
         channel = getattr(voice_client, 'channel', None)
@@ -992,16 +940,14 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             guild_id=guild.id,
             voice_channel_id=channel.id,
             text_channel_id=player.text_channel.id,
-            queue=[download.media_request for download in player.queued_media_downloads()],
             was_playing=player.current_media_download is not None,
         )
-        self.logger.info(f'Saving player session for guild {guild.id} with '
-                         f'{len(session.queue)} queued item(s), was_playing={session.was_playing}')
+        self.logger.debug(f'Saving player session for guild {guild.id}, was_playing={session.was_playing}')
         await self.broker_client.save_player_session(session)
 
     async def resume_player_sessions(self) -> None:
         '''
-        Rejoin and resume any guild that was mid-track when the bot went down.
+        Rejoin and resume any guild that was playing when the bot went down.
 
         One-shot, run after the gateway is ready so guild/channel lookups resolve.
         '''
@@ -1015,82 +961,92 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 # One guild's bad session must not stop the others from resuming.
                 self.logger.exception(f'Error resuming player session for guild {session.guild_id}: {e}')
 
+    async def _abandon_guild_state(self, guild_id: int) -> None:
+        '''
+        Drop whatever the broker holds for a guild nobody is going to resume.
+
+        Without this a queue left behind by a session that cannot be resumed would come back to
+        life on someone's next !play.
+        '''
+        released = await self.broker_client.close_guild(guild_id)
+        self.logger.info(f'Closed broker state for guild {guild_id}, released {released} entr(ies)')
+
+    async def _wait_out_foreign_player(self, guild_id: int) -> None:
+        '''
+        If another gateway still looks like it is playing in this guild, wait for it to stop.
+
+        A replacement that starts within the broker's heartbeat window (15s) would otherwise find
+        the old gateway's now-playing record still alive and be refused the interrupted track.
+        The record lapses by itself once the old gateway stops beating, so this waits for that,
+        for a bounded time, and then goes ahead regardless.
+        '''
+        deadline = time() + FOREIGN_PLAYER_WAIT_SECONDS
+        while True:
+            queue = await self.broker_client.get_guild_queue(guild_id)
+            playing = queue.playing
+            if playing is None or playing.gateway_id == self.gateway_id:
+                return
+            if time() >= deadline:
+                self.logger.warning(f'Gateway {playing.gateway_id} still appears to be playing in guild '
+                                    f'{guild_id} after {FOREIGN_PLAYER_WAIT_SECONDS:.0f}s, continuing anyway')
+                return
+            self.logger.info(f'Waiting for gateway {playing.gateway_id} to stop playing in guild {guild_id}')
+            await sleep(1)
+
     async def _resume_player_session(self, session: PlayerSession) -> None:
         '''
         Resume a single stored session, if it still makes sense to.
 
-        The session is dropped first, unconditionally: it describes a moment that
-        has already passed, so a resume that fails part-way through must not be
-        retried on the next restart against even staler state.
+        The session is dropped first, unconditionally: it describes a moment that has already
+        passed, so a resume that fails part-way through must not be retried on the next restart
+        against even staler state. A successful resume saves a fresh one when it rejoins voice.
         '''
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.resume_player_session', kind=SpanKind.INTERNAL,
                                            attributes={DiscordContextNaming.GUILD.value: session.guild_id}):
             await self.broker_client.delete_player_session(session.guild_id)
 
-            if not session.was_playing:
-                self.logger.debug(f'Session for guild {session.guild_id} was not mid-track, not resuming')
-                return
             guild = self.bot.get_guild(session.guild_id)
             if guild is None:
                 self.logger.warning(f'Guild {session.guild_id} not found, cannot resume session')
+                await self._abandon_guild_state(session.guild_id)
                 return
             voice_channel = guild.get_channel(session.voice_channel_id)
             text_channel = guild.get_channel(session.text_channel_id)
             if voice_channel is None or text_channel is None:
                 self.logger.warning(f'Voice or text channel gone for guild {session.guild_id}, cannot resume session')
+                await self._abandon_guild_state(session.guild_id)
                 return
             # Don't play to an empty room.  Everyone leaving while the bot was
             # down is the clearest signal nobody is waiting on the queue.
             if not [member for member in voice_channel.members if not member.bot]:
                 self.logger.info(f'No listeners left in voice channel {voice_channel.id} for guild '
                                  f'{session.guild_id}, not resuming')
-                return
-            requests = [request for request in session.queue if request.download_file]
-            if not requests:
-                self.logger.info(f'Session for guild {session.guild_id} has no playable requests, not resuming')
+                await self._abandon_guild_state(session.guild_id)
                 return
 
-            self.logger.info(f'Resuming playback in guild {session.guild_id} with {len(requests)} request(s)')
+            await self._wait_out_foreign_player(session.guild_id)
+            # Taking ownership of the guild is what hands back a track the old gateway had
+            # started and never finished.
+            await self.broker_client.open_guild(session.guild_id, text_channel.id)
+            # A track recovered from the old gateway is back at the head of the queue by now,
+            # so the queue alone is the count of what is waiting.
+            queue = await self.broker_client.get_guild_queue(session.guild_id)
+            waiting = len(queue.items)
+            if not waiting and queue.playing is None:
+                self.logger.info(f'Nothing queued for guild {session.guild_id}, not resuming')
+                await self._abandon_guild_state(session.guild_id)
+                return
+
+            self.logger.info(f'Resuming playback in guild {session.guild_id} with {waiting} item(s) queued')
             player = await self.get_player(session.guild_id, join_channel=voice_channel,
                                            guild=guild, text_channel=text_channel)
             if player is None:
                 self.logger.warning(f'Could not build player for guild {session.guild_id}, cannot resume session')
+                await self._abandon_guild_state(session.guild_id)
                 return
             self.dispatcher.send_message(session.guild_id, text_channel.id,
-                f'Resumed after a restart, re-queueing {len(requests)} item(s)',
+                f'Resumed after a restart, {waiting} item(s) still queued',
                 delete_after=self.config.general.message_delete_after)
-            for request in requests:
-                await self._resume_media_request(request, player)
-
-    async def _resume_media_request(self, request: MediaRequest, player: MusicPlayer) -> None:
-        '''
-        Re-enqueue one request from a resumed session.
-
-        A fresh MediaRequest is minted from the stored one's already-resolved
-        search result rather than replaying the stored object itself: that object
-        carries a terminal lifecycle stage and a uuid whose broker entry may still
-        exist, and re-registering it would look finished the moment it arrived.
-        The bundle is deliberately not carried over — the bundle it belonged to
-        described the original request batch, not this replay.
-        '''
-        fresh = MediaRequest(
-            guild_id=request.guild_id,
-            channel_id=player.text_channel.id,
-            requester_name=request.requester_name,
-            requester_id=request.requester_id,
-            search_result=request.search_result,
-        )
-        await self.broker_client.register_request(fresh)
-        if await self._enqueue_media_download_from_cache(fresh, player=player):
-            await self._push_state(fresh, LifecycleEvent.COMPLETED)
-            return
-        try:
-            await self.download_client.submit(fresh.guild_id, fresh)
-            await self._push_state(fresh, LifecycleEvent.QUEUED)
-        except (PutsBlocked, QueueFull) as e:
-            self.logger.info(f'Cannot re-queue "{str(fresh)}" while resuming guild '
-                             f'{fresh.guild_id}: {type(e).__name__}')
-            await self._push_state(fresh, LifecycleEvent.DISCARDED)
 
     async def cleanup(self, guild, reason: CleanupReason = CleanupReason.QUEUE_TIMEOUT):
         '''
@@ -1104,13 +1060,13 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             player = await self.get_player(guild.id, create_player=False)
             if reason == CleanupReason.BOT_SHUTDOWN and player:
                 # Capture the session before anything below tears state down: the
-                # voice disconnect drops the channel we need to rejoin, and
-                # player.cleanup() empties the queue we need to replay.
+                # voice disconnect drops the channel we need to rejoin. The queue needs no
+                # capturing; it stays in the broker.
                 await self._save_player_session(guild, player)
             if reason == CleanupReason.BOT_SHUTDOWN and player and self.dispatcher:
                 self.dispatcher.send_message(player.guild.id, player.text_channel.id,
-                    'Bot is shutting down, the play queue is cleared. Queued downloads keep '
-                    'running in the background and will be cached and ready when they finish.',
+                    'Bot is restarting. The play queue is saved and playback will resume when '
+                    'I am back. Queued downloads keep running in the background.',
                     delete_after=self.config.general.message_delete_after)
 
             self.logger.info(f'Disconnecting voice clients for music player in guild {guild.id}')
@@ -1193,15 +1149,13 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             if player:
                 self.logger.info(f'Calling cleanup on player {guild.id}')
                 await player.cleanup()
-                # Cleanup queue messages if they still exist.  This runs on
-                # BOT_SHUTDOWN too: the player is gone from self.players by now, so
-                # the content renders empty and the table clears.  Leaving it up
-                # stranded a queue listing in the channel describing a play queue no
-                # process owned any more.
-                self.logger.info(f'Clearing queue message for guild {guild.id}')
-                key = f'{MultipleMutableType.PLAY_ORDER.value}-{guild.id}'
-                self.dispatcher.update_mutable(key, guild.id,
-                    self._get_play_order_content(guild.id), player.text_channel.id)
+
+            # Release the guild's queue, the track it was playing and any claim, and take the
+            # play-order message down (the broker does both). Not on BOT_SHUTDOWN: the queue
+            # is what the next gateway picks up, and its message stays up until then.
+            if reason != CleanupReason.BOT_SHUTDOWN:
+                released = await self.broker_client.close_guild(guild.id)
+                self.logger.info(f'Closed broker state for guild {guild.id}, released {released} entr(ies)')
 
             # Tear down broker-owned bundles for this guild.  Skip bundles whose
             # playlist-add items survived the queue clear — those will continue
@@ -1265,13 +1219,15 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 guild_path = self.player_dir / f'{target_guild.id}'
                 guild_path.mkdir(exist_ok=True, parents=True)
                 # Generate and start player
-                history_playlist_id = await self.__get_history_playlist(target_guild.id)
+                # Take ownership of the guild's queue before the player exists: this reopens it,
+                # tells the broker which channel the play-order message belongs in, and hands back
+                # a track a previous gateway had started and never finished.
+                await self.broker_client.open_guild(target_guild.id, target_text_channel.id)
+                await self.__get_history_playlist(target_guild.id)
                 player = MusicPlayer(self.bot, target_guild, target_text_channel,
                                      self.logging_config,
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,
-                                     guild_path, self.dispatcher,
-                                     history_playlist_id, self.history_playlist_queue,
-                                     broker=self.broker_client,
+                                     guild_path, self.broker_client, self.gateway_id,
                                      prefetch_limit=self.config.download.storage.prefetch_limit if self.config.download.storage else 0,
                                      bucket_name=self.config.download.storage.bucket_name if self.config.download.storage else None)
                 await player.start_tasks()
@@ -1292,6 +1248,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                         str(error),
                         delete_after=self.config.general.message_delete_after)
                     return None
+                # Remember where we are, so a restart (or a crash) can come back to this channel.
+                await self._save_player_session(player.guild, player)
             return player
 
     async def __check_author_voice_chat(self, ctx: Context, check_voice_chats: bool = True):
@@ -1515,16 +1473,16 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         if not player:
             return
 
-        if player.check_queue_empty():
+        queue = await self.broker_client.get_guild_queue(ctx.guild.id)
+        if not queue.items:
             self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
                 'There are currently no more queued videos.',
                 delete_after=self.config.general.message_delete_after)
             return
         self.logger.info(f'Player clear called in guild {ctx.guild.id}')
-        await player.clear_queue()
-        key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
-        self.dispatcher.update_mutable(key, player.guild.id,
-            self._get_play_order_content(player.guild.id), player.text_channel.id)
+        await self.broker_client.clear_queue(ctx.guild.id)
+        for item in queue.items:
+            player.discard_staged(item)
         self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
             'Cleared player queue',
             delete_after=self.config.general.message_delete_after)
@@ -1538,9 +1496,9 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         if not await self.__check_author_voice_chat(ctx):
             return
-        player = await self.get_player(ctx.guild.id, ctx=ctx)
+        history = await self.broker_client.get_guild_history(ctx.guild.id)
 
-        if player.check_history_empty():
+        if not history:
             self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
                 'There have been no videos played.',
                 delete_after=self.config.general.message_delete_after)
@@ -1553,12 +1511,11 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         ]
         table = DapperTable(columns=Columns(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
                             enclosure_start='```', enclosure_end='```', prefix='History\n')
-        table_items = player.get_history_items()
-        for (count, item) in enumerate(table_items):
-            uploader = item.uploader or ''
+        for (count, item) in enumerate(history):
+            uploader = item.get('uploader') or ''
             table.add_row([
                 f'{count + 1}',
-                f'{item.title}',
+                f"{item.get('title')}",
                 f'{uploader}',
             ])
         messages = table.render()
@@ -1578,15 +1535,15 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         if not player:
             return
 
-        if player.check_queue_empty():
+        queue = await self.broker_client.get_guild_queue(ctx.guild.id)
+        if not queue.items:
             self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
                 'There are currently no more queued videos.',
                 delete_after=self.config.general.message_delete_after)
             return
-        player.shuffle_queue()
-        key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
-        self.dispatcher.update_mutable(key, player.guild.id,
-            self._get_play_order_content(player.guild.id), player.text_channel.id)
+        await self.broker_client.shuffle_queue(ctx.guild.id)
+        # The head of the queue changed, so the files worth having on disk did too.
+        player.trigger_prefetch()
 
     @command(name='remove')
     @command_wrapper
@@ -1603,7 +1560,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         if not player:
             return
 
-        if player.check_queue_empty():
+        queue = await self.broker_client.get_guild_queue(ctx.guild.id)
+        if not queue.items:
             self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
                 'There are currently no more queued videos.',
                 delete_after=self.config.general.message_delete_after)
@@ -1617,7 +1575,12 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 delete_after=self.config.general.message_delete_after)
             return
 
-        item = player.remove_queue_item(queue_index)
+        # The broker removes by track, not position: the user's index names the track they saw,
+        # and if it has moved or started playing since, nothing is removed.
+        item = None
+        if 1 <= queue_index <= len(queue.items):
+            item = await self.broker_client.remove_queued_track(
+                ctx.guild.id, str(queue.items[queue_index - 1].media_request.uuid))
         if item is None:
             self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
                 f'Unable to remove queue index {queue_index}',
@@ -1626,10 +1589,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
             f'Removed item {item.title} from queue',
             delete_after=self.config.general.message_delete_after)
-        await self.broker_client.remove(str(item.media_request.uuid))
-        key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
-        self.dispatcher.update_mutable(key, player.guild.id,
-            self._get_play_order_content(player.guild.id), player.text_channel.id)
+        player.discard_staged(item)
+        player.trigger_prefetch()
 
     @command(name='bump')
     @command_wrapper
@@ -1646,7 +1607,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         if not player:
             return
 
-        if player.check_queue_empty():
+        queue = await self.broker_client.get_guild_queue(ctx.guild.id)
+        if not queue.items:
             self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
                 'There are currently no more queued videos.',
                 delete_after=self.config.general.message_delete_after)
@@ -1659,7 +1621,10 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 delete_after=self.config.general.message_delete_after)
             return
 
-        item = player.bump_queue_item(queue_index)
+        item = None
+        if 1 <= queue_index <= len(queue.items):
+            item = await self.broker_client.bump_queued_track(
+                ctx.guild.id, str(queue.items[queue_index - 1].media_request.uuid))
         if item is None:
             self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
                 f'Unable to bump queue index {queue_index}',
@@ -1668,10 +1633,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
             f'Bumped item "{item.title}" to top of queue',
             delete_after=self.config.general.message_delete_after)
-
-        key = f'{MultipleMutableType.PLAY_ORDER.value}-{player.guild.id}'
-        self.dispatcher.update_mutable(key, player.guild.id,
-            self._get_play_order_content(player.guild.id), player.text_channel.id)
+        player.trigger_prefetch()
 
     @command(name='stop')
     @command_wrapper
@@ -1704,12 +1666,13 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 f'I am already sending messages to channel {ctx.channel.name}',
                 delete_after=self.config.general.message_delete_after)
             return
-        bundle_index = f'{MultipleMutableType.PLAY_ORDER.value}-{ctx.guild.id}'
-        # Move the bundle to the new channel (deletes old messages, re-sends in new channel)
-        self.dispatcher.update_mutable_channel(bundle_index, ctx.guild.id, ctx.channel.id)
+        # The broker owns the play-order message, so telling it the new channel moves it
+        # (deletes the old message, sends it again in the new channel).
+        await self.broker_client.open_guild(ctx.guild.id, ctx.channel.id)
 
-        # Update the player's text channel reference
+        # Update the player's text channel reference, and the session a restart would rejoin from
         player.text_channel = ctx.channel
+        await self._save_player_session(player.guild, player)
 
     async def __get_playlist_public_view(self, playlist_id: int, guild_id: int):
         '''
@@ -2125,11 +2088,14 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 delete_after=self.config.general.message_delete_after)
             return
 
-        # Do a deepcopy here so list doesn't mutate as we iterate
+        # Snapshot first, so the queue changing under us cannot change what is saved.
         if is_history:
-            queue_copy = player.get_history_items()
+            queue_copy = [PlaylistItemWrite(video_url=item['webpage_url'], title=item.get('title'),
+                                            uploader=item.get('uploader'))
+                          for item in await self.broker_client.get_guild_history(ctx.guild.id)]
         else:
-            queue_copy = player.get_queue_items()
+            queue_copy = [PlaylistItemWrite(video_url=item.webpage_url, title=item.title, uploader=item.uploader)
+                          for item in (await self.broker_client.get_guild_queue(ctx.guild.id)).items]
 
         self.logger.info(f'Saving queue contents to playlist "{name}", is_history? {is_history}')
 
@@ -2143,8 +2109,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # hold a session open while awaiting a Discord send per item.
         outcomes = await self.playlist_store.add_items(
             playlist_id,
-            [PlaylistItemWrite(video_url=data.webpage_url, title=data.title, uploader=data.uploader)
-             for data in queue_copy],
+            queue_copy,
             self.config.playlist.server_playlist_max_size)
         for outcome in outcomes:
             if outcome.status == PlaylistItemAddStatus.PLAYLIST_FULL:

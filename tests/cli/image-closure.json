@@ -436,7 +436,6 @@
         "discord_gateway.servers.health_server",
         "discord_gateway.types",
         "discord_gateway.types.cleanup_reason",
-        "discord_gateway.types.history_playlist_item",
         "discord_gateway.types.playlist_add_result",
         "discord_gateway.utils",
         "discord_gateway.utils.bot_metrics",

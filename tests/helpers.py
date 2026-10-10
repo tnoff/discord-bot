@@ -271,6 +271,33 @@ def attach_in_process_broker(cog: Any, video_cache: Optional[Any] = None,
     cog.broker_client = AsyncioBrokerClient(broker, guild_queue=make_guild_queue_for(broker))
     return broker
 
+async def queue_in_broker(cog: Any, *media_downloads: Any, max_size: int = 10) -> None:
+    '''
+    Put downloaded tracks in the broker's queue for their guild, in order, the way
+    add_source_to_player does: registered with the broker first, then enqueued.
+
+    Needs a cog wired with attach_in_process_broker.
+    '''
+    for media_download in media_downloads:
+        await cog.broker_client.register_download(media_download)
+        result = await cog.broker_client.enqueue_track(
+            media_download.media_request.guild_id, str(media_download.media_request.uuid), max_size)
+        assert result == 'ok', f'queueing {media_download.title} returned {result}'
+
+
+async def play_through_in_broker(cog: Any, media_download: Any, max_size: int = 10) -> None:
+    '''
+    Play a track to the end in the broker, so it lands in its guild's history.
+
+    Queues it, claims it as the cog's gateway, and finishes it unskipped.
+    '''
+    await queue_in_broker(cog, media_download, max_size=max_size)
+    guild_id = media_download.media_request.guild_id
+    claimed = await cog.broker_client.claim_next_track(guild_id, cog.gateway_id)
+    assert str(claimed.download.media_request.uuid) == str(media_download.media_request.uuid)
+    await cog.broker_client.finish_track(guild_id, str(media_download.media_request.uuid), False, max_size)
+
+
 def attach_in_process_download(cog: Any, worker_cls: Optional[type] = None) -> AsyncioDownloadClient:
     '''
     Rebuild the in-process download stack the cog no longer builds itself.

@@ -40,12 +40,13 @@ See [messaging.md](../messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispa
 
 ---
 
-## The Six Background Loops, Across Three Pods
+## The Six Background Loops, Across Four Pods
 
 Two of these (Download Files, YouTube Music Search) run in their own
-standalone pods, not the bot; the other four run in the gateway pod
-(`discord_gateway/cogs/music.py`) and are what the old "Four Background
-Loops" title here used to mean, before the first two moved out.
+standalone pods, not the bot, and the History Worker runs in the broker pod;
+the other three run in the gateway pod (`discord_gateway/cogs/music.py`) and
+are what the old "Four Background Loops" title here used to mean, before the
+rest moved out.
 
 ### 1. **Download Files Loop** (`download_files()`)
 
@@ -211,55 +212,61 @@ broker and route them to a player or a playlist handler.
 
 ---
 
-### 6. **Post-Play Processing Loop** (`post_play_processing()`)
+### 6. **History Worker** (`HistoryWorker`, broker pod)
 
-**Purpose**: Record playback history/analytics to database and run cache cleanup after each track finishes
+**Purpose**: Record each track that played out to the database. It replaces the
+gateway's old post-play processing loop: the queue (and with it the knowledge
+that a track finished) moved into the broker, so recording moved with it.
 
 **Key Responsibilities**:
-- Record each played video to the guild's history playlist
-- Update guild analytics (total plays, duration, cache hit rate)
-- Evict stale cached files via `MediaBroker.cache_cleanup()`
-- Delete old history items when the playlist limit is exceeded
+- Count the play in the guild's analytics (total plays, total duration, cache hits)
+- Add the track to the guild's history playlist (created on first use)
+- Trim the history playlist when it exceeds its limit
 
 **Processing Flow**:
-1. Get next `history_item` from `history_playlist_queue.get_nowait()`
-2. Update guild analytics:
-   - Increment `total_plays`
-   - Add to `total_duration_seconds`
-   - Increment `cached_plays` if cache hit
-   - Update `updated_at` timestamp
-3. Skip if video was originally played from history (prevent duplicates)
-4. Get or create history playlist for guild
-5. Add video to playlist via `__playlist_insert_item()`
-6. If history playlist is full, delete oldest item
-7. Call `media_broker.cache_cleanup()` to evict any files now safe to remove
+1. `finish_track` (not skipped) pushes a play record onto the `history_events`
+   list in Redis as the track ends
+2. The worker takes the next record and validates it (a record with no URL can
+   never be stored, so it is dropped rather than retried)
+3. `record_play`, `ensure_history_playlist` and `record_history_item` go to the
+   db pod over HTTP
 
-**Queue Type**: Standard `Queue` (FIFO)
+**Failure Handling**: Playback never waits on this. A db that is slow or down delays
+the history, not the music: records wait in Redis and are retried (up to 5 attempts
+for errors that say the db could not answer; anything else is logged and dropped).
+Delivery is at-most-once across a crash between taking a record and finishing it.
 
-**Conditional**: Only runs if `db_engine` is configured (database required)
+**Conditional**: Only runs in the broker pod, with a db pod configured
 
-**Shutdown Behavior**: Exits when shutdown flag is set AND queue is empty
+**Heartbeat**: `history_worker`; queue depth is reported as `history_event_queue_depth`
 
-**Analytics Tracked**:
-- Total plays per guild
-- Total duration played
-- Cache hit rate
-- Last update timestamp
+---
 
 ---
 
 ## Queue Systems
 
-### Standard Queue (`Queue`)
+### Per-Guild Player Queue (broker)
 
-**Used By**:
-- `history_playlist_queue` (post-play processing)
+The queue the player plays from is not in the gateway at all. The broker keeps it
+in Redis, per guild, next to the guild's play history, its now-playing record and
+its play-order message (`discord_broker/workers/guild_queue.py`, with the Redis
+side in `guild_queue_registry.py`). The gateway reaches it through
+`broker_client` (`enqueue_track`, `claim_next_track`, `finish_track`,
+`get_guild_queue`, `remove_queued_track`, `bump_queued_track`, `shuffle_queue`,
+`clear_queue`, `open_guild`, `close_guild`).
 
 **Behavior**:
-- FIFO (First In, First Out)
-- Single queue for all items
-- Simple get/put operations
-- Supports blocking/unblocking
+- FIFO, one queue per guild, with a size limit (`queue_max_size`)
+- A claim takes a track off the queue and marks it playing; it is parked until
+  confirmed, so a gateway that dies mid-claim does not lose the track
+- The playing record is kept alive by the player's heartbeat and lapses after 15s
+  without one
+- `open_guild` is the handoff between gateways: it reopens the guild, records the
+  text channel, and puts a track the previous gateway started and never finished
+  back at the head of the queue (once its heartbeat has lapsed)
+- Every change re-renders the play-order message, so the gateway no longer does
+- A graceful restart leaves the queue as it is; any other cleanup closes the guild
 
 ### Per-Guild Fair-Distribution Queue
 
@@ -373,7 +380,7 @@ Each loop reports its health through an OpenTelemetry observable gauge
 | `process_download_results` | Download result routing |
 | `process_search_results` | Resolved-search consumer |
 | `youtube_music_search` | YouTube Music search — **search pod only**; the cog registers no such loop |
-| `post_play_processing` | Post-play history/playlist tracking (only with a configured database) |
+| `history_worker` | Play history/analytics recording — **broker pod only**; the cog registers no such loop |
 
 **Value**: `1` while the loop is completing iterations, `0` once it has gone its
 staleness window without a successful one. This is loop *health*, not task
