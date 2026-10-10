@@ -253,6 +253,13 @@ class MusicPlayer:
                 return
             await self.next.wait()
             cleanup_source(audio_source)
+            if self.shutdown_called:
+                # Playback was cut off by the player being stopped (a restart disconnects voice
+                # first, which fires the same callback as a track ending), not by the track
+                # ending. Finishing it would record a play that did not happen and leave the
+                # next gateway nothing to recover; leave it with the broker, which either hands
+                # it to the next gateway or releases it when the guild is closed.
+                return
             # skipped tracks are released but not recorded in the guild's history
             await self._finish_track(media_download, self.video_skipped)
             self._discard_staged(media_download)

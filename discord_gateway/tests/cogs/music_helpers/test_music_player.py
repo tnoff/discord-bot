@@ -672,6 +672,30 @@ async def test_a_skipped_track_is_released_but_not_recorded(fake_context): #pyli
 
 
 @pytest.mark.asyncio
+async def test_a_stopped_track_is_left_with_the_broker(fake_context): #pylint:disable=redefined-outer-name
+    '''
+    Stopping the player ends playback through the same callback a finished track does, but the
+    track did not finish: the broker must not record a play, and must still list it as playing
+    so the next gateway can take it back.
+    '''
+    fake_context['guild'].voice_client = _HoldingVoiceClient()
+    with with_music_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            await queue_track(player, media_download)
+            task = asyncio.create_task(player.player_loop())
+            await until(lambda: player.current_media_download is not None)
+
+            player.shutdown_called = True
+            player.set_next()
+            await asyncio.wait_for(task, timeout=1)
+
+            assert await history(player) == []
+            queue = await queue_of(player)
+            assert queue.playing.uuid == str(media_download.media_request.uuid)
+            assert player.current_media_download is None
+
+
+@pytest.mark.asyncio
 async def test_finish_tells_the_broker_how_the_track_ended(fake_context): #pylint:disable=redefined-outer-name
     '''The broker is told the track, whether it was skipped, and how much history to keep'''
     fake_context['guild'].voice_client = FakeVoiceClient()
