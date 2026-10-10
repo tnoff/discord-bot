@@ -188,6 +188,10 @@ class MusicPlayer:
         '''
         deadline = monotonic() + self.disconnect_timeout
         while True:
+            if self.shutdown_called:
+                # A claim made now would be a second track marked as playing, and the broker
+                # keeps only one marker per guild: it would hide the one that was interrupted.
+                raise ExitEarlyException('MusicPlayer stopped, not claiming another track')
             # Clear BEFORE asking: a wake that lands while the claim is in flight must still
             # end the wait below, or it would sit unnoticed until the poll.
             self._wake.clear()
@@ -507,6 +511,20 @@ class MusicPlayer:
     def discard_staged(self, media_download: MediaDownload):
         '''Delete the staged copy of a track that left the queue without playing.'''
         self._discard_staged(media_download)
+
+    async def stop_loop(self):
+        '''
+        Stop the player loop where it stands, and wait for it to be gone.
+
+        The track being played stays with the broker, unfinished. This has to happen before the
+        voice client is disconnected: that stops playback, which fires the callback a finished
+        track fires, and the loop (which the runner re-enters at once) would go on to claim and
+        mark another track as playing. Cancelling it first leaves nothing to react to either.
+        '''
+        task = self._player_task
+        if task and not task.done():
+            task.cancel()
+            await asyncio.wait({task})
 
     async def cleanup(self):
         '''
