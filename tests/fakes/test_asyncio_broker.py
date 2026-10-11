@@ -275,7 +275,6 @@ async def test_player_session_save_list_delete(fake_context):  # pylint: disable
         guild_id=fake_context['guild'].id,
         voice_channel_id=10,
         text_channel_id=fake_context['channel'].id,
-        queue=[fake_source_dict(fake_context)],
         was_playing=True,
     )
 
@@ -283,7 +282,6 @@ async def test_player_session_save_list_delete(fake_context):  # pylint: disable
     listed = await broker.list_player_sessions()
     assert [s.guild_id for s in listed] == [fake_context['guild'].id]
     assert listed[0].was_playing is True
-    assert len(listed[0].queue) == 1
 
     await broker.delete_player_session(fake_context['guild'].id)
     assert await broker.list_player_sessions() == []

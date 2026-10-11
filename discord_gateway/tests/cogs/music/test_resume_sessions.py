@@ -111,7 +111,6 @@ async def test_shutdown_saves_the_channels_and_leaves_the_queue_in_the_broker(mo
         assert sessions[0].guild_id == fake_context['guild'].id
         assert sessions[0].voice_channel_id == voice_channel.id
         assert sessions[0].text_channel_id == fake_context['channel'].id
-        assert sessions[0].queue == []
         assert await _queued_uuids(cog, fake_context['guild'].id) == [str(media_download.media_request.uuid)]
 
 
