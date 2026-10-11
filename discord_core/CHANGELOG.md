@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.4.0] - 2026-10-11
+
+### Changed
+
+- `PlaylistStore` and `GuildAnalyticsStore` no longer declare `record_history_item`, `get_playlist_size` and `record_play`: those moved to new `DbPlaylistStore` and `DbGuildAnalyticsStore` extensions, which are what the db pod serves. The gateway stopped recording plays when the queue moved to the broker (#1048), so its stores no longer need to carry them; the next gateway release can delete them. No route, wire or behaviour change.
+
 ## [3.3.0] - 2026-10-11
 
 ### Changed
