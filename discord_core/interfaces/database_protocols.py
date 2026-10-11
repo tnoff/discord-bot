@@ -20,6 +20,12 @@ Groups, in the order they cross the seam:
   PlaylistStore      (here) — `playlist` / `playlist_item`.
   GuildAnalyticsStore (here) — `guild` / `server_video_analytics`.
 
+`PlaylistStore` and `GuildAnalyticsStore` are what the gateway uses. Each has a
+`Db*` extension (`DbPlaylistStore`, `DbGuildAnalyticsStore`) adding the calls only
+the db pod serves and the broker's history worker makes; the db pod's server and
+in-process clients are typed against those. Route names still equal Protocol
+method names, group `playlist` just resolves to `DbPlaylistStore`.
+
 All four groups have crossed. `cogs/music.py` and `cogs/markov.py` no
 longer open a database session at all, which is the property MR 2 needs:
 swapping in an HTTP implementation is a constructor change in the cog and
@@ -280,8 +286,9 @@ class PlaylistStore(Protocol):
 
     The largest group, and the one where the per-unit-of-work rule earns the
     most: three separate loops in the music cog add items one at a time, and
-    the post-play history write is six queries the caller happens to run in
-    sequence. Those are `add_items` and `record_history_item` here.
+    the post-play history write was six queries the caller happened to run in
+    sequence. Those are `add_items` here and `record_history_item` on
+    `DbPlaylistStore`, which carries the calls only the db pod and the broker make.
 
     Ordering is part of this interface, not an implementation detail. The public
     playlist index users type (`!playlist 1`) is a position in `list_playlists`,
@@ -380,13 +387,6 @@ class PlaylistStore(Protocol):
         playlist_id : Playlist row id
         '''
 
-    async def get_playlist_size(self, playlist_id: int) -> int:
-        '''
-        Return how many items a playlist holds.
-
-        playlist_id : Playlist row id
-        '''
-
     async def list_items(self, playlist_id: int) -> List[PlaylistItemEntry]:
         '''
         Return a playlist's items, oldest first.
@@ -441,24 +441,6 @@ class PlaylistStore(Protocol):
         index : Zero-based position in list order
         '''
 
-    async def record_history_item(self, playlist_id: int, item: PlaylistItemWrite,
-                                  max_size: int) -> bool:
-        '''
-        Write one played track to the history playlist, evicting to make room.
-
-        Deduplicate by url, drop as many of the oldest items as the new one
-        needs, then insert -- one call for what was six queries the post-play
-        loop ran in sequence. Returns False when the playlist no longer exists.
-
-        The eviction is why `list_items`' order is a promise: this deletes "the
-        oldest", and until `created_at` was populated that meant whichever rows
-        postgres happened to return first.
-
-        playlist_id : History playlist row id
-        item : The track that just played
-        max_size : Ceiling on the playlist's item count
-        '''
-
 
 @runtime_checkable
 class GuildAnalyticsStore(Protocol):
@@ -494,6 +476,56 @@ class GuildAnalyticsStore(Protocol):
 
         guild_id : Discord guild id (the `server_id` column, not `guild.id`)
         '''
+
+
+@runtime_checkable
+class DbPlaylistStore(PlaylistStore, Protocol):
+    '''
+    What the db pod serves for the playlist group: `PlaylistStore` plus the calls
+    only the db pod's routes and the broker's history worker make.
+
+    `PlaylistStore` is what the gateway's cog needs, and nothing more. The post-play
+    history write moved to the broker's `HistoryWorker` with the queue (#1048), so
+    `record_history_item` has no gateway caller; `get_playlist_size` never had one
+    outside its route. They stay on the wire (the broker calls the first, and routes
+    are not removed here), and `DatabaseHttpServer` and `PlaylistClient` are typed
+    against this class, so the route table and its Protocol method names still agree.
+    '''
+
+    async def get_playlist_size(self, playlist_id: int) -> int:
+        '''
+        Return how many items a playlist holds.
+
+        playlist_id : Playlist row id
+        '''
+
+    async def record_history_item(self, playlist_id: int, item: PlaylistItemWrite,
+                                  max_size: int) -> bool:
+        '''
+        Write one played track to the history playlist, evicting to make room.
+
+        Deduplicate by url, drop as many of the oldest items as the new one
+        needs, then insert -- one call for what was six queries the post-play
+        loop ran in sequence. Returns False when the playlist no longer exists.
+
+        The eviction is why `list_items`' order is a promise: this deletes "the
+        oldest", and until `created_at` was populated that meant whichever rows
+        postgres happened to return first.
+
+        playlist_id : History playlist row id
+        item : The track that just played
+        max_size : Ceiling on the playlist's item count
+        '''
+
+
+@runtime_checkable
+class DbGuildAnalyticsStore(GuildAnalyticsStore, Protocol):
+    '''
+    What the db pod serves for the guild-analytics group: `GuildAnalyticsStore` plus
+    `record_play`, which only the broker's `HistoryWorker` calls since the queue
+    moved there (#1048). The gateway reads totals (`get_analytics`) and no longer
+    writes them.
+    '''
 
     async def record_play(self, guild_id: int, duration_seconds: int,
                           cache_hit: bool) -> bool:

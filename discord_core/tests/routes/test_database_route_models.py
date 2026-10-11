@@ -33,9 +33,14 @@ from discord_core.routes import database as db_routes
 
 
 def store_protocol(group_name: str):
-    '''`guild_analytics` -> `GuildAnalyticsStore`, by convention rather than by table.'''
+    '''
+    `guild_analytics` -> `DbGuildAnalyticsStore`, by convention rather than by table.
+
+    The db-side `Db<Group>Store` when the group has one (it extends the gateway-side
+    `<Group>Store` with the calls only the db pod serves), else `<Group>Store`.
+    '''
     class_name = ''.join(part.title() for part in group_name.split('_')) + 'Store'
-    return getattr(protocols, class_name, None)
+    return getattr(protocols, 'Db' + class_name, None) or getattr(protocols, class_name, None)
 
 
 def route_return_type(group_name: str, route_name: str):
