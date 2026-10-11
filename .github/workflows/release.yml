@@ -209,15 +209,23 @@ jobs:
     if: >-
       ${{ contains(fromJSON(needs.changes.outputs.images), 'gateway')
           && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # docker-push-v1.0.0
+    # Logs in to OCIR with a short-lived token from this job's GitHub OIDC identity, not a stored
+    # credential (tnoff/terraform#180). OCI maps this repo's push to main to a user that may push
+    # only this repo's OCIR repositories (terraform-admin ocir-pushers.tf).
+    permissions:
+      contents: read
+      id-token: write
+    uses: tnoff/github-workflows/.github/workflows/docker-push-oidc.yml@5a6f80dffddfa833301b438ec9b2052d7f2c24f2  # docker-push-oidc-v1.0.0
     with:
+      oidc_exchange_domain_url: ${{ vars.OIDC_EXCHANGE_DOMAIN_URL }}
+      oidc_exchange_client_id: ${{ vars.OIDC_EXCHANGE_CLIENT_ID }}
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_GATEWAY }}
       dockerfile: docker/Dockerfile.gateway
     secrets:
-      oci_username: ${{ secrets.OCI_USERNAME }}
-      oci_token: ${{ secrets.OCI_TOKEN }}
+      oidc_exchange_client_secret: ${{ secrets.OIDC_EXCHANGE_CLIENT_SECRET }}
+      oci_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
 
   push-dispatcher:
     name: Push dispatcher image
@@ -225,15 +233,23 @@ jobs:
     if: >-
       ${{ contains(fromJSON(needs.changes.outputs.images), 'dispatcher')
           && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # docker-push-v1.0.0
+    # Logs in to OCIR with a short-lived token from this job's GitHub OIDC identity, not a stored
+    # credential (tnoff/terraform#180). OCI maps this repo's push to main to a user that may push
+    # only this repo's OCIR repositories (terraform-admin ocir-pushers.tf).
+    permissions:
+      contents: read
+      id-token: write
+    uses: tnoff/github-workflows/.github/workflows/docker-push-oidc.yml@5a6f80dffddfa833301b438ec9b2052d7f2c24f2  # docker-push-oidc-v1.0.0
     with:
+      oidc_exchange_domain_url: ${{ vars.OIDC_EXCHANGE_DOMAIN_URL }}
+      oidc_exchange_client_id: ${{ vars.OIDC_EXCHANGE_CLIENT_ID }}
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_DISPATCHER }}
       dockerfile: docker/Dockerfile.dispatcher
     secrets:
-      oci_username: ${{ secrets.OCI_USERNAME }}
-      oci_token: ${{ secrets.OCI_TOKEN }}
+      oidc_exchange_client_secret: ${{ secrets.OIDC_EXCHANGE_CLIENT_SECRET }}
+      oci_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
 
   push-broker:
     name: Push broker image
@@ -241,15 +257,23 @@ jobs:
     if: >-
       ${{ contains(fromJSON(needs.changes.outputs.images), 'broker')
           && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # docker-push-v1.0.0
+    # Logs in to OCIR with a short-lived token from this job's GitHub OIDC identity, not a stored
+    # credential (tnoff/terraform#180). OCI maps this repo's push to main to a user that may push
+    # only this repo's OCIR repositories (terraform-admin ocir-pushers.tf).
+    permissions:
+      contents: read
+      id-token: write
+    uses: tnoff/github-workflows/.github/workflows/docker-push-oidc.yml@5a6f80dffddfa833301b438ec9b2052d7f2c24f2  # docker-push-oidc-v1.0.0
     with:
+      oidc_exchange_domain_url: ${{ vars.OIDC_EXCHANGE_DOMAIN_URL }}
+      oidc_exchange_client_id: ${{ vars.OIDC_EXCHANGE_CLIENT_ID }}
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_BROKER }}
       dockerfile: docker/Dockerfile.broker
     secrets:
-      oci_username: ${{ secrets.OCI_USERNAME }}
-      oci_token: ${{ secrets.OCI_TOKEN }}
+      oidc_exchange_client_secret: ${{ secrets.OIDC_EXCHANGE_CLIENT_SECRET }}
+      oci_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
 
   push-downloader:
     name: Push downloader image
@@ -257,15 +281,23 @@ jobs:
     if: >-
       ${{ contains(fromJSON(needs.changes.outputs.images), 'downloader')
           && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # docker-push-v1.0.0
+    # Logs in to OCIR with a short-lived token from this job's GitHub OIDC identity, not a stored
+    # credential (tnoff/terraform#180). OCI maps this repo's push to main to a user that may push
+    # only this repo's OCIR repositories (terraform-admin ocir-pushers.tf).
+    permissions:
+      contents: read
+      id-token: write
+    uses: tnoff/github-workflows/.github/workflows/docker-push-oidc.yml@5a6f80dffddfa833301b438ec9b2052d7f2c24f2  # docker-push-oidc-v1.0.0
     with:
+      oidc_exchange_domain_url: ${{ vars.OIDC_EXCHANGE_DOMAIN_URL }}
+      oidc_exchange_client_id: ${{ vars.OIDC_EXCHANGE_CLIENT_ID }}
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_DOWNLOADER }}
       dockerfile: docker/Dockerfile.downloader
     secrets:
-      oci_username: ${{ secrets.OCI_USERNAME }}
-      oci_token: ${{ secrets.OCI_TOKEN }}
+      oidc_exchange_client_secret: ${{ secrets.OIDC_EXCHANGE_CLIENT_SECRET }}
+      oci_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
 
   push-search:
     name: Push search image
@@ -273,15 +305,23 @@ jobs:
     if: >-
       ${{ contains(fromJSON(needs.changes.outputs.images), 'search')
           && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # docker-push-v1.0.0
+    # Logs in to OCIR with a short-lived token from this job's GitHub OIDC identity, not a stored
+    # credential (tnoff/terraform#180). OCI maps this repo's push to main to a user that may push
+    # only this repo's OCIR repositories (terraform-admin ocir-pushers.tf).
+    permissions:
+      contents: read
+      id-token: write
+    uses: tnoff/github-workflows/.github/workflows/docker-push-oidc.yml@5a6f80dffddfa833301b438ec9b2052d7f2c24f2  # docker-push-oidc-v1.0.0
     with:
+      oidc_exchange_domain_url: ${{ vars.OIDC_EXCHANGE_DOMAIN_URL }}
+      oidc_exchange_client_id: ${{ vars.OIDC_EXCHANGE_CLIENT_ID }}
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_SEARCH }}
       dockerfile: docker/Dockerfile.search
     secrets:
-      oci_username: ${{ secrets.OCI_USERNAME }}
-      oci_token: ${{ secrets.OCI_TOKEN }}
+      oidc_exchange_client_secret: ${{ secrets.OIDC_EXCHANGE_CLIENT_SECRET }}
+      oci_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
 
   # The sixth image. It arrives here a release behind its ci.yml matrix leg:
   # #919 added `- image: db` to the build matrix and stopped there, so every PR
@@ -302,15 +342,23 @@ jobs:
     if: >-
       ${{ contains(fromJSON(needs.changes.outputs.images), 'db')
           && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
-    uses: tnoff/github-workflows/.github/workflows/docker-push.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # docker-push-v1.0.0
+    # Logs in to OCIR with a short-lived token from this job's GitHub OIDC identity, not a stored
+    # credential (tnoff/terraform#180). OCI maps this repo's push to main to a user that may push
+    # only this repo's OCIR repositories (terraform-admin ocir-pushers.tf).
+    permissions:
+      contents: read
+      id-token: write
+    uses: tnoff/github-workflows/.github/workflows/docker-push-oidc.yml@5a6f80dffddfa833301b438ec9b2052d7f2c24f2  # docker-push-oidc-v1.0.0
     with:
+      oidc_exchange_domain_url: ${{ vars.OIDC_EXCHANGE_DOMAIN_URL }}
+      oidc_exchange_client_id: ${{ vars.OIDC_EXCHANGE_CLIENT_ID }}
       registry: ${{ vars.OCI_REGISTRY }}
       namespace: ${{ vars.OCI_NAMESPACE }}
       repo_name: ${{ vars.OCI_REPO_NAME_DB }}
       dockerfile: docker/Dockerfile.db
     secrets:
-      oci_username: ${{ secrets.OCI_USERNAME }}
-      oci_token: ${{ secrets.OCI_TOKEN }}
+      oidc_exchange_client_secret: ${{ secrets.OIDC_EXCHANGE_CLIENT_SECRET }}
+      oci_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
 
   trigger-bump-gateway:
     name: Trigger docker-apps bump (gateway)
