@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.3.0] - 2026-10-11
+
+### Changed
+
+- Remove `PlayerSession.queue` and its stale docstring. Nothing writes it since the queue moved to the broker (#1048); sessions already stored with a `queue` key still load, the key is ignored. Pods pinned to an earlier core keep working against this one in either direction.
+
 ## [3.2.1] - 2026-10-09
 
 ### Changed

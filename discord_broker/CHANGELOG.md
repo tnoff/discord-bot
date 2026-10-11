@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.4.1] - 2026-10-11
+
+### Changed
+
+- Tests only: stop building `PlayerSession` with the removed `queue` field (core 3.3.0, #1048).
+
 ## [3.4.0] - 2026-10-09
 
 ### Changed
