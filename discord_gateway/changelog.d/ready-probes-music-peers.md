@@ -1,1 +1,0 @@
-`/ready` now also probes the broker, downloader and search pods the music cog calls on every loop tick (alongside the dispatcher and db), each reported under its own name and `peer_ready_check` target, so a gateway that starts before one of them reads as NotReady instead of logging connection errors from its loops.
