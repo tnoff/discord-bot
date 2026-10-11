@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 import pytest
 
 from discord_core.interfaces.database_protocols import (
+    DbGuildAnalyticsStore,
+    DbPlaylistStore,
     GuildAnalyticsStore,
     MarkovStore,
     PlaylistStore,
@@ -47,7 +49,8 @@ def test_stores_are_runtime_checkable():
     `@runtime_checkable` is easy to drop in a refactor and its absence surfaces
     as a TypeError inside another test rather than as a failure here.
     '''
-    for protocol in (VideoCacheStore, MarkovStore, PlaylistStore, GuildAnalyticsStore):
+    for protocol in (VideoCacheStore, MarkovStore, PlaylistStore, GuildAnalyticsStore,
+                     DbPlaylistStore, DbGuildAnalyticsStore):
         assert isinstance(object(), protocol) is False
 
 
@@ -137,3 +140,37 @@ async def test_markov_store_is_satisfiable_without_a_database():
     assert await store.generate_words(7, 5) == []
     assert await store.remove_channel(7, 8) is True
     assert await store.remove_channel(7, 8) is False
+
+
+def _members(protocol):
+    '''Public callables a Protocol declares, inherited ones included.'''
+    return {name for name in dir(protocol)
+            if not name.startswith('_') and callable(getattr(protocol, name))}
+
+
+def _stub_with(protocol, drop=()):
+    '''An object carrying every method `protocol` declares except those in `drop`.'''
+    return type('Stub', (), {name: (lambda *_a, **_k: None)
+                             for name in _members(protocol) - set(drop)})()
+
+
+def test_the_gateway_side_stores_do_not_require_the_history_calls():
+    '''A store without the history-only calls is still a PlaylistStore / GuildAnalyticsStore.
+
+    The gateway stopped recording plays when the queue moved to the broker, so
+    requiring `record_history_item`, `get_playlist_size` and `record_play` of its
+    stores kept dead methods alive. The Db* extensions are what still require them.
+    '''
+    playlist = _stub_with(DbPlaylistStore, drop=('record_history_item', 'get_playlist_size'))
+    analytics = _stub_with(DbGuildAnalyticsStore, drop=('record_play',))
+    assert isinstance(playlist, PlaylistStore)
+    assert isinstance(analytics, GuildAnalyticsStore)
+    assert not isinstance(playlist, DbPlaylistStore)
+    assert not isinstance(analytics, DbGuildAnalyticsStore)
+
+
+def test_the_db_side_stores_add_exactly_the_history_calls():
+    '''The Db* shapes extend the narrow ones by these methods and nothing else.'''
+    assert _members(DbPlaylistStore) - _members(PlaylistStore) == {
+        'record_history_item', 'get_playlist_size'}
+    assert _members(DbGuildAnalyticsStore) - _members(GuildAnalyticsStore) == {'record_play'}
