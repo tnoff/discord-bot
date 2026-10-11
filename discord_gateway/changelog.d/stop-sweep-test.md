@@ -1,0 +1,1 @@
+Tests only: a sweep that stops the player at every point on the broker path of a track boundary and checks the next gateway loses nothing, replays no finished track, and keeps the queue order (#1048).
