@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.5] - 2026-10-11
+
+### Changed
+
+- Tests only: a sweep that stops the player at every point on the broker path of a track boundary and checks the next gateway loses nothing, replays no finished track, and keeps the queue order (#1048).
+
 ## [3.2.4] - 2026-10-11
 
 ### Changed
