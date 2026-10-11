@@ -584,14 +584,12 @@ class TestHttpBrokerClientPlayerSessions:
         broker = MediaBroker()
         server = make_broker_http_server(broker)
         context = generate_fake_context()
-        request = fake_source_dict(context)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
             await hc.save_player_session(PlayerSession(
                 guild_id=context['guild'].id,
                 voice_channel_id=300,
                 text_channel_id=context['channel'].id,
-                queue=[request],
                 was_playing=True,
             ))
 
@@ -599,8 +597,7 @@ class TestHttpBrokerClientPlayerSessions:
             assert [s.guild_id for s in sessions] == [context['guild'].id]
             assert sessions[0].voice_channel_id == 300
             assert sessions[0].was_playing is True
-            # The queue survives the HTTP round-trip as real MediaRequests
-            assert [str(r.uuid) for r in sessions[0].queue] == [str(request.uuid)]
+            assert sessions[0].text_channel_id == context['channel'].id
 
             await hc.delete_player_session(context['guild'].id)
             assert await hc.list_player_sessions() == []

@@ -11,7 +11,6 @@ from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
 from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequest
-from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 from discord_core.types.video_cache import VideoCacheEntry
 
@@ -856,33 +855,18 @@ async def test_register_download_renders_bundle():
 
 @pytest.mark.asyncio
 async def test_player_session_round_trips_through_redis():
-    '''A saved session comes back with its queue intact, subclasses included.
-
-    The queue field is a discriminated union, so a PlaylistAddRequest must
-    survive as a PlaylistAddRequest rather than degrading to MediaRequest and
-    losing playlist_id.
-    '''
+    '''A saved session comes back with its channels and was_playing intact.'''
     broker = _make_broker()
-    req = _make_request()
-    playlist_req = PlaylistAddRequest(
-        guild_id=1, channel_id=2, requester_name='tester', requester_id=9,
-        search_result=SearchResult(search_type=SearchType.DIRECT,
-                                   raw_search_string='https://example.com/other'),
-        playlist_id=77,
-    )
     await broker.save_player_session(PlayerSession(
-        guild_id=1, voice_channel_id=10, text_channel_id=2,
-        queue=[req, playlist_req], was_playing=True,
+        guild_id=1, voice_channel_id=10, text_channel_id=2, was_playing=True,
     ))
 
     sessions = await broker.list_player_sessions()
     assert len(sessions) == 1
     assert sessions[0].guild_id == 1
     assert sessions[0].voice_channel_id == 10
+    assert sessions[0].text_channel_id == 2
     assert sessions[0].was_playing is True
-    assert [str(r.uuid) for r in sessions[0].queue] == [str(req.uuid), str(playlist_req.uuid)]
-    assert isinstance(sessions[0].queue[1], PlaylistAddRequest)
-    assert sessions[0].queue[1].playlist_id == 77
 
 
 @pytest.mark.asyncio
