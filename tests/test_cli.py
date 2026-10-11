@@ -797,6 +797,41 @@ async def test_main_with_health_server_monitoring(mocker):
 
 
 @pytest.mark.asyncio
+async def test_main_probes_the_music_peers_in_readiness(mocker):
+    '''/ready probes the broker, downloader and search URLs from the music config section.'''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {
+            'general': {
+                'discord_token': 'foo',
+                'dispatch_http_url': 'http://localhost:8082',
+                'database_http_url': 'http://localhost:8085',
+                'monitoring': {
+                    'otlp': {'enabled': False},
+                    'health_server': {'enabled': True},
+                },
+            },
+            'music': {
+                'broker_client': {'url': 'http://discord-broker:8081'},
+                'download_client': {'url': 'http://discord-downloader:8083'},
+                'youtube_music_search_client': {'url': 'http://discord-search:8084'},
+            },
+        }
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        mocker.patch('discord_gateway.cli.bot.load_cogs', return_value=[])
+        setup = mocker.patch('discord_gateway.cli.bot.setup_health_server', return_value=None)
+        mocker.patch('discord_core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+        await asyncio.sleep(.01)
+        assert result.exception is None
+        kwargs = setup.call_args.kwargs
+        assert kwargs['broker_http_url'] == 'http://discord-broker:8081'
+        assert kwargs['download_http_url'] == 'http://discord-downloader:8083'
+        assert kwargs['search_http_url'] == 'http://discord-search:8084'
+
+
+@pytest.mark.asyncio
 async def test_dispatcher_main_with_health_server(mocker):
     '''DispatchHealthServer is instantiated by the dispatcher entry-point when health_server.enabled is true.'''
     with NamedTemporaryFile(suffix='.yml') as temp_config:

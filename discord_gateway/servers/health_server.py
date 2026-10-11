@@ -40,9 +40,10 @@ class HealthServer(HealthServerBase):
     ``/health`` (liveness): 200 when the bot is ready+open; 503 otherwise.
 
     ``/ready`` (readiness): liveness checks plus a TCP probe to each configured
-    peer pod -- the dispatcher, and since MR 4b the db pod. The probes fail fast
-    so the bot reports NotReady during a peer outage without delaying the kubelet
-    probe loop.
+    peer pod -- the dispatcher, the db pod (since MR 4b), and the broker, downloader
+    and search pods the music cog calls on every loop tick. The probes fail fast so
+    the bot reports NotReady during a peer outage without delaying the kubelet probe
+    loop.
 
     **The SELECT 1 ping this class used to run is gone, and its replacement is a
     TCP probe rather than a query.** The bot holds no engine any more, so there is
@@ -57,11 +58,15 @@ class HealthServer(HealthServerBase):
 
     # bandit B104: '0.0.0.0' default is intentional — health endpoint must be reachable from outside the container; override via MonitoringHealthServerConfig.bind_address
     def __init__(self, bot, port=8080, bind_address='0.0.0.0',  # nosec B104
-                 dispatch_http_url=None, database_http_url=None):
+                 dispatch_http_url=None, database_http_url=None,
+                 broker_http_url=None, download_http_url=None, search_http_url=None):
         super().__init__(port=port, bind_address=bind_address)
         self.bot = bot
         self._dispatch_http_url = dispatch_http_url
         self._database_http_url = database_http_url
+        self._broker_http_url = broker_http_url
+        self._download_http_url = download_http_url
+        self._search_http_url = search_http_url
 
     async def _tcp_probe(self, url):
         """Return True if a TCP connection to url's host:port succeeds within the timeout."""
@@ -86,10 +91,13 @@ class HealthServer(HealthServerBase):
         ok, extra = await self._check()
         # Each peer is probed and reported independently. Short-circuiting on the
         # first failure would make the payload say which probe ran, not which
-        # dependency is down -- and with two peers that is the difference between
-        # "the dispatcher is gone" and "everything is gone".
+        # dependency is down -- and with several peers that is the difference
+        # between "the downloader is gone" and "everything is gone".
         for target, url in (('dispatch', self._dispatch_http_url),
-                            ('database', self._database_http_url)):
+                            ('database', self._database_http_url),
+                            ('broker', self._broker_http_url),
+                            ('download', self._download_http_url),
+                            ('search', self._search_http_url)):
             if not url:
                 continue
             peer_ok = await self._tcp_probe(url)

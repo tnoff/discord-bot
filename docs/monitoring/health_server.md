@@ -7,7 +7,7 @@ implementations, not two:
 
 | Pod(s) | Class | What it checks |
 |---|---|---|
-| `discord-gateway` | `HealthServer` (`discord_gateway/servers/health_server.py`) | Discord connection + TCP probes of its `dispatch_http_url`/`database_http_url` peers |
+| `discord-gateway` | `HealthServer` (`discord_gateway/servers/health_server.py`) | Discord connection + TCP probes of its dispatcher, db, broker, downloader and search peers |
 | `discord-dispatcher`, `discord-broker`, `discord-downloader`, `discord-search` | `RedisPingHealthServer` (`discord_core/servers/redis_health_server.py`, built via `discord_core/cli/_lib/worker_pod.py` for the two worker pods) | Redis ping |
 | `discord-db` | `DatabasePingHealthServer` (`discord_db/servers/database_health_server.py`) | Database `SELECT 1` (postgres or SQLite) |
 
@@ -34,7 +34,7 @@ general:
 
 `GET /health` — liveness. `GET /ready` (also `/readyz`, `/readiness`) — readiness,
 which runs the liveness checks plus an independent TCP probe of each configured
-peer URL (`dispatch_http_url`, `database_http_url`). Any other path is treated
+peer URL (`dispatch_http_url`, `database_http_url`, and the music cog's `broker_client`, `download_client` and `youtube_music_search_client` URLs). Any other path is treated
 as liveness.
 
 | Bot state                              | HTTP status | Body                         |
@@ -45,8 +45,8 @@ as liveness.
 
 The bot holds no database engine, so there is no `SELECT 1` ping and no `"db"`
 key any more. Readiness instead reports each configured peer independently
-under `"dispatch"` and `"database"` (`"ok"` or `"unavailable"`, from a TCP
-probe of that peer's URL) — both are probed even if one already failed, so
+under `"dispatch"`, `"database"`, `"broker"`, `"download"` and `"search"` (`"ok"`
+or `"unavailable"`, from a TCP probe of that peer's URL) — both are probed even if one already failed, so
 the payload says which dependency is actually down rather than just which
 probe ran first.
 

@@ -400,6 +400,35 @@ class TestHealthServerReadiness:
         assert ok is False
         assert payload == {'dispatch': 'ok', 'database': 'unavailable'}
 
+    async def test_music_peers_are_tagged_as_their_own_targets(self, mocker):
+        '''The broker, downloader and search probes report under their own names.
+
+        A downloader that is still starting must read as download:unavailable, not
+        as a generic failure, so the payload and the peer_ready_check counter say
+        which pod the gateway is waiting for.
+        '''
+        bot = _make_bot(is_ready=True, is_closed=False)
+        hs = HealthServer(bot, port=18114,
+                          broker_http_url='http://discord-broker:8081',
+                          download_http_url='http://discord-downloader:8083',
+                          search_http_url='http://discord-search:8084')
+
+        async def probe(url):
+            return 'downloader' not in url
+
+        mocker.patch.object(hs, '_tcp_probe', AsyncMock(side_effect=probe))
+        counter = mocker.patch('discord_gateway.servers.health_server._PEER_READY_CHECK_COUNTER')
+        ok, payload = await hs._readiness_check()  # pylint: disable=protected-access
+
+        assert ok is False
+        assert payload == {'broker': 'ok', 'download': 'unavailable', 'search': 'ok'}
+        counter.add.assert_any_call(
+            1, {'source': 'bot', 'target': 'download', 'outcome': 'unavailable'})
+        counter.add.assert_any_call(
+            1, {'source': 'bot', 'target': 'broker', 'outcome': 'ok'})
+        counter.add.assert_any_call(
+            1, {'source': 'bot', 'target': 'search', 'outcome': 'ok'})
+
     async def test_ready_check_skips_counter_without_dispatch_url(self, mocker):
         '''No probe and no counter increment when dispatch_http_url is unset.'''
         counter = mocker.patch('discord_gateway.servers.health_server._PEER_READY_CHECK_COUNTER')
