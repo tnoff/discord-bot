@@ -1,1 +1,0 @@
-A resumed session no longer loses its queue when the voice handshake is slow: the player waits for the voice client to be connected, not merely present, before playing. Previously `play()` hit "Not connected to voice", the player was torn down, and the broker queue was closed.
