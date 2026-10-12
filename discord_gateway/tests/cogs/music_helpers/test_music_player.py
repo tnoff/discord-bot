@@ -136,6 +136,30 @@ async def test_music_player_wait_for_voice_client_returns_existing(fake_context)
 
 
 @pytest.mark.asyncio
+async def test_music_player_wait_for_voice_client_waits_out_the_handshake(fake_context): #pylint:disable=redefined-outer-name
+    '''A voice client that exists but is still handshaking is not played to; the wait ends once it connects'''
+    voice_client = FakeVoiceClient()
+    answers = [False, False, True]
+    voice_client.is_connected = lambda: answers.pop(0)
+    fake_context['guild'].voice_client = voice_client
+
+    with with_music_player(fake_context) as player:
+        assert await player._wait_for_voice_client() is voice_client #pylint:disable=protected-access
+    assert not answers, 'returned before the handshake finished'
+
+
+@pytest.mark.asyncio
+async def test_music_player_wait_for_voice_client_gives_up_on_a_handshake_that_never_finishes(fake_context): #pylint:disable=redefined-outer-name
+    '''A client stuck handshaking past the wait returns None so the caller tears the player down'''
+    voice_client = FakeVoiceClient()
+    voice_client.is_connected = lambda: False
+    fake_context['guild'].voice_client = voice_client
+
+    with with_music_player(fake_context) as player:
+        assert await player._wait_for_voice_client() is None #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
 async def test_music_player_join_already_there(fake_context): #pylint:disable=redefined-outer-name
     with with_music_player(fake_context) as player:
         c = FakeChannel()
