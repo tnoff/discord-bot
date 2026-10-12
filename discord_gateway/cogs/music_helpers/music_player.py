@@ -132,6 +132,11 @@ class MusicPlayer:
         if not self._player_task:
             self._player_task = self.bot.loop.create_task(return_loop_runner(self.player_loop, self.bot, self.logger, None)())
 
+    def _voice_connected(self) -> bool:
+        '''True when the guild has a voice client whose handshake has completed.'''
+        voice_client = self.guild.voice_client
+        return bool(voice_client and voice_client.is_connected())
+
     async def _wait_for_voice_client(self):
         '''
         Return the guild's voice client, waiting for it to appear if it has not yet.
@@ -149,11 +154,20 @@ class MusicPlayer:
         client is already connected, which is the overwhelmingly common case, and
         preserves the queue when it is not.
 
+        **"Has a voice client" is not "connected".** discord.py attaches the
+        VoiceClient to the guild as soon as ``channel.connect()`` starts, while the
+        handshake is still running, and ``play()`` on it raises ClientException
+        ("Not connected to voice") until the handshake completes. Waiting only for
+        the attribute let a resume with a slow handshake (5s in the incident this
+        note was added for) through, and the cleanup that followed closed the
+        broker queue -- 45 entries -- before the connection finished. So the wait
+        is on ``is_connected()``.
+
         Returns None if the wait times out or the player is shut down while
         waiting; the caller's existing AttributeError path then handles it, so a
         genuinely voice-less player still gets torn down rather than looping.
         '''
-        if self.guild.voice_client:
+        if self._voice_connected():
             return self.guild.voice_client
         self.logger.info(
             f'No voice client yet for guild {self.guild.id}, waiting up to '
@@ -164,7 +178,7 @@ class MusicPlayer:
             await asyncio.sleep(VOICE_CLIENT_POLL_SECONDS)
             if self.shutdown_called:
                 return None
-            if self.guild.voice_client:
+            if self._voice_connected():
                 self.logger.info(f'Voice client became available for guild {self.guild.id}')
                 return self.guild.voice_client
         self.logger.warning(

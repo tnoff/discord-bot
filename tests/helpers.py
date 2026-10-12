@@ -643,6 +643,9 @@ class FakeVoiceClient():
             after()
         return True
 
+    def is_connected(self) -> bool:
+        return True
+
     def is_playing(self) -> bool:
         return True
 
