@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.0.9] - 2026-10-12
+
+### Changed
+
+- Bumped asyncpg to v0.32.0
+
 ## [3.0.8] - 2026-10-12
 
 ### Changed
