@@ -22,7 +22,7 @@ dependencies = [
     "SQLAlchemy==2.0.52",
     # No import site. SQLAlchemy's async driver, named in the URL cli/_lib/db
     # builds ("postgresql+asyncpg"); absent, nothing can open the database.
-    "asyncpg==0.31.0",
+    "asyncpg==0.32.0",
     # No import site. SQLAlchemy's async SQLite driver, named in the URL
     # cli/_lib/db_url builds ("sqlite+aiosqlite") for a sqlite DSN.
     "aiosqlite==0.22.1",
