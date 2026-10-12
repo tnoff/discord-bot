@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.0.10] - 2026-10-12
+
+### Changed
+
+- Bumped alembic to v1.20.0
+
 ## [3.0.9] - 2026-10-12
 
 ### Changed
