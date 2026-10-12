@@ -33,7 +33,7 @@ jobs:
   # An empty or unreadable diff yields false, which runs everything.
   metadata:
     name: Detect metadata-only change
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     outputs:
@@ -72,7 +72,7 @@ jobs:
     name: Tox
     needs: metadata
     if: needs.metadata.outputs.only != 'true'
-    uses: tnoff/github-workflows/.github/workflows/tox.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # tox-v1.0.0
+    uses: tnoff/github-workflows/.github/workflows/tox.yml@fd3bbf52e18c2edfa3d6fe015bed6f7056cfa777  # tox-v1.0.2
     with:
       # ffmpeg is NOT optional here, unlike the other repos ported from the same
       # ci-base-images base. Two tests shell out to it directly
@@ -106,7 +106,7 @@ jobs:
     name: Detect image-input changes
     needs: metadata
     if: needs.metadata.outputs.only != 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     outputs:
@@ -181,7 +181,7 @@ jobs:
     name: Detect package version bumps
     needs: metadata
     if: needs.metadata.outputs.only != 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -214,7 +214,7 @@ jobs:
     name: Detect discord_core pin drift
     needs: metadata
     if: needs.metadata.outputs.only != 'true'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -275,7 +275,7 @@ jobs:
     # exactly one context and the jobs underneath stay free to change.
     if: always()
     needs: [secrets, tox, changes, build, contracts, metadata, package-versions, package-pins]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
