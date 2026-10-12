@@ -1,1 +1,0 @@
-The music loops wait up to 120s at startup for the broker, downloader and search pods to accept connections before they start, so a gateway that comes up first no longer opens with a burst of connection errors.

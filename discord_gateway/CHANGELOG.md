@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.8] - 2026-10-12
+
+### Changed
+
+- The music loops wait up to 120s at startup for the broker, downloader and search pods to accept connections before they start, so a gateway that comes up first no longer opens with a burst of connection errors.
+
 ## [3.2.7] - 2026-10-12
 
 ### Changed
