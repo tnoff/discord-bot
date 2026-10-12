@@ -439,7 +439,8 @@
         "discord_gateway.types.playlist_add_result",
         "discord_gateway.utils",
         "discord_gateway.utils.bot_metrics",
-        "discord_gateway.utils.otel_command"
+        "discord_gateway.utils.otel_command",
+        "discord_gateway.utils.peer_probe"
       ]
     },
     {
