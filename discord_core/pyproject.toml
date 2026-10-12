@@ -52,7 +52,7 @@ dependencies = [
     "aiohttp>=3.9",
     "redis==8.1.0",
     "pydantic==2.14.1",
-    "opentelemetry-sdk==1.44.0",
+    "opentelemetry-sdk==1.45.1",
     "opentelemetry-instrumentation-requests",
     "opentelemetry-instrumentation-redis",
     "opentelemetry-instrumentation-logging",
