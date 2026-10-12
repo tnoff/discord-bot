@@ -62,6 +62,7 @@ from discord_gateway.types.cleanup_reason import CleanupReason
 from discord_gateway.types.playlist_add_result import PlaylistAddResult
 from discord_gateway.utils.bot_metrics import BotMetricNaming
 from discord_gateway.utils.otel_command import command_wrapper
+from discord_gateway.utils.peer_probe import wait_for_peers
 
 # GLOBALS
 
@@ -282,6 +283,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         self._result_task = None
         self._search_result_task = None
         self._init_task = None
+        self._peers_ready_task = None
         # Names this process in the broker's now-playing record, so a restarted gateway can tell
         # a heartbeat it did not make from its own.
         self.gateway_id = uuid4().hex
@@ -503,25 +505,38 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # peer's routes, so the two queue_worker clients do not demand each
         # other's prefix.
         start_seam_checks()
+        # Every loop below calls the broker, downloader or search pod. A gateway that
+        # comes up first (a whole-namespace rollout) would otherwise open with a burst
+        # of connection errors on each of them, so they all wait on this one probe
+        # task; it gives up after a bounded wait and lets them start regardless.
+        self._peers_ready_task = self.bot.loop.create_task(wait_for_peers({
+            'broker': self.config.broker_client.url,
+            'download': self.config.download_client.url,
+            'search': self.config.youtube_music_search_client.url,
+        }, self.logger))
         self._cleanup_task = self.bot.loop.create_task(
-            return_loop_runner(self.cleanup_players, self.bot, self.logger,
-                               health=LOOP_HEALTH.register(LOOP_CLEANUP_PLAYERS))()
+            self._after_peers_ready(return_loop_runner(
+                self.cleanup_players, self.bot, self.logger,
+                health=LOOP_HEALTH.register(LOOP_CLEANUP_PLAYERS)))
         )
         # One-shot, not a loop: sessions are consumed once at startup.  It waits
         # on the gateway itself rather than going through return_loop_runner,
         # which would re-run it forever.
-        self._init_task = self.bot.loop.create_task(self.resume_player_sessions())
+        self._init_task = self.bot.loop.create_task(
+            self._after_peers_ready(self.resume_player_sessions))
         # The download loop lives in the downloader pod. The cog starts only the
         # client's status poller. The bot registers no download loop and emits no
         # download_files heartbeat; the downloader pod publishes that series.
         await self.download_client.start(self.bot, self.bot_shutdown_event)
         self._result_task = self.bot.loop.create_task(
-            return_loop_runner(self.process_download_results, self.bot, self.logger,
-                               health=LOOP_HEALTH.register(LOOP_PROCESS_DOWNLOAD_RESULTS))()
+            self._after_peers_ready(return_loop_runner(
+                self.process_download_results, self.bot, self.logger,
+                health=LOOP_HEALTH.register(LOOP_PROCESS_DOWNLOAD_RESULTS)))
         )
         self._search_result_task = self.bot.loop.create_task(
-            return_loop_runner(self.process_search_results, self.bot, self.logger,
-                               health=LOOP_HEALTH.register(LOOP_PROCESS_SEARCH_RESULTS))()
+            self._after_peers_ready(return_loop_runner(
+                self.process_search_results, self.bot, self.logger,
+                health=LOOP_HEALTH.register(LOOP_PROCESS_SEARCH_RESULTS)))
         )
         # The search loop lives in the search pod, so the cog starts only the
         # client's status poller. The bot registers no youtube_music_search loop
@@ -530,6 +545,14 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         await self.youtube_music_search_client.start(self.bot, self.bot_shutdown_event)
         # No embedded BrokerHttpServer: the broker pod serves that surface. Recording plays
         # (analytics and the history playlist) is the broker's history worker now.
+
+    async def _after_peers_ready(self, func):
+        '''Await func() once the startup peer wait has finished (reachable or timed out).
+
+        Takes the function, not a coroutine, so a task cancelled during the wait never
+        leaves a created-but-unawaited coroutine behind.'''
+        await self._peers_ready_task
+        return await func()
 
     async def cog_unload(self):
         '''
@@ -551,6 +574,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             # a wedge, and must not fail the liveness probe while the pod drains.
             LOOP_HEALTH.mark_stopped(LOOP_CLEANUP_PLAYERS, LOOP_PROCESS_DOWNLOAD_RESULTS,
                                      LOOP_PROCESS_SEARCH_RESULTS)
+            if self._peers_ready_task:
+                self._peers_ready_task.cancel()
             if self._init_task:
                 self._init_task.cancel()
             if self._cleanup_task:

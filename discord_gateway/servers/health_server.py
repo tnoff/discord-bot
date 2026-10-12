@@ -4,16 +4,11 @@ Runs as an asyncio task inside the bot's event loop.
 """
 from typing import ClassVar
 
-import asyncio
-from urllib.parse import urlsplit
-
-from discord_core.servers.health_server_base import HealthServerBase, close_writer
+from discord_core.servers.health_server_base import HealthServerBase
 from discord_core.utils.otel import AttributeNaming, METER_PROVIDER
 
 from discord_gateway.utils.bot_metrics import BotMetricNaming
-
-
-_DISPATCH_PROBE_TIMEOUT_SECONDS = 1.0
+from discord_gateway.utils.peer_probe import tcp_probe
 
 # Counts each dispatcher readiness probe by outcome. Only incremented from the
 # bot pod (cli.bot), which probes its remote peers; a flapping outcome is an
@@ -70,19 +65,7 @@ class HealthServer(HealthServerBase):
 
     async def _tcp_probe(self, url):
         """Return True if a TCP connection to url's host:port succeeds within the timeout."""
-        parts = urlsplit(url)
-        host, port = parts.hostname, parts.port
-        if not host or not port:
-            return False
-        try:
-            _, writer = await asyncio.wait_for(
-                asyncio.open_connection(host, port),
-                timeout=_DISPATCH_PROBE_TIMEOUT_SECONDS,
-            )
-        except (OSError, asyncio.TimeoutError):
-            return False
-        await close_writer(writer)
-        return True
+        return await tcp_probe(url)
 
     async def _check(self):
         return self.bot.is_ready() and not self.bot.is_closed(), {}

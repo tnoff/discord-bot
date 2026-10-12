@@ -1864,9 +1864,9 @@ async def test_cog_load_starts_poller_in_ha(fake_context):  #pylint:disable=rede
     cog.dispatcher = Mock()
     await cog.cog_load()
     cog.download_client.start.assert_awaited_once()
-    # cleanup + init + result + search_result only — the download and search
-    # loops both live in their own pods now, and no broker server is configured.
-    assert mock_loop.create_task.call_count == 4
+    # peer wait + cleanup + init + result + search_result only — the download and
+    # search loops both live in their own pods now, and no broker server is configured.
+    assert mock_loop.create_task.call_count == 5
 
 
 @pytest.mark.asyncio
@@ -2029,9 +2029,9 @@ async def test_cog_load_starts_the_search_poller_in_ha(fake_context):  #pylint:d
     cog.dispatcher = Mock()
     await cog.cog_load()
     cog.youtube_music_search_client.start.assert_awaited_once()
-    # cleanup + init + result + search_result = 4. Neither the download nor the
+    # peer wait + cleanup + init + result + search_result = 5. Neither the download nor the
     # search loop is among them; the cog has neither to spawn.
-    assert mock_loop.create_task.call_count == 4
+    assert mock_loop.create_task.call_count == 5
 
 
 @pytest.mark.asyncio
@@ -2076,3 +2076,50 @@ async def test_cleanup_ha_skips_preserved_bundles(fake_context, mocker):  #pylin
     await cog.cleanup(guild, reason=CleanupReason.QUEUE_TIMEOUT)
     # keep-bundle preserved by the downloader → skipped; drop-bundle deleted.
     cog.delete_bundle.assert_awaited_once_with(4242, 'drop-bundle')
+
+
+@pytest.mark.asyncio
+async def test_loops_wait_for_the_peer_gate_before_running(fake_context):  #pylint:disable=redefined-outer-name
+    """No loop body runs until the startup peer wait has finished, then each one does."""
+    cog = Music(fake_context['bot'], music_config({}), fake_context['dispatcher'])
+    gate = asyncio.Event()
+
+    async def peers_ready():
+        await gate.wait()
+
+    cog._peers_ready_task = asyncio.ensure_future(peers_ready())  #pylint:disable=protected-access
+    ran = []
+
+    async def loop_body():
+        ran.append(True)
+        return 'done'
+
+    task = asyncio.ensure_future(cog._after_peers_ready(loop_body))  #pylint:disable=protected-access
+    await asyncio.sleep(0)
+    assert not ran
+    gate.set()
+    assert await task == 'done'
+    assert ran == [True]
+
+
+@pytest.mark.asyncio
+async def test_cog_load_waits_on_the_broker_downloader_and_search_urls(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """The startup gate probes exactly the three peers the loops call."""
+    waited = mocker.patch('discord_gateway.cogs.music.wait_for_peers', new=Mock(return_value=None))
+    config = music_config({'music': {
+        'broker_client': {'url': 'http://broker:8084'},
+        'download_client': {'url': 'http://downloader:8083'},
+        'youtube_music_search_client': {'url': 'http://search:8085'},
+    }})
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    cog.download_client = Mock()
+    cog.download_client.start = AsyncMock()
+    cog.youtube_music_search_client = Mock()
+    cog.youtube_music_search_client.start = AsyncMock()
+    cog.bot.loop = Mock(create_task=Mock(return_value=Mock()))
+    await cog.cog_load()
+    assert waited.call_args.args[0] == {
+        'broker': 'http://broker:8084',
+        'download': 'http://downloader:8083',
+        'search': 'http://search:8085',
+    }
