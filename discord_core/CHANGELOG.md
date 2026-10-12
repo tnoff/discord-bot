@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.4.2] - 2026-10-12
+
+### Changed
+
+- fix(deps): update cloud sdks
+
 ## [3.4.1] - 2026-10-12
 
 ### Changed
