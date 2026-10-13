@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.10] - 2026-10-13
+
+### Changed
+
+- Bumped the `discord-core` pin to 3.4.3. `HttpPlaylistStore` and `HttpGuildAnalyticsStore` drop `record_history_item`, `get_playlist_size` and `record_play`: nothing in the gateway calls them since the queue moved to the broker (#1048). The routes stay on the db pod; the broker's history worker is their only caller.
+
 ## [3.2.9] - 2026-10-12
 
 ### Changed

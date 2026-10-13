@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.0.11] - 2026-10-13
+
+### Changed
+
+- Bumped the `discord-core` pin to 3.4.3. The db pod's routes, stores and tests are now typed against `DbPlaylistStore` / `DbGuildAnalyticsStore`, the shapes it actually serves.
+
 ## [3.0.10] - 2026-10-12
 
 ### Changed

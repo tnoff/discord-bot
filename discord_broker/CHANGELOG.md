@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.4.3] - 2026-10-13
+
+### Changed
+
+- Bumped the `discord-core` pin to 3.4.3.
+
 ## [3.4.2] - 2026-10-12
 
 ### Changed
