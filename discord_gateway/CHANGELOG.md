@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.11] - 2026-10-13
+
+### Changed
+
+- The `urban` and `general` commands now run through a discord-free `discord_gateway.command_logic` package (#1030, Phase 1). The cogs are thin stubs that build a `CommandEnvelope` from the discord.py `Context` and delegate; a test fails if anything under `command_logic` imports `discord` or `discord_gateway.cogs`. No behaviour change.
+
 ## [3.2.10] - 2026-10-13
 
 ### Changed
