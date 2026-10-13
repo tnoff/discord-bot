@@ -1,6 +1,3 @@
-from random import randint
-from re import match
-
 from discord.ext.commands import Bot, command, Context
 
 
@@ -8,10 +5,10 @@ from discord_core.exceptions import CogMissingRequiredArg
 
 from discord_core.clients.dispatch_client_base import DispatchClientBase
 
-from discord_gateway.cogs.common import CogHelperBase
+from discord_gateway.cogs.common import CogHelperBase, envelope_from_ctx
+from discord_gateway.command_logic.general import GeneralCommands
 from discord_gateway.utils.otel_command import command_wrapper
 
-ROLL_REGEX = r'^(?P<rolls>\d+)?([dD])?(?P<sides>\d+)'
 
 class General(CogHelperBase):
     '''
@@ -22,6 +19,7 @@ class General(CogHelperBase):
         if not settings.get('general', {}).get('include', {}).get('default', True):
             raise CogMissingRequiredArg('Default cog not enabled')
         super().__init__(bot, settings, dispatcher, None, redis_manager=redis_manager)
+        self.logic = GeneralCommands(self.dispatch_message)
 
     @command(name='hello')
     @command_wrapper
@@ -29,7 +27,7 @@ class General(CogHelperBase):
         '''
         Say hello to the server
         '''
-        return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'Waddup {ctx.author.display_name}')
+        return await self.logic.hello(envelope_from_ctx(ctx))
 
     @command(name='roll')
     @command_wrapper
@@ -43,42 +41,7 @@ class General(CogHelperBase):
         Can give 'd' prefix, '!roll d6', for random number between 1 and 6
         Can give multipliers, '!roll 2d6', to get two random numbers between 1 and 6, and add total
         '''
-        # First check if matches regex
-        matcher = match(ROLL_REGEX, input_value)
-        if not matcher:
-            message = f'Invalid input given "{input_value}"'
-            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,message)
-        try:
-            sides = int(matcher.group('sides'))
-            rolls = matcher.group('rolls')
-            if rolls is None:
-                rolls = 1
-            else:
-                rolls = int(rolls)
-        except ValueError:
-            message = f'Non integer value given {input_value}'
-            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,message)
-
-        if rolls > 20:
-            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'Invalid input given, max rolls is 20 but "{rolls}" given')
-        if sides > 100:
-            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'Invalid input given, max sides is 100 but "{sides}" given')
-
-
-        roll_values = []
-        total = 0
-        for _ in range(rolls):
-            # bandit B311: dice rolls, not security-sensitive
-            num = randint(1, sides)  # nosec B311
-            total += num
-            roll_values.append(num)
-        if rolls == 1:
-            message = f'{ctx.author.display_name} rolled a {total}'
-        else:
-            roll_values_message = ' + '.join(f'{d}' for d in roll_values)
-            message = f'{ctx.author.display_name} rolled: {roll_values_message} = {total}'
-
-        return await self.dispatch_message(ctx.guild.id, ctx.channel.id,message)
+        return await self.logic.roll(envelope_from_ctx(ctx), input_value)
 
     @command(name='meta')
     @command_wrapper
@@ -86,7 +49,4 @@ class General(CogHelperBase):
         '''
         Get meta information for channel and server
         '''
-        message = f'```Server id: {ctx.guild.id}\n'\
-                f'Channel id: {ctx.channel.id}\n'\
-                f'User id: {ctx.author.id}```'
-        return await self.dispatch_message(ctx.guild.id, ctx.channel.id,message)
+        return await self.logic.meta(envelope_from_ctx(ctx))

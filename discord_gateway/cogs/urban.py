@@ -1,18 +1,12 @@
-import asyncio
-
-from bs4 import BeautifulSoup
-from dappertable import shorten_string
 from discord.ext.commands import Bot, command, Context
-from requests import get as requests_get
 
 from discord_core.exceptions import CogMissingRequiredArg
 
 from discord_core.clients.dispatch_client_base import DispatchClientBase
 
-from discord_gateway.cogs.common import CogHelperBase
+from discord_gateway.cogs.common import CogHelperBase, envelope_from_ctx
+from discord_gateway.command_logic.urban import UrbanCommands
 from discord_gateway.utils.otel_command import command_wrapper
-
-BASE_URL = 'https://www.urbandictionary.com/'
 
 
 class UrbanDictionary(CogHelperBase):
@@ -25,6 +19,7 @@ class UrbanDictionary(CogHelperBase):
         if not settings.get('general', {}).get('include', {}).get('urban', False):
             raise CogMissingRequiredArg('Urban not enabled')
         super().__init__(bot, settings, dispatcher, None, redis_manager=redis_manager)
+        self.logic = UrbanCommands(self.dispatch_message, self.logger)
 
     @command(name='urban')
     @command_wrapper
@@ -35,23 +30,4 @@ class UrbanDictionary(CogHelperBase):
         search: str [Required]
             The word or phrase to search in urban dictionary
         '''
-        self.logger.debug(f'Looking up word string "{word}" in guild "{ctx.guild.id}"')
-        word_url = f'{BASE_URL}define.php?term={word}'
-        result = await asyncio.to_thread(requests_get, word_url, timeout=60)
-        if result.status_code != 200:
-            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'Unable to lookup word "{word}"')
-        soup = BeautifulSoup(result.content, 'html.parser')
-        definition_panels = soup.find_all("div", class_="definition")
-
-        definitions = []
-        for panel in definition_panels:
-            meanings = panel.find_all('div', class_='meaning')
-            for mean in meanings:
-                definitions.append(mean.text)
-        text = ''
-        for (count, define) in enumerate(definitions[:2]):
-            definition = shorten_string(define, 400)
-            text = f'{text}{count+1}. {definition}\n'
-        if not text:
-            return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'No results found for "{word}"')
-        return await self.dispatch_message(ctx.guild.id, ctx.channel.id,f'```{text}```')
+        return await self.logic.word_lookup(envelope_from_ctx(ctx), word)
