@@ -1,8 +1,8 @@
 '''
-In-process PlaylistStore: the playlist tables, over the local engine.
+In-process DbPlaylistStore: the playlist tables, over the local engine.
 
-Satisfies interfaces.database_protocols.PlaylistStore, which the Music cog
-annotates against. Same shape as MarkovClient and VideoCacheClient -- a session
+Satisfies interfaces.database_protocols.DbPlaylistStore, which the db pod's
+routes are typed against (the gateway's cog needs only the narrower PlaylistStore). Same shape as MarkovClient and VideoCacheClient -- a session
 generator handed in by the caller.
 
 Three things concentrate here that were spread across `cogs/music.py`:
@@ -90,7 +90,7 @@ def _items_in_order(playlist_id: int):
 
 class PlaylistClient(SessionStoreBase):
     '''
-    The playlist tables -- the in-process PlaylistStore.
+    The playlist tables -- the in-process DbPlaylistStore.
 
     Server playlists, the per-guild history playlist, and the items in both.
     '''

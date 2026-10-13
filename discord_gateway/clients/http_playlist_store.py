@@ -174,14 +174,6 @@ class HttpPlaylistStore(HttpStoreBase):
         '''
         return await self._playlist_call('mark_queued', playlist_id)
 
-    async def get_playlist_size(self, playlist_id: int) -> int:
-        '''
-        Return how many items a playlist holds.
-
-        playlist_id : Playlist row id
-        '''
-        return await self._playlist_call('get_playlist_size', playlist_id)
-
     async def list_items(self, playlist_id: int) -> List[PlaylistItemEntry]:
         '''
         Return a playlist's items, oldest first.
@@ -232,18 +224,3 @@ class HttpPlaylistStore(HttpStoreBase):
         '''
         result = await self._playlist_call('delete_item_by_index', playlist_id, index=index)
         return self._validate(PlaylistItemEntry, result) if result else None
-
-    async def record_history_item(self, playlist_id: int, item: PlaylistItemWrite,
-                                  max_size: int) -> bool:
-        '''
-        Write one played track to the history playlist, evicting to make room.
-
-        One request for what the post-play loop ran as six queries.
-
-        playlist_id : History playlist row id
-        item : The track that just played
-        max_size : Ceiling on the playlist's item count
-        '''
-        return await self._playlist_call(
-            'record_history_item', playlist_id,
-            item=item.model_dump(mode='json'), max_size=max_size)

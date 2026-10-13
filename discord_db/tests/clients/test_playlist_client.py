@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_core.interfaces.database_protocols import PlaylistStore
+from discord_core.interfaces.database_protocols import DbPlaylistStore
 from discord_core.types.playlist import (
     PlaylistEntry,
     PlaylistItemAddStatus,
@@ -43,8 +43,8 @@ def writes(*urls):
 
 @pytest.mark.asyncio
 async def test_playlist_client_satisfies_the_store_protocol(fake_engine):  #pylint:disable=redefined-outer-name
-    '''PlaylistClient is a structural PlaylistStore'''
-    assert isinstance(build_store(fake_engine), PlaylistStore)
+    '''PlaylistClient is a structural DbPlaylistStore'''
+    assert isinstance(build_store(fake_engine), DbPlaylistStore)
 
 
 @pytest.mark.asyncio

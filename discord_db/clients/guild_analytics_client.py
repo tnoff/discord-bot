@@ -1,8 +1,8 @@
 '''
-In-process GuildAnalyticsStore: the guild analytics tables, over the local engine.
+In-process DbGuildAnalyticsStore: the guild analytics tables, over the local engine.
 
-Satisfies interfaces.database_protocols.GuildAnalyticsStore, which the Music cog
-annotates against. Same shape as the three clients before it -- a session
+Satisfies interfaces.database_protocols.DbGuildAnalyticsStore, which the db pod's
+routes are typed against (the gateway's cog needs only the narrower GuildAnalyticsStore). Same shape as the three clients before it -- a session
 generator handed in by the caller.
 
 The whole group is two rows deep, but it is where the read-modify-write lived.
@@ -51,7 +51,7 @@ _SECONDS_PER_DAY = 60 * 60 * 24
 
 class GuildAnalyticsClient(SessionStoreBase):
     '''
-    GuildAnalyticsStore backed by a session generator over the local engine.
+    DbGuildAnalyticsStore backed by a session generator over the local engine.
 
     session_generator : Callable returning an async context manager yielding an
                         AsyncSession
