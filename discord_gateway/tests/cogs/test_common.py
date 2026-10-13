@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -8,7 +9,7 @@ from discord_core.exceptions import CogMissingRequiredArg
 from discord_core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 
 from discord_gateway.clients.database_stores import DatabaseStores
-from discord_gateway.cogs.common import CogHelperBase
+from discord_gateway.cogs.common import CogHelperBase, envelope_from_ctx
 
 from tests.helpers import fake_context  #pylint:disable=unused-import
 from tests.helpers import FakeMessage, FakeMessageDispatcher
@@ -218,3 +219,26 @@ async def test_dispatch_fetch_delegates_to_dispatcher(fake_context):  #pylint:di
     result = await cog.dispatch_fetch(fake_context['guild'].id, func)
     assert result == 42
     func.assert_called_once()
+
+
+def test_envelope_from_ctx(fake_context):  #pylint:disable=redefined-outer-name
+    '''Ids and names are read off ctx; no voice state means no voice channel'''
+    ctx = fake_context['context']
+    ctx.author.voice = None
+    env = envelope_from_ctx(ctx)
+    assert env.guild_id == fake_context['guild'].id
+    assert env.channel_id == fake_context['channel'].id
+    assert env.author_id == fake_context['author'].id
+    assert env.author_display_name == fake_context['author'].display_name
+    assert env.channel_name == fake_context['channel'].name
+    assert env.author_voice_channel_id is None
+    assert env.author_voice_channel_name is None
+
+
+def test_envelope_from_ctx_in_voice(fake_context):  #pylint:disable=redefined-outer-name
+    '''The author's voice channel id and name are carried when they are connected'''
+    ctx = fake_context['context']
+    ctx.author.voice = SimpleNamespace(channel=SimpleNamespace(id=77, name='music'))
+    env = envelope_from_ctx(ctx)
+    assert env.author_voice_channel_id == 77
+    assert env.author_voice_channel_name == 'music'

@@ -1,5 +1,3 @@
-from unittest.mock import MagicMock
-
 import pytest
 
 from discord_core.exceptions import CogMissingRequiredArg
@@ -21,45 +19,10 @@ def test_general_startup_not_enabled(fake_context):  #pylint:disable=redefined-o
     assert 'Default cog not enabled' in str(exc.value)
 
 @pytest.mark.asyncio
-async def test_hello(fake_context):  #pylint:disable=redefined-outer-name
+async def test_general_stubs_delegate(fake_context):  #pylint:disable=redefined-outer-name
+    '''Each stub builds the envelope from ctx and returns what the logic replied'''
     cog = General(fake_context['bot'], {}, fake_context['dispatcher'])
-    result = await cog.hello(cog, fake_context['context']) #pylint:disable=too-many-function-args
-    assert result == f'Waddup {fake_context["author"].display_name}'
-
-@pytest.mark.asyncio
-async def test_roll(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    cog = General(fake_context['bot'], {}, fake_context['dispatcher'])
-    mocker.patch('discord_gateway.cogs.general.randint', return_value=3)
-    result = await cog.roll(cog, fake_context['context'], input_value='5') #pylint:disable=too-many-function-args
-    assert result == f'{fake_context["author"].display_name} rolled a 3'
-    result = await cog.roll(cog, fake_context['context'], input_value='d5') #pylint:disable=too-many-function-args
-    assert result == f'{fake_context["author"].display_name} rolled a 3'
-    result = await cog.roll(cog, fake_context['context'], input_value='3d10') #pylint:disable=too-many-function-args
-    assert result == f'{fake_context["author"].display_name} rolled: 3 + 3 + 3 = 9'
-
-@pytest.mark.asyncio
-async def test_roll_invalid_input(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    cog = General(fake_context['bot'], {}, fake_context['dispatcher'])
-    mocker.patch('discord_gateway.cogs.general.randint', return_value=3)
-    result = await cog.roll(cog, fake_context['context'], input_value='foo') #pylint:disable=too-many-function-args
-    assert result == 'Invalid input given "foo"'
-    result = await cog.roll(cog, fake_context['context'], input_value='21d5') #pylint:disable=too-many-function-args
-    assert result == 'Invalid input given, max rolls is 20 but "21" given'
-    result = await cog.roll(cog, fake_context['context'], input_value='3d101') #pylint:disable=too-many-function-args
-    assert result == 'Invalid input given, max sides is 100 but "101" given'
-
-@pytest.mark.asyncio
-async def test_meta(fake_context):  #pylint:disable=redefined-outer-name
-    cog = General(fake_context['bot'], {}, fake_context['dispatcher'])
-    result = await cog.meta(cog, fake_context['context']) #pylint:disable=too-many-function-args
-    assert result == f'```Server id: {fake_context["guild"].id}\nChannel id: {fake_context["channel"].id}\nUser id: {fake_context["author"].id}```'
-
-@pytest.mark.asyncio
-async def test_roll_value_error(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    '''ValueError branch is reached when match groups cannot be converted to int'''
-    cog = General(fake_context['bot'], {}, fake_context['dispatcher'])
-    mock_matcher = MagicMock()
-    mock_matcher.group.side_effect = lambda key: 'abc' if key == 'sides' else None
-    mocker.patch('discord_gateway.cogs.general.match', return_value=mock_matcher)
-    result = await cog.roll(cog, fake_context['context'], input_value='abc')  #pylint:disable=too-many-function-args
-    assert 'Non integer value given' in result
+    ctx = fake_context['context']
+    assert await cog.hello(cog, ctx) == f'Waddup {fake_context["author"].display_name}' #pylint:disable=too-many-function-args
+    assert 'rolled' in await cog.roll(cog, ctx, input_value='3d6') #pylint:disable=too-many-function-args
+    assert await cog.meta(cog, ctx) == f'```Server id: {fake_context["guild"].id}\nChannel id: {fake_context["channel"].id}\nUser id: {fake_context["author"].id}```' #pylint:disable=too-many-function-args

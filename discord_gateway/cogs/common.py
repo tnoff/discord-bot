@@ -1,6 +1,6 @@
 import asyncio
 
-from discord.ext.commands import Cog, Bot
+from discord.ext.commands import Cog, Bot, Context
 from pydantic import BaseModel, ValidationError as PydanticValidationError
 
 from discord_core.exceptions import CogMissingRequiredArg
@@ -15,7 +15,24 @@ from discord_core.types.dispatch_request import (
     DeleteRequest,
 )
 
+from discord_gateway.command_logic.envelope import CommandEnvelope
+
 _UNSET = object()
+
+
+def envelope_from_ctx(ctx: Context) -> CommandEnvelope:
+    '''Read the fields command logic needs off a discord.py Context.'''
+    voice = ctx.author.voice
+    voice_channel = voice.channel if voice else None
+    return CommandEnvelope(
+        guild_id=ctx.guild.id,
+        channel_id=ctx.channel.id,
+        author_id=ctx.author.id,
+        author_display_name=ctx.author.display_name,
+        channel_name=ctx.channel.name,
+        author_voice_channel_id=voice_channel.id if voice_channel else None,
+        author_voice_channel_name=voice_channel.name if voice_channel else None,
+    )
 
 
 class CogHelperBase(Cog):
