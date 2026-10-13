@@ -435,6 +435,7 @@
         "discord_gateway.command_logic",
         "discord_gateway.command_logic.envelope",
         "discord_gateway.command_logic.general",
+        "discord_gateway.command_logic.playlist",
         "discord_gateway.command_logic.reply",
         "discord_gateway.command_logic.urban",
         "discord_gateway.servers",

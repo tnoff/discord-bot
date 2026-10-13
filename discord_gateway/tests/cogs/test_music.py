@@ -24,6 +24,7 @@ from discord_gateway.clients.http_download_client import HttpDownloadClient
 from discord_gateway.clients.http_media_search_client import HttpMediaSearchClient
 from discord_gateway.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_gateway.cogs import music as music_module
+from discord_gateway.command_logic.playlist import PlaylistCommands
 from discord_gateway.cogs.music import (Music, LOOP_CLEANUP_PLAYERS,
                                     LOOP_PROCESS_DOWNLOAD_RESULTS, LOOP_PROCESS_SEARCH_RESULTS)
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
@@ -1786,7 +1787,7 @@ async def test_music_stats_command_no_database(mocker, fake_context):  #pylint:d
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Mock the database check to return False
-    mocker.patch.object(cog, '_Music__check_database_session', return_value=False)
+    mocker.patch.object(PlaylistCommands, 'check_database_session', return_value=False)
 
     # Set dispatcher mock
     cog.dispatcher = Mock()
