@@ -5,7 +5,7 @@ from functools import partial
 import pytest
 from sqlalchemy import select
 
-from discord_core.interfaces.database_protocols import GuildAnalyticsStore
+from discord_core.interfaces.database_protocols import DbGuildAnalyticsStore
 from discord_core.types.guild_analytics import GuildAnalyticsEntry
 
 from discord_db.clients.guild_analytics_client import GuildAnalyticsClient
@@ -29,8 +29,8 @@ def build_store(fake_engine) -> GuildAnalyticsClient:  #pylint:disable=redefined
 
 @pytest.mark.asyncio
 async def test_guild_analytics_client_satisfies_the_store_protocol(fake_engine):  #pylint:disable=redefined-outer-name
-    '''GuildAnalyticsClient is a structural GuildAnalyticsStore'''
-    assert isinstance(build_store(fake_engine), GuildAnalyticsStore)
+    '''GuildAnalyticsClient is a structural DbGuildAnalyticsStore'''
+    assert isinstance(build_store(fake_engine), DbGuildAnalyticsStore)
 
 
 @pytest.mark.asyncio

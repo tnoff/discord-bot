@@ -90,9 +90,9 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.utils.otel import otel_span_wrapper
 
 from discord_core.interfaces.database_protocols import (
-    GuildAnalyticsStore,
+    DbGuildAnalyticsStore,
+    DbPlaylistStore,
     MarkovStore,
-    PlaylistStore,
     VideoCacheStore,
 )
 from discord_core.routes import database as database_routes
@@ -109,9 +109,9 @@ DEFAULT_PORT = 8085
 class DatabaseHttpServer(AiohttpServerBase):
     '''aiohttp HTTP server fronting the persistence-tier stores.'''
 
-    def __init__(self, guild_analytics_store: GuildAnalyticsStore | None = None,
+    def __init__(self, guild_analytics_store: DbGuildAnalyticsStore | None = None,
                  markov_store: MarkovStore | None = None,
-                 playlist_store: PlaylistStore | None = None,
+                 playlist_store: DbPlaylistStore | None = None,
                  video_cache_store: VideoCacheStore | None = None,
                  host: str = '0.0.0.0',  # nosec B104
                  port: int = DEFAULT_PORT):

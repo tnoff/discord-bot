@@ -27,6 +27,7 @@ from discord_core.interfaces.database_protocols import GuildAnalyticsStore
 from discord_core.types.guild_analytics import GuildAnalyticsEntry
 
 from discord_gateway.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
+from discord_broker.clients.http_history_stores import HttpPlayAnalyticsStore
 from discord_db.clients.guild_analytics_client import GuildAnalyticsClient
 from discord_db.servers.database_server import DatabaseHttpServer
 
@@ -85,8 +86,9 @@ async def test_totals_survive_the_round_trip(fake_engine):  #pylint:disable=rede
     server = DatabaseHttpServer(_live_store(fake_engine))
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpGuildAnalyticsStore(str(tc.make_url('')), session=tc.session)
-        await client.record_play(GUILD_ID, 7200, False)
-        await client.record_play(GUILD_ID, 3600, True)
+        writer = HttpPlayAnalyticsStore(str(tc.make_url('')), session=tc.session)
+        await writer.record_play(GUILD_ID, 7200, False)
+        await writer.record_play(GUILD_ID, 3600, True)
         entry = await client.get_analytics(GUILD_ID)
 
     assert isinstance(entry, GuildAnalyticsEntry)
@@ -126,7 +128,8 @@ async def test_the_carry_happens_on_the_pod_side(fake_engine):  #pylint:disable=
     server = DatabaseHttpServer(_live_store(fake_engine))
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpGuildAnalyticsStore(str(tc.make_url('')), session=tc.session)
-        await client.record_play(GUILD_ID, (60 * 60 * 24) + 30, False)
+        writer = HttpPlayAnalyticsStore(str(tc.make_url('')), session=tc.session)
+        await writer.record_play(GUILD_ID, (60 * 60 * 24) + 30, False)
         entry = await client.get_analytics(GUILD_ID)
 
     assert entry.total_duration_days == 1
@@ -143,9 +146,9 @@ async def test_record_play_arguments_arrive_as_sent():
     '''
     store = _RecordingStore()
     async with TestClient(TestServer(DatabaseHttpServer(store).build_app())) as tc:
-        client = HttpGuildAnalyticsStore(str(tc.make_url('')), session=tc.session)
-        assert await client.record_play(77, 120, True) is True
-        assert await client.record_play(77, 120, False) is True
+        writer = HttpPlayAnalyticsStore(str(tc.make_url('')), session=tc.session)
+        assert await writer.record_play(77, 120, True) is True
+        assert await writer.record_play(77, 120, False) is True
 
     assert store.play_calls == [(77, 120, True), (77, 120, False)]
 
@@ -258,7 +261,7 @@ async def test_falsy_values_are_not_treated_as_absent():
     '''
     store = _RecordingStore()
     async with TestClient(TestServer(DatabaseHttpServer(store).build_app())) as tc:
-        client = HttpGuildAnalyticsStore(str(tc.make_url('')), session=tc.session)
-        assert await client.record_play(0, 0, False) is True
+        writer = HttpPlayAnalyticsStore(str(tc.make_url('')), session=tc.session)
+        assert await writer.record_play(0, 0, False) is True
 
     assert store.play_calls == [(0, 0, False)]

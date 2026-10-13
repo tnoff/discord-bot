@@ -31,6 +31,7 @@ from discord_core.types.playlist import (
 )
 
 from discord_gateway.clients.http_playlist_store import HttpPlaylistStore
+from discord_broker.clients.http_history_stores import HttpHistoryPlaylistStore
 from discord_db.clients.playlist_client import PlaylistClient
 from discord_db.servers.database_server import DatabaseHttpServer
 
@@ -188,7 +189,9 @@ async def test_items_come_back_oldest_first(fake_engine):  #pylint:disable=redef
         playlist = await client.create_playlist(GUILD_ID, 'ordered')
         await client.add_items(playlist.id, _writes('a', 'b', 'c'), 10)
         items = await client.list_items(playlist.id)
-        assert await client.get_playlist_size(playlist.id) == 3
+        # No client calls get_playlist_size any more; the route is served for the db pod's contract.
+        size = await tc.post('/database/playlist/get_playlist_size', json={'playlist_id': playlist.id})
+        assert (await size.json())['result'] == 3
 
     assert [item.video_url for item in items] == ['a', 'b', 'c']
     assert all(isinstance(item, PlaylistItemEntry) for item in items)
@@ -299,16 +302,17 @@ async def test_history_eviction_survives_the_wire(fake_engine):  #pylint:disable
     server = DatabaseHttpServer(playlist_store=_live_store(fake_engine))
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpPlaylistStore(str(tc.make_url('')), session=tc.session)
+        writer = HttpHistoryPlaylistStore(str(tc.make_url('')), session=tc.session)
         playlist_id = await client.ensure_history_playlist(GUILD_ID)
         for url in ('a', 'b', 'c'):
-            assert await client.record_history_item(
+            assert await writer.record_history_item(
                 playlist_id, _writes(url)[0], MAX_SIZE) is True
         # Replaying an existing track moves it to the end rather than duplicating.
-        await client.record_history_item(playlist_id, _writes('a')[0], MAX_SIZE)
+        await writer.record_history_item(playlist_id, _writes('a')[0], MAX_SIZE)
         # And the fifth track evicts the oldest survivor.
-        await client.record_history_item(playlist_id, _writes('d')[0], MAX_SIZE)
+        await writer.record_history_item(playlist_id, _writes('d')[0], MAX_SIZE)
         stored = [item.video_url for item in await client.list_items(playlist_id)]
-        missing = await client.record_history_item(999, _writes('e')[0], MAX_SIZE)
+        missing = await writer.record_history_item(999, _writes('e')[0], MAX_SIZE)
 
     assert stored == ['c', 'a', 'd']
     assert missing is False
@@ -339,7 +343,8 @@ async def test_a_missing_playlist_is_not_an_error(fake_engine):  #pylint:disable
         assert await client.delete_playlist(999) is True
         assert await client.delete_item(999) is False
         assert await client.delete_item_by_index(999, 0) is None
-        assert await client.get_playlist_size(999) == 0
+        size = await tc.post('/database/playlist/get_playlist_size', json={'playlist_id': 999})
+        assert (await size.json())['result'] == 0
         assert not await client.list_items(999)
         assert not await client.list_playlists(GUILD_ID)
 

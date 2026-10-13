@@ -1,11 +1,10 @@
 '''
-The two db-pod calls the history worker makes, as HTTP store clients.
+The db-pod calls the history worker makes, as HTTP store clients.
 
-The gateway has full clients for both groups (discord_gateway/clients/http_playlist_store and
-http_guild_analytics_store), but the broker cannot import the gateway package and only needs three
-of their calls: the ones MusicPlayer's post-play loop made.  Recording a played track moved to the
-broker with the queue, so these three calls moved with it; the gateway's copies lose them when the
-gateway stops recording plays itself.
+The gateway has its own clients for both groups (discord_gateway/clients/http_playlist_store and
+http_guild_analytics_store), but the broker cannot import the gateway package. Recording a played
+track moved to the broker with the queue, so these calls live here and not on the gateway's
+clients. (`get_playlist_size` is still served by the db pod but has no client.)
 
 Same shape and same envelope handling as the gateway's (they share HttpStoreBase), including
 that nothing here retries: the worker owns the retry policy, because it is the one that knows a

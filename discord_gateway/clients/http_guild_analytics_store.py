@@ -50,20 +50,3 @@ class HttpGuildAnalyticsStore(HttpStoreBase):
                               {DiscordContextNaming.GUILD.value: guild_id}):
             result = await self._call('get_analytics', {'guild_id': guild_id})
             return self._validate(GuildAnalyticsEntry, result)
-
-    async def record_play(self, guild_id: int, duration_seconds: int,
-                          cache_hit: bool) -> bool:
-        '''
-        Add one play to a guild's totals.
-
-        guild_id : Discord guild id
-        duration_seconds : Length of the track that just played
-        cache_hit : True when the download was served from cache
-        '''
-        async with self._span('record_play',
-                              {DiscordContextNaming.GUILD.value: guild_id}):
-            return await self._call('record_play', {
-                'guild_id': guild_id,
-                'duration_seconds': duration_seconds,
-                'cache_hit': cache_hit,
-            })
