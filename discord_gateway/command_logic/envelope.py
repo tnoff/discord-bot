@@ -19,3 +19,4 @@ class CommandEnvelope:
     channel_name: str | None = None
     author_voice_channel_id: int | None = None
     author_voice_channel_name: str | None = None
+    author_voice_guild_id: int | None = None
