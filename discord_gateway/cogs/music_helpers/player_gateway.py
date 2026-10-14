@@ -1,4 +1,7 @@
 from asyncio import TimeoutError as async_timeout
+from collections.abc import Sequence
+
+from discord_core.types.media_download import MediaDownload
 
 from discord_gateway.command_logic.player_gateway import EnsureResult, PlayerStatus
 from discord_gateway.types.cleanup_reason import CleanupReason
@@ -74,3 +77,14 @@ class CogPlayerGateway:
         player = self.cog.players[guild_id]
         player.text_channel = await self._channel(text_channel_id)
         await self.cog._save_player_session(player.guild, player)  # pylint: disable=protected-access
+
+    async def queue_changed(self, guild_id: int, removed: Sequence[MediaDownload], prefetch: bool = True) -> None:
+        '''Drop the staged copies of tracks that left the queue, and refresh the prefetch.'''
+        player = self.cog.players.get(guild_id)
+        if player is None:
+            # Destroyed while the command was talking to the broker; nothing is staged any more.
+            return
+        for item in removed:
+            player.discard_staged(item)
+        if prefetch:
+            player.trigger_prefetch()

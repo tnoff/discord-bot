@@ -70,6 +70,29 @@ class MusicCommands:
             return None
         return status
 
+    async def _queued_items(self, env: CommandEnvelope):
+        '''
+        The gate the queue-editing commands share: author in voice, player active, something
+        queued. Returns the queued tracks, or None after telling the channel why not.
+        '''
+        if not await self.check_author_voice_chat(env):
+            return None
+        if not await self.check_player_active(env):
+            return None
+        queue = await self.broker_client.get_guild_queue(env.guild_id)
+        if not queue.items:
+            self._send(env.guild_id, env.channel_id, 'There are currently no more queued videos.')
+            return None
+        return queue.items
+
+    def _queue_index(self, env: CommandEnvelope, queue_index: str) -> int | None:
+        '''The index the user typed, or None after telling the channel it is not a number.'''
+        try:
+            return int(queue_index)
+        except ValueError:
+            self._send(env.guild_id, env.channel_id, f'Invalid queue index {queue_index}')
+            return None
+
     async def music_stats(self, env: CommandEnvelope) -> None:
         '''Show the guild's play totals.'''
         if not self.guild_analytics_store:
@@ -165,3 +188,62 @@ class MusicCommands:
 
         # Update the player's text channel reference, and the session a restart would rejoin from
         await self.player_gateway.move_messages(env.guild_id, env.channel_id)
+
+    async def clear(self, env: CommandEnvelope) -> None:
+        '''Clear every queued item.'''
+        items = await self._queued_items(env)
+        if items is None:
+            return
+        self.logger.info(f'Player clear called in guild {env.guild_id}')
+        await self.broker_client.clear_queue(env.guild_id)
+        # Nothing is left to prefetch, so only the staged copies need to go.
+        await self.player_gateway.queue_changed(env.guild_id, items, prefetch=False)
+        self._send(env.guild_id, env.channel_id, 'Cleared player queue')
+
+    async def shuffle(self, env: CommandEnvelope) -> None:
+        '''Shuffle the queue.'''
+        if await self._queued_items(env) is None:
+            return
+        await self.broker_client.shuffle_queue(env.guild_id)
+        # The head of the queue changed, so the files worth having on disk did too.
+        await self.player_gateway.queue_changed(env.guild_id, [])
+
+    async def remove(self, env: CommandEnvelope, queue_index: str) -> None:
+        '''Remove the item at ``queue_index``.'''
+        items = await self._queued_items(env)
+        if items is None:
+            return
+        index = self._queue_index(env, queue_index)
+        if index is None:
+            return
+        # The broker works by track, not position: the index names the track the user saw, and
+        # if it has moved or started playing since, nothing is changed.
+        item = None
+        if 1 <= index <= len(items):
+            item = await self.broker_client.remove_queued_track(
+                env.guild_id, str(items[index - 1].media_request.uuid))
+        if item is None:
+            self._send(env.guild_id, env.channel_id, f'Unable to remove queue index {index}')
+            return
+        self._send(env.guild_id, env.channel_id, f'Removed item {item.title} from queue')
+        await self.player_gateway.queue_changed(env.guild_id, [item])
+
+    async def bump(self, env: CommandEnvelope, queue_index: str) -> None:
+        '''Bump the item at ``queue_index`` to the top of the queue.'''
+        items = await self._queued_items(env)
+        if items is None:
+            return
+        index = self._queue_index(env, queue_index)
+        if index is None:
+            return
+        # The broker works by track, not position: the index names the track the user saw, and
+        # if it has moved or started playing since, nothing is changed.
+        item = None
+        if 1 <= index <= len(items):
+            item = await self.broker_client.bump_queued_track(
+                env.guild_id, str(items[index - 1].media_request.uuid))
+        if item is None:
+            self._send(env.guild_id, env.channel_id, f'Unable to bump queue index {index}')
+            return
+        self._send(env.guild_id, env.channel_id, f'Bumped item "{item.title}" to top of queue')
+        await self.player_gateway.queue_changed(env.guild_id, [])

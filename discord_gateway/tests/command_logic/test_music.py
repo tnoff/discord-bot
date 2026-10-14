@@ -40,6 +40,9 @@ class FakePlayerGateway:
     async def move_messages(self, guild_id, text_channel_id):
         self.calls.append(('move_messages', guild_id, text_channel_id))
 
+    async def queue_changed(self, guild_id, removed, prefetch=True):
+        self.calls.append(('queue_changed', guild_id, [i.title for i in removed], prefetch))
+
 
 def make_logic(gateway, analytics=None, broker=None):
     dispatcher = MagicMock()
@@ -244,3 +247,134 @@ async def test_move_messages_stops_at_each_gate(envelope, voiced):  #pylint:disa
     assert not gateway.calls
     await logic.move_messages(voiced)
     assert gateway.calls == [('status', 11)]
+
+
+ACTIVE = PlayerStatus(exists=True, voice_connected=True, is_playing=True, text_channel_id=77)
+
+
+def queued(*titles):
+    return SimpleNamespace(items=[SimpleNamespace(title=t, media_request=SimpleNamespace(uuid=f'u-{t}')) for t in titles])
+
+
+def queue_broker(*titles):
+    broker = AsyncMock()
+    broker.get_guild_queue.return_value = queued(*titles)
+    return broker
+
+
+QUEUE_COMMANDS = [
+    lambda logic, env: logic.clear(env),
+    lambda logic, env: logic.shuffle(env),
+    lambda logic, env: logic.remove(env, '1'),
+    lambda logic, env: logic.bump(env, '1'),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('run', QUEUE_COMMANDS)
+async def test_queue_commands_need_voice_and_an_active_player(run, envelope, voiced):  #pylint:disable=redefined-outer-name
+    gateway = FakePlayerGateway(ACTIVE)
+    logic, dispatcher = make_logic(gateway, broker=queue_broker('a'))
+    await run(logic, envelope)
+    assert sent(dispatcher) == [(22, 'Tyler not in voice chat channel. Please join one and try again', 300)]
+
+    gateway = FakePlayerGateway(PlayerStatus(exists=False))
+    logic, dispatcher = make_logic(gateway, broker=queue_broker('a'))
+    await run(logic, voiced)
+    assert sent(dispatcher) == [(22, NOT_PLAYING, 300)]
+    assert ('queue_changed', 11, [], True) not in gateway.calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('run', QUEUE_COMMANDS)
+async def test_queue_commands_with_nothing_queued(run, voiced):  #pylint:disable=redefined-outer-name
+    gateway = FakePlayerGateway(ACTIVE)
+    broker = queue_broker()
+    logic, dispatcher = make_logic(gateway, broker=broker)
+    await run(logic, voiced)
+    assert sent(dispatcher) == [(22, 'There are currently no more queued videos.', 300)]
+    assert [c[0] for c in gateway.calls] == ['status']
+    broker.clear_queue.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_clear(voiced):  #pylint:disable=redefined-outer-name
+    gateway = FakePlayerGateway(ACTIVE)
+    broker = queue_broker('a', 'b')
+    logic, dispatcher = make_logic(gateway, broker=broker)
+    await logic.clear(voiced)
+    broker.clear_queue.assert_awaited_once_with(11)
+    # staged copies go, but there is nothing left to prefetch
+    assert gateway.calls[-1] == ('queue_changed', 11, ['a', 'b'], False)
+    assert sent(dispatcher) == [(22, 'Cleared player queue', 300)]
+
+
+@pytest.mark.asyncio
+async def test_shuffle(voiced):  #pylint:disable=redefined-outer-name
+    gateway = FakePlayerGateway(ACTIVE)
+    broker = queue_broker('a', 'b')
+    logic, dispatcher = make_logic(gateway, broker=broker)
+    await logic.shuffle(voiced)
+    broker.shuffle_queue.assert_awaited_once_with(11)
+    assert gateway.calls[-1] == ('queue_changed', 11, [], True)
+    dispatcher.send_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_remove(voiced):  #pylint:disable=redefined-outer-name
+    gateway = FakePlayerGateway(ACTIVE)
+    broker = queue_broker('a', 'b')
+    broker.remove_queued_track.return_value = SimpleNamespace(title='b')
+    logic, dispatcher = make_logic(gateway, broker=broker)
+    await logic.remove(voiced, '2')
+    broker.remove_queued_track.assert_awaited_once_with(11, 'u-b')
+    assert sent(dispatcher) == [(22, 'Removed item b from queue', 300)]
+    assert gateway.calls[-1] == ('queue_changed', 11, ['b'], True)
+
+
+@pytest.mark.asyncio
+async def test_bump(voiced):  #pylint:disable=redefined-outer-name
+    gateway = FakePlayerGateway(ACTIVE)
+    broker = queue_broker('a', 'b')
+    broker.bump_queued_track.return_value = SimpleNamespace(title='b')
+    logic, dispatcher = make_logic(gateway, broker=broker)
+    await logic.bump(voiced, '2')
+    broker.bump_queued_track.assert_awaited_once_with(11, 'u-b')
+    assert sent(dispatcher) == [(22, 'Bumped item "b" to top of queue', 300)]
+    assert gateway.calls[-1] == ('queue_changed', 11, [], True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('verb', ['remove', 'bump'])
+async def test_index_that_is_not_a_number(verb, voiced):  #pylint:disable=redefined-outer-name
+    gateway = FakePlayerGateway(ACTIVE)
+    broker = queue_broker('a')
+    logic, dispatcher = make_logic(gateway, broker=broker)
+    await getattr(logic, verb)(voiced, 'abc')
+    assert sent(dispatcher) == [(22, 'Invalid queue index abc', 300)]
+    assert [c[0] for c in gateway.calls] == ['status']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('verb', ['remove', 'bump'])
+@pytest.mark.parametrize('index', ['0', '3', '-1'])
+async def test_index_outside_the_queue_never_reaches_the_broker(verb, index, voiced):  #pylint:disable=redefined-outer-name
+    gateway = FakePlayerGateway(ACTIVE)
+    broker = queue_broker('a', 'b')
+    logic, dispatcher = make_logic(gateway, broker=broker)
+    await getattr(logic, verb)(voiced, index)
+    assert sent(dispatcher) == [(22, f'Unable to {verb} queue index {index}', 300)]
+    getattr(broker, 'remove_queued_track' if verb == 'remove' else 'bump_queued_track').assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('verb', ['remove', 'bump'])
+async def test_track_that_moved_since_the_user_looked(verb, voiced):  #pylint:disable=redefined-outer-name
+    gateway = FakePlayerGateway(ACTIVE)
+    broker = queue_broker('a')
+    broker.remove_queued_track.return_value = None
+    broker.bump_queued_track.return_value = None
+    logic, dispatcher = make_logic(gateway, broker=broker)
+    await getattr(logic, verb)(voiced, '1')
+    assert sent(dispatcher) == [(22, f'Unable to {verb} queue index 1', 300)]
+    assert [c[0] for c in gateway.calls] == ['status']
