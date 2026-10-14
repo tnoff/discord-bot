@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.17] - 2026-10-14
+
+### Changed
+
+- `play`, `playlist item-add`, `playlist queue` and `random-play` now run through `discord_gateway.command_logic` (#1030, Phase 1, step 4c, part 2): `MusicCommands.play/playlist_queue/random_play` and `PlaylistCommands.item_add/queue_items`. The search, cache-check and routing pipeline (`enqueue_media_requests`, the cache-hit path, `add_playlist_item`) moves into a discord-free `MediaEnqueuer`, which the search and download result loops on the cog also call, so there is one copy of it. The player is reached only through the new `PlayerGateway.add_cached`, which replaces passing a `MusicPlayer` into the pipeline. `SearchClient` moves from `cogs/music_helpers/` to `clients/` so command logic can import it. No behaviour change.
+
 ## [3.2.16] - 2026-10-14
 
 ### Changed
