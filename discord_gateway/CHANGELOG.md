@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.12] - 2026-10-14
+
+### Changed
+
+- The store-only `!playlist` commands (`create`, `list`, `item-remove`, `show`, `delete`, `rename`, `merge`) now run through `discord_gateway.command_logic.playlist.PlaylistCommands`, and the lookups the player-bound playlist commands share with them (`get_playlist`, `create`, the public-index view, the database-enabled check) moved with them (#1030, Phase 1). The cog keeps thin stubs. No behaviour change.
+
 ## [3.2.11] - 2026-10-13
 
 ### Changed
