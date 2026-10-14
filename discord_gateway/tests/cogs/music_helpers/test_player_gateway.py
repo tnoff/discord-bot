@@ -132,3 +132,31 @@ async def test_move_messages_saves_the_session():
     await gateway.move_messages(11, 33)
     assert player.text_channel.id == 33
     cog._save_player_session.assert_awaited_once_with(player.guild, player)  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_queue_changed_discards_then_prefetches():
+    player = make_player()
+    player.discard_staged = MagicMock()
+    player.trigger_prefetch = MagicMock()
+    gateway, _ = make_gateway({11: player})
+    await gateway.queue_changed(11, ['a', 'b'])
+    assert [c.args[0] for c in player.discard_staged.call_args_list] == ['a', 'b']
+    player.trigger_prefetch.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_queue_changed_without_prefetch():
+    player = make_player()
+    player.discard_staged = MagicMock()
+    player.trigger_prefetch = MagicMock()
+    gateway, _ = make_gateway({11: player})
+    await gateway.queue_changed(11, ['a'], prefetch=False)
+    player.discard_staged.assert_called_once_with('a')
+    player.trigger_prefetch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_queue_changed_after_the_player_is_gone():
+    gateway, _ = make_gateway()
+    await gateway.queue_changed(11, ['a'])

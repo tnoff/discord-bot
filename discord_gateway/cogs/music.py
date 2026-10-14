@@ -1468,26 +1468,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Clear all items from queue
         '''
-        if not await self.__check_author_voice_chat(ctx):
-            return
-        player = await self.get_player(ctx.guild.id, ctx=ctx, check_voice_client_active=True)
-        if not player:
-            return
-
-        queue = await self.broker_client.get_guild_queue(ctx.guild.id)
-        if not queue.items:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                'There are currently no more queued videos.',
-                delete_after=self.config.general.message_delete_after)
-            return
-        self.logger.info(f'Player clear called in guild {ctx.guild.id}')
-        await self.broker_client.clear_queue(ctx.guild.id)
-        for item in queue.items:
-            player.discard_staged(item)
-        self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-            'Cleared player queue',
-            delete_after=self.config.general.message_delete_after)
-        return
+        await self.music_logic.clear(envelope_from_ctx(ctx))
 
     @command(name='history')
     @command_wrapper
@@ -1503,21 +1484,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Shuffle video queue.
         '''
-        if not await self.__check_author_voice_chat(ctx):
-            return
-        player = await self.get_player(ctx.guild.id, ctx=ctx, check_voice_client_active=True)
-        if not player:
-            return
-
-        queue = await self.broker_client.get_guild_queue(ctx.guild.id)
-        if not queue.items:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                'There are currently no more queued videos.',
-                delete_after=self.config.general.message_delete_after)
-            return
-        await self.broker_client.shuffle_queue(ctx.guild.id)
-        # The head of the queue changed, so the files worth having on disk did too.
-        player.trigger_prefetch()
+        await self.music_logic.shuffle(envelope_from_ctx(ctx))
 
     @command(name='remove')
     @command_wrapper
@@ -1528,43 +1495,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         queue_index: integer [Required]
             Position in queue of video that will be removed.
         '''
-        if not await self.__check_author_voice_chat(ctx):
-            return
-        player = await self.get_player(ctx.guild.id, ctx=ctx, check_voice_client_active=True)
-        if not player:
-            return
-
-        queue = await self.broker_client.get_guild_queue(ctx.guild.id)
-        if not queue.items:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                'There are currently no more queued videos.',
-                delete_after=self.config.general.message_delete_after)
-            return
-
-        try:
-            queue_index = int(queue_index)
-        except ValueError:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'Invalid queue index {queue_index}',
-                delete_after=self.config.general.message_delete_after)
-            return
-
-        # The broker removes by track, not position: the user's index names the track they saw,
-        # and if it has moved or started playing since, nothing is removed.
-        item = None
-        if 1 <= queue_index <= len(queue.items):
-            item = await self.broker_client.remove_queued_track(
-                ctx.guild.id, str(queue.items[queue_index - 1].media_request.uuid))
-        if item is None:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'Unable to remove queue index {queue_index}',
-                delete_after=self.config.general.message_delete_after)
-            return
-        self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-            f'Removed item {item.title} from queue',
-            delete_after=self.config.general.message_delete_after)
-        player.discard_staged(item)
-        player.trigger_prefetch()
+        await self.music_logic.remove(envelope_from_ctx(ctx), queue_index)
 
     @command(name='bump')
     @command_wrapper
@@ -1575,39 +1506,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         queue_index: integer [Required]
             Position in queue of video that will be removed.
         '''
-        if not await self.__check_author_voice_chat(ctx):
-            return
-        player = await self.get_player(ctx.guild.id, ctx=ctx, check_voice_client_active=True)
-        if not player:
-            return
-
-        queue = await self.broker_client.get_guild_queue(ctx.guild.id)
-        if not queue.items:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                'There are currently no more queued videos.',
-                delete_after=self.config.general.message_delete_after)
-            return
-        try:
-            queue_index = int(queue_index)
-        except ValueError:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'Invalid queue index {queue_index}',
-                delete_after=self.config.general.message_delete_after)
-            return
-
-        item = None
-        if 1 <= queue_index <= len(queue.items):
-            item = await self.broker_client.bump_queued_track(
-                ctx.guild.id, str(queue.items[queue_index - 1].media_request.uuid))
-        if item is None:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'Unable to bump queue index {queue_index}',
-                delete_after=self.config.general.message_delete_after)
-            return
-        self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-            f'Bumped item "{item.title}" to top of queue',
-            delete_after=self.config.general.message_delete_after)
-        player.trigger_prefetch()
+        await self.music_logic.bump(envelope_from_ctx(ctx), queue_index)
 
     @command(name='stop')
     @command_wrapper
