@@ -32,6 +32,7 @@ def envelope_from_ctx(ctx: Context) -> CommandEnvelope:
         channel_name=ctx.channel.name,
         author_voice_channel_id=voice_channel.id if voice_channel else None,
         author_voice_channel_name=voice_channel.name if voice_channel else None,
+        author_voice_guild_id=voice_channel.guild.id if voice_channel else None,
     )
 
 

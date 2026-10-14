@@ -13,7 +13,6 @@ from time import time
 from typing import List, Optional
 from uuid import uuid4
 
-from dappertable import DapperTable, Columns, Column, PaginationLength
 from discord.ext.commands import Bot, Context, group, command
 from discord import VoiceChannel
 from discord.errors import ClientException
@@ -24,7 +23,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.cogs.music_helpers.common import SearchType
-from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
 from discord_core.types.download import LifecycleEvent, LifecycleStatusUpdate, is_rejection
 from discord_core.types.media_download import MediaDownload, media_download_attributes
@@ -56,8 +54,10 @@ from discord_gateway.clients.youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
 from discord_gateway.cogs.common import CogHelperBase, envelope_from_ctx
+from discord_gateway.command_logic.music import MusicCommands
 from discord_gateway.command_logic.playlist import PLAYHISTORY_NAME, PlaylistCommands
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
+from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
 from discord_gateway.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
 from discord_gateway.types.cleanup_reason import CleanupReason
 from discord_gateway.types.playlist_add_result import PlaylistAddResult
@@ -1286,25 +1286,15 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
 
     async def __check_author_voice_chat(self, ctx: Context, check_voice_chats: bool = True):
         '''
-        Check that command author in proper voice chat
+        Check that command author in proper voice chat, returning their voice channel.
+
+        The commands that have moved to MusicCommands do this check there; the ones that
+        still live on this cog need the channel object back, so this asks the same logic
+        and then reads the channel off ctx.
         '''
-        try:
-            channel = ctx.author.voice.channel
-        except AttributeError:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'{ctx.author.display_name} not in voice chat channel. Please join one and try again',
-                delete_after=self.config.general.message_delete_after)
+        if not await self.music_logic.check_author_voice_chat(envelope_from_ctx(ctx), check_voice_chats):
             return None
-
-        if not check_voice_chats:
-            return channel
-
-        if channel.guild.id is not ctx.guild.id:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                'User not joined to channel bot is in, ignoring command',
-                delete_after=self.config.general.message_delete_after)
-            return None
-        return channel
+        return ctx.author.voice.channel
 
     async def __ensure_player(self, ctx: Context, channel: VoiceChannel) -> MusicPlayer:
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.ensure_player', kind=SpanKind.INTERNAL, attributes={DiscordContextNaming.GUILD.value: ctx.guild.id}):
@@ -1323,15 +1313,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Connect to voice channel.
         '''
-        channel = await self.__check_author_voice_chat(ctx, check_voice_chats=False)
-        if not channel:
-            return
-
-        await self.__ensure_player(ctx, channel)
-
-        self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-            f'Connected to: {channel}',
-            delete_after=self.config.general.message_delete_after)
+        await self.music_logic.join(envelope_from_ctx(ctx))
 
     async def enqueue_media_requests(self, ctx: Context, entries: List[MediaRequest],
                                      bundle_uuid: str, player: MusicPlayer = None) -> bool:
@@ -1478,20 +1460,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Skip the video.
         '''
-        if not await self.__check_author_voice_chat(ctx):
-            return
-        player = await self.get_player(ctx.guild.id, ctx=ctx, check_voice_client_active=True)
-        if not player:
-            return
-
-        if not player.guild.voice_client.is_playing():
-            return
-        current_title = player.current_media_download.title
-        player.video_skipped = True
-        self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-            f'Skipping video "{current_title}"',
-            delete_after=self.config.general.message_delete_after)
-        player.guild.voice_client.stop()
+        await self.music_logic.skip(envelope_from_ctx(ctx))
 
     @command(name='clear')
     @command_wrapper
@@ -1526,34 +1495,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Show recently played videos
         '''
-        if not await self.__check_author_voice_chat(ctx):
-            return
-        history = await self.broker_client.get_guild_history(ctx.guild.id)
-
-        if not history:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                'There have been no videos played.',
-                delete_after=self.config.general.message_delete_after)
-            return
-
-        headers = [
-            Column('Pos', 3, zero_pad=True),
-            Column('Title', 40),
-            Column('Uploader', 40)
-        ]
-        table = DapperTable(columns=Columns(headers), pagination_options=PaginationLength(DISCORD_MAX_MESSAGE_LENGTH),
-                            enclosure_start='```', enclosure_end='```', prefix='History\n')
-        for (count, item) in enumerate(history):
-            uploader = item.get('uploader') or ''
-            table.add_row([
-                f'{count + 1}',
-                f"{item.get('title')}",
-                f'{uploader}',
-            ])
-        messages = table.render()
-        for mess in messages:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id, mess,
-                delete_after=self.config.general.message_delete_after)
+        await self.music_logic.history(envelope_from_ctx(ctx))
 
     @command(name='shuffle')
     @command_wrapper
@@ -1673,13 +1615,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Stop the currently playing video and disconnect bot from voice chat.
         '''
-        if not await self.__check_author_voice_chat(ctx):
-            return
-        player = await self.get_player(ctx.guild.id, ctx=ctx)
-        if not player:
-            return
-        self.logger.info(f'Stop command called for guild {ctx.guild.id}')
-        player.destroy(reason=CleanupReason.USER_STOP)
+        await self.music_logic.stop(envelope_from_ctx(ctx))
 
     @command(name='move-messages')
     @command_wrapper
@@ -1687,24 +1623,18 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Move queue messages to this text chanel
         '''
-        if not await self.__check_author_voice_chat(ctx):
-            return
-        player = await self.get_player(ctx.guild.id, ctx=ctx, check_voice_client_active=True)
-        if not player:
-            return
+        await self.music_logic.move_messages(envelope_from_ctx(ctx))
 
-        if ctx.channel.id == player.text_channel.id:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'I am already sending messages to channel {ctx.channel.name}',
-                delete_after=self.config.general.message_delete_after)
-            return
-        # The broker owns the play-order message, so telling it the new channel moves it
-        # (deletes the old message, sends it again in the new channel).
-        await self.broker_client.open_guild(ctx.guild.id, ctx.channel.id)
-
-        # Update the player's text channel reference, and the session a restart would rejoin from
-        player.text_channel = ctx.channel
-        await self._save_player_session(player.guild, player)
+    @property
+    def music_logic(self) -> MusicCommands:
+        '''
+        The music commands that reach the player only through PlayerGateway. Stateless and
+        rebuilt per use, like playlist_logic, so a replaced dispatcher, broker client or store
+        is picked up.
+        '''
+        return MusicCommands(
+            self.dispatcher, self.broker_client, self.guild_analytics_store,
+            CogPlayerGateway(self), self.logger, self.config.general.message_delete_after)
 
     @property
     def playlist_logic(self) -> PlaylistCommands:
@@ -2088,17 +2018,4 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Show music player stats
         '''
-        if not await self.playlist_logic.check_database_session(envelope_from_ctx(ctx)):
-            return
-
-        # An entry, not a row: every read below happened inside the session
-        # block that loaded it, which is exactly what could not survive the seam.
-        guild_analytics = await self.guild_analytics_store.get_analytics(ctx.guild.id)
-        hours = guild_analytics.total_duration_seconds // 3600
-        minutes = (guild_analytics.total_duration_seconds % 3600) // 60
-        seconds = guild_analytics.total_duration_seconds % 60
-        message = f'```Music Stats for Server\nTotal Plays: {guild_analytics.total_plays}\nCached Plays: {guild_analytics.cached_plays}\n' \
-                f'Total Time Played: {guild_analytics.total_duration_days} days, {hours} hours, {minutes} minutes, and {seconds} seconds\n' \
-                f'Tracked Since: {guild_analytics.created_at.strftime("%Y-%m-%d %H:%M:%S")} UTC\n```'
-        self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-            message, delete_after=self.config.general.message_delete_after)
+        await self.music_logic.music_stats(envelope_from_ctx(ctx))

@@ -233,12 +233,14 @@ def test_envelope_from_ctx(fake_context):  #pylint:disable=redefined-outer-name
     assert env.channel_name == fake_context['channel'].name
     assert env.author_voice_channel_id is None
     assert env.author_voice_channel_name is None
+    assert env.author_voice_guild_id is None
 
 
 def test_envelope_from_ctx_in_voice(fake_context):  #pylint:disable=redefined-outer-name
     '''The author's voice channel id and name are carried when they are connected'''
     ctx = fake_context['context']
-    ctx.author.voice = SimpleNamespace(channel=SimpleNamespace(id=77, name='music'))
+    ctx.author.voice = SimpleNamespace(channel=SimpleNamespace(id=77, name='music', guild=SimpleNamespace(id=88)))
     env = envelope_from_ctx(ctx)
     assert env.author_voice_channel_id == 77
     assert env.author_voice_channel_name == 'music'
+    assert env.author_voice_guild_id == 88

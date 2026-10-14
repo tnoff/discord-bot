@@ -24,7 +24,6 @@ from discord_gateway.clients.http_download_client import HttpDownloadClient
 from discord_gateway.clients.http_media_search_client import HttpMediaSearchClient
 from discord_gateway.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_gateway.cogs import music as music_module
-from discord_gateway.command_logic.playlist import PlaylistCommands
 from discord_gateway.cogs.music import (Music, LOOP_CLEANUP_PLAYERS,
                                     LOOP_PROCESS_DOWNLOAD_RESULTS, LOOP_PROCESS_SEARCH_RESULTS)
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
@@ -505,6 +504,8 @@ async def test_move_messages(mocker, fake_context):  #pylint:disable=redefined-o
             mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
             mocker.patch.object(MusicPlayer, 'start_tasks')
             fake_channel2 = FakeChannel(guild=fake_context['guild'])
+            # The command's channel is resolved through the bot, as it is in production
+            fake_context['bot'].channels.append(fake_channel2)
             fake_context2 = FakeContext(guild=fake_context['guild'], channel=fake_channel2, bot=fake_context['bot'], author=fake_context['author'])
             mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_fake_search_client(sd.media_request))
             cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
@@ -1786,8 +1787,8 @@ async def test_music_stats_command_no_database(mocker, fake_context):  #pylint:d
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
-    # Mock the database check to return False
-    mocker.patch.object(PlaylistCommands, 'check_database_session', return_value=False)
+    # No stores were given, so there is no analytics store
+    assert cog.guild_analytics_store is None
 
     # Set dispatcher mock
     cog.dispatcher = Mock()
@@ -1795,8 +1796,8 @@ async def test_music_stats_command_no_database(mocker, fake_context):  #pylint:d
     # Call music_stats
     await cog.music_stats(cog, fake_context['context'])
 
-    # Verify no message was sent (function returned early)
-    cog.dispatcher.send_message.assert_not_called()
+    # Tells the channel rather than failing on the missing store
+    assert 'database is not enabled' in cog.dispatcher.send_message.call_args[0][2]
 
 
 def test_music_init_with_broker_client_config(fake_context):  #pylint:disable=redefined-outer-name
