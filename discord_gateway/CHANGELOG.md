@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.14] - 2026-10-14
+
+### Changed
+
+- `music-stats`, `history`, `join`, `skip`, `stop` and `move-messages` now run through `discord_gateway.command_logic.music.MusicCommands` (#1030, Phase 1, step 4a). They reach the player only through a new `PlayerGateway` Protocol (`status`, `ensure`, `skip`, `stop`, `move_messages`) that the cog implements in-process as `CogPlayerGateway`, and the command envelope gains the author's voice-channel guild. The cog keeps thin stubs. No behaviour change.
+
 ## [3.2.13] - 2026-10-14
 
 ### Changed
