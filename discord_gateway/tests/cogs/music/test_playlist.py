@@ -18,7 +18,9 @@ from discord_core.types.playlist import PlaylistEntry, PlaylistItemEntry, Playli
 from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.cogs.common import envelope_from_ctx
+from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
 from discord_gateway.command_logic.playlist import PlaylistCommands
+from discord_gateway.command_logic.player_gateway import PlayerStatus
 from discord_gateway.types.playlist_add_result import PlaylistAddResult
 from discord_gateway.tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG, yield_fake_download_worker, yield_fake_search_client, yield_download_worker_download_exception
 from discord_db.database import Playlist, PlaylistItem
@@ -1630,7 +1632,7 @@ async def test_playlist_queue_save_empty_queue(fake_context, fake_stores):  #pyl
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    with patch.object(cog, 'get_player', return_value=MagicMock()):
+    with patch.object(CogPlayerGateway, 'status', return_value=PlayerStatus(exists=True)):
         await cog.playlist_queue_save.callback(cog, fake_context['context'], name='save-empty')
     assert any('no videos' in call[0][2].lower() for call in cog.dispatcher.send_message.call_args_list)
 
@@ -1646,7 +1648,7 @@ async def test_playlist_queue_save_max_length(fake_context, fake_stores):  #pyli
         with fake_media_download(tmp_dir, fake_context=fake_context) as item1, \
                 fake_media_download(tmp_dir, fake_context=fake_context) as item2:
             await queue_in_broker(cog, item1, item2)
-            with patch.object(cog, 'get_player', return_value=MagicMock()):
+            with patch.object(CogPlayerGateway, 'status', return_value=PlayerStatus(exists=True)):
                 await cog.playlist_queue_save.callback(cog, fake_context['context'], name='full-test')
     messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
     assert any('Cannot add more items' in m for m in messages)
@@ -1665,7 +1667,7 @@ async def test_playlist_queue_save_duplicate(fake_context, fake_stores):  #pylin
             item2.webpage_url = item1.webpage_url
             item2.title = item1.title
             await queue_in_broker(cog, item1, item2)
-            with patch.object(cog, 'get_player', return_value=MagicMock()):
+            with patch.object(CogPlayerGateway, 'status', return_value=PlayerStatus(exists=True)):
                 await cog.playlist_queue_save.callback(cog, fake_context['context'], name='dup-test')
     messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
     assert any('likely already exists' in m for m in messages)
