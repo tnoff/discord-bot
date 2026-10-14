@@ -5,10 +5,12 @@ from dappertable import shorten_string, DapperTable, Columns, Column, Pagination
 from discord_core.cogs.music_helpers.common import PLAYHISTORY_PREFIX
 from discord_core.clients.dispatch_client_base import DispatchClientBase
 from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
+from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.interfaces.database_protocols import PlaylistStore
 from discord_core.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
 
 from discord_gateway.command_logic.envelope import CommandEnvelope
+from discord_gateway.command_logic.player_gateway import PlayerGateway
 
 PLAYHISTORY_NAME = 'Channel History'
 
@@ -19,17 +21,21 @@ class PlaylistCommands:
     ``command_logic.envelope``.
 
     The resolve/create helpers are public because the playlist commands that still
-    need the player (``save-queue``, ``queue``, ``item-add``, ``random-play``) call
-    them from the cog.
+    live on the cog (``queue``, ``item-add``, ``random-play``) call them. ``save-queue``
+    and ``save-history`` read the broker's queue and history, and ask the player only
+    whether one exists.
 
     playlist_store is None when the database is not enabled, which every command
     reports rather than failing on.
     '''
 
     def __init__(self, dispatcher: DispatchClientBase, playlist_store: PlaylistStore | None,
-                 logger: Logger, message_delete_after: int, server_playlist_max_size: int):
+                 logger: Logger, message_delete_after: int, server_playlist_max_size: int,
+                 broker_client: BrokerClient, player_gateway: PlayerGateway):
         self.dispatcher = dispatcher
         self.playlist_store = playlist_store
+        self.broker_client = broker_client
+        self.player_gateway = player_gateway
         self.logger = logger
         self.message_delete_after = message_delete_after
         self.server_playlist_max_size = server_playlist_max_size
@@ -295,3 +301,41 @@ class PlaylistCommands:
                 continue
             self._send(env, f'Unable to add playlist item "{outcome.title}", likely already exists')
         await self.delete_playlist(playlist_two_id)
+
+    async def save(self, env: CommandEnvelope, name: str, is_history: bool = False) -> None:
+        '''Save the guild's queue, or its play history, to a new playlist called ``name``.'''
+        playlist_id = await self.create(env, name)
+        if not playlist_id:
+            return
+
+        if not (await self.player_gateway.status(env.guild_id)).exists:
+            self._send(env, 'No player connected, no queue to save')
+            return
+
+        # Snapshot first, so the queue changing under us cannot change what is saved.
+        if is_history:
+            queue_copy = [PlaylistItemWrite(video_url=item['webpage_url'], title=item.get('title'),
+                                            uploader=item.get('uploader'))
+                          for item in await self.broker_client.get_guild_history(env.guild_id)]
+        else:
+            queue_copy = [PlaylistItemWrite(video_url=item.webpage_url, title=item.title, uploader=item.uploader)
+                          for item in (await self.broker_client.get_guild_queue(env.guild_id)).items]
+
+        self.logger.info(f'Saving queue contents to playlist "{name}", is_history? {is_history}')
+
+        if not queue_copy:
+            self._send(env, 'There are no videos to add to playlist')
+            return
+
+        # One call for the batch, then a message per outcome. The loop used to
+        # hold a session open while awaiting a Discord send per item.
+        outcomes = await self.playlist_store.add_items(playlist_id, queue_copy, self.server_playlist_max_size)
+        for outcome in outcomes:
+            if outcome.status == PlaylistItemAddStatus.PLAYLIST_FULL:
+                self._send(env, 'Cannot add more items to playlist, already max size')
+                break
+            if outcome.status == PlaylistItemAddStatus.ADDED:
+                self._send(env, f'Added item "{outcome.title}" to playlist')
+                continue
+            self._send(env, f'Unable to add playlist item "{outcome.title}", likely already exists')
+        self._send(env, f'Finished adding items to playlist "{name}"')

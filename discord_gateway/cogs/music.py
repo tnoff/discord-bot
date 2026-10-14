@@ -1546,7 +1546,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         return PlaylistCommands(
             self.dispatcher, self.playlist_store, self.logger,
-            self.config.general.message_delete_after, self.config.playlist.server_playlist_max_size)
+            self.config.general.message_delete_after, self.config.playlist.server_playlist_max_size,
+            self.broker_client, CogPlayerGateway(self))
 
     @group(name='playlist', invoke_without_command=False)
     async def playlist(self, ctx):
@@ -1692,7 +1693,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         name: str [Required]
             Name of new playlist to create
         '''
-        return await self.__playlist_queue_save(ctx, name)
+        await self.playlist_logic.save(envelope_from_ctx(ctx), name)
 
     @playlist.command(name='save-history')
     @command_wrapper
@@ -1703,61 +1704,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         name: str [Required]
             Name of new playlist to create
         '''
-        return await self.__playlist_queue_save(ctx, name, is_history=True)
-
-    async def __playlist_queue_save(self, ctx: Context, name: str, is_history=False):
-        playlist_id = await self.playlist_logic.create(envelope_from_ctx(ctx), name)
-        if not playlist_id:
-            return None
-
-        player = await self.get_player(ctx.guild.id, create_player=False)
-        if not player:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                'No player connected, no queue to save',
-                delete_after=self.config.general.message_delete_after)
-            return
-
-        # Snapshot first, so the queue changing under us cannot change what is saved.
-        if is_history:
-            queue_copy = [PlaylistItemWrite(video_url=item['webpage_url'], title=item.get('title'),
-                                            uploader=item.get('uploader'))
-                          for item in await self.broker_client.get_guild_history(ctx.guild.id)]
-        else:
-            queue_copy = [PlaylistItemWrite(video_url=item.webpage_url, title=item.title, uploader=item.uploader)
-                          for item in (await self.broker_client.get_guild_queue(ctx.guild.id)).items]
-
-        self.logger.info(f'Saving queue contents to playlist "{name}", is_history? {is_history}')
-
-        if len(queue_copy) == 0:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                'There are no videos to add to playlist',
-                delete_after=self.config.general.message_delete_after)
-            return
-
-        # One call for the batch, then a message per outcome. The loop used to
-        # hold a session open while awaiting a Discord send per item.
-        outcomes = await self.playlist_store.add_items(
-            playlist_id,
-            queue_copy,
-            self.config.playlist.server_playlist_max_size)
-        for outcome in outcomes:
-            if outcome.status == PlaylistItemAddStatus.PLAYLIST_FULL:
-                self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                    'Cannot add more items to playlist, already max size',
-                    delete_after=self.config.general.message_delete_after)
-                break
-            if outcome.status == PlaylistItemAddStatus.ADDED:
-                self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                    f'Added item "{outcome.title}" to playlist',
-                    delete_after=self.config.general.message_delete_after)
-                continue
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'Unable to add playlist item "{outcome.title}", likely already exists',
-                delete_after=self.config.general.message_delete_after)
-        self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-            f'Finished adding items to playlist "{name}"',
-            delete_after=self.config.general.message_delete_after)
-        return
+        await self.playlist_logic.save(envelope_from_ctx(ctx), name, is_history=True)
 
     async def __delete_non_existing_item(self, item_id: int):
         self.logger.info(f'Unable to find playlist item {item_id} from history playlist, deleting')
