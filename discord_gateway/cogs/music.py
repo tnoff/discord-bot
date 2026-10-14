@@ -3,18 +3,16 @@
 
 import asyncio
 from asyncio import sleep
-from asyncio import QueueFull, TimeoutError as async_timeout
+from asyncio import QueueFull
 from functools import partial
 from pathlib import Path
-import random
 from shutil import disk_usage
 from tempfile import TemporaryDirectory
 from time import time
-from typing import List, Optional
+from typing import Optional
 from uuid import uuid4
 
 from discord.ext.commands import Bot, Context, group, command
-from discord import VoiceChannel
 from discord.errors import ClientException
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
@@ -22,22 +20,19 @@ from opentelemetry.metrics import Observation
 from pydantic import BaseModel, Field, model_validator
 
 from discord_core.clients.http_client_base import start_seam_checks
-from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
 from discord_core.types.download import LifecycleEvent, LifecycleStatusUpdate, is_rejection
 from discord_core.types.media_download import MediaDownload, media_download_attributes
 from discord_core.types.media_request import MediaRequest, media_request_attributes
 from discord_core.types.playlist_add_request import PlaylistAddRequest
-from discord_core.types.search import SearchResult
 from discord_core.types.search_resolution import SearchResolution
 from discord_core.utils.common import (rm_tree, return_loop_runner,
                                       seam_contract_from_settings,
                                       tracing_config_from_settings)
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.loop_health import LOOP_HEALTH
-from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, capture_span_context, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
+from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
 from discord_core.interfaces.database_protocols import GuildAnalyticsStore, PlaylistStore
-from discord_core.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
 from discord_core.types.video_cache import MusicCacheConfig
 from discord_core.clients.http_broker_client import HttpBrokerClient
 from discord_core.interfaces.download_client_protocol import (
@@ -54,11 +49,12 @@ from discord_gateway.clients.youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
 from discord_gateway.cogs.common import CogHelperBase, envelope_from_ctx
+from discord_gateway.command_logic.enqueue import MediaEnqueuer
 from discord_gateway.command_logic.music import MusicCommands
-from discord_gateway.command_logic.playlist import PLAYHISTORY_NAME, PlaylistCommands
+from discord_gateway.command_logic.playlist import PlaylistCommands
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
-from discord_gateway.cogs.music_helpers.search_client import SearchClient, SearchException, check_youtube_video
+from discord_gateway.clients.search_client import SearchClient
 from discord_gateway.types.cleanup_reason import CleanupReason
 from discord_gateway.types.playlist_add_result import PlaylistAddResult
 from discord_gateway.utils.bot_metrics import BotMetricNaming
@@ -741,32 +737,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             await self.__delete_non_existing_item(media_request.history_playlist_item_id)
         return
 
-    async def _enqueue_media_download_from_cache(self, media_request: MediaRequest, player: MusicPlayer = None):
-        media_download = await self.broker_client.check_cache(media_request)
-        if media_download:
-            # check_cache binds the cached file to THIS media_request
-            # (video_cache_client.get_webpage_url_item passes it straight into the
-            # MediaDownload), so media_download.media_request is the same object —
-            # marking it COMPLETED advances this request's own bundle row toward
-            # teardown.  add_source_to_player and the SEARCH caller (below) re-push
-            # COMPLETED on the same request; the transitions are idempotent.
-            await self._push_state(media_download.media_request, LifecycleEvent.COMPLETED)
-            if isinstance(media_request, PlaylistAddRequest):
-                playlist_result = PlaylistAddResult(
-                    webpage_url=media_download.webpage_url or '',
-                    title=media_download.title,
-                    uploader=media_download.uploader,
-                )
-                await self.__add_playlist_item(media_request, playlist_result)
-                return True
-            if not player:
-                player = await self.get_player(media_request.guild_id, create_player=False)
-            if player:
-                self.logger.debug(f'Search "{str(media_request)}" found in cache, placing in player queue')
-                await self.add_source_to_player(media_download, player)
-            return True
-        return False
-
     async def _requeue_search_result(self, resolution: SearchResolution) -> None:
         '''
         Put a resolution back on the broker's search-result queue.
@@ -815,7 +785,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             await self._push_state(media_request, LifecycleEvent.QUEUED)
 
             # Check if cache item exists already
-            if await self._enqueue_media_download_from_cache(media_request):
+            if await self.enqueue_logic.enqueue_from_cache(media_request):
                 # Cache hit: _enqueue_media_download_from_cache already pushed COMPLETED
                 # on this same media_request (check_cache binds the cached download to
                 # this request object), which advances the bundle row toward teardown.
@@ -901,7 +871,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                     uploader=data.get('uploader', ''),
                 )
                 span.set_status(StatusCode.OK)
-                await self.__add_playlist_item(media_request, playlist_result)
+                await self.enqueue_logic.add_playlist_item(media_request, playlist_result)
                 return
 
             player = await self.get_player(media_request.guild_id, create_player=False)
@@ -1284,29 +1254,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 await self._save_player_session(player.guild, player)
             return player
 
-    async def __check_author_voice_chat(self, ctx: Context, check_voice_chats: bool = True):
-        '''
-        Check that command author in proper voice chat, returning their voice channel.
-
-        The commands that have moved to MusicCommands do this check there; the ones that
-        still live on this cog need the channel object back, so this asks the same logic
-        and then reads the channel off ctx.
-        '''
-        if not await self.music_logic.check_author_voice_chat(envelope_from_ctx(ctx), check_voice_chats):
-            return None
-        return ctx.author.voice.channel
-
-    async def __ensure_player(self, ctx: Context, channel: VoiceChannel) -> MusicPlayer:
-        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.ensure_player', kind=SpanKind.INTERNAL, attributes={DiscordContextNaming.GUILD.value: ctx.guild.id}):
-            try:
-                return await self.get_player(ctx.guild.id, join_channel=channel, ctx=ctx)
-            except async_timeout as e:
-                self.logger.warning(f'Reached async timeout error on bot joining channel, {str(e)}')
-                self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                    f'Bot cannot join channel {channel}',
-                    delete_after=self.config.general.message_delete_after)
-            return None
-
     @command(name='join', aliases=['awaken'])
     @command_wrapper
     async def connect_(self, ctx: Context):
@@ -1314,119 +1261,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         Connect to voice channel.
         '''
         await self.music_logic.join(envelope_from_ctx(ctx))
-
-    async def enqueue_media_requests(self, ctx: Context, entries: List[MediaRequest],
-                                     bundle_uuid: str, player: MusicPlayer = None) -> bool:
-        '''
-        Enqueue source dicts to a player or download queue.
-
-        ctx: Discord Context
-        player: Music Player
-        entries: List of MediaRequest objects.  Each one is registered with the
-            broker (which auto-attaches it to bundle_uuid) and routed to either
-            the search or download queue based on its search type.
-
-        Returns true if all items added, false if some were not.
-        '''
-        ctx_span_context = capture_span_context()
-        for media_request in entries:
-            if media_request.span_context is None:
-                media_request.span_context = ctx_span_context
-            media_request.bundle_uuid = bundle_uuid
-            await self.broker_client.register_request(media_request)
-            self.logger.debug(f'Running enqueue for media request "{str(media_request)}, uuid: {media_request.uuid}, bundle: {bundle_uuid}')
-            # Unless a direct or youtube url, pass into the search queue
-            if media_request.search_result.search_type not in [SearchType.DIRECT, SearchType.YOUTUBE]:
-                try:
-                    await self.youtube_music_search_client.submit(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
-                except PutsBlocked:
-                    self.logger.info(f'Puts to search queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                    await self.delete_bundle(ctx.guild.id, bundle_uuid)
-                    return False
-                except QueueFull:
-                    self.logger.info(f'Search Queue full in guild {ctx.guild.id}, cannot add more media requests')
-                    await self._push_state(media_request, LifecycleEvent.DISCARDED)
-                    break
-                continue
-            # Else directly add to download queue
-            if await self._enqueue_media_download_from_cache(media_request, player=player):
-                # Cache hit: mark the current request completed (broker bundle counts it)
-                await self._push_state(media_request, LifecycleEvent.COMPLETED)
-                continue
-            try:
-                await self.download_client.submit(media_request.guild_id, media_request)
-                await self._push_state(media_request, LifecycleEvent.QUEUED)
-            except PutsBlocked:
-                await self.delete_bundle(ctx.guild.id, bundle_uuid)
-                self.logger.info(f'Puts to download queue in guild {ctx.guild.id} are currently blocked, assuming shutdown')
-                return False
-            except QueueFull:
-                self.logger.info(f'Download Queue full in guild {ctx.guild.id}, cannot add more media requests')
-                await self._push_state(media_request, LifecycleEvent.DISCARDED)
-                break
-
-        # Lock pagination on the bundle and trigger a final render.
-        await self.broker_client.finalize_bundle(bundle_uuid)
-        return True
-
-    async def _generate_media_requests_from_search(self, ctx: Context, search: str, player: MusicPlayer = None,
-                                                   add_to_playlist: int = None):
-        '''
-        Generate media requests and a broker-owned bundle from a search input.
-
-        ctx: Discord Context
-        search: Original Search string
-        player: MusicPlayer to pass into
-        add_to_playlist: If came from playlist_item_add, pass it here
-        '''
-        # Single-search bundle — broker renders the placeholder row immediately.
-        bundle_uuid = await self.create_bundle(
-            ctx.guild.id, ctx.channel.id, input_string=search,
-        )
-
-        try:
-            collection = await self.search_client.check_source(
-                search, self.config.player.queue_max_size)
-        except SearchException as exc:
-            self.logger.info(f'Received download client exception for search "{search}", {str(exc)}')
-            await self.delete_bundle(ctx.guild.id, bundle_uuid)
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'Error searching input "{search}", message: {str(exc.user_message)}',
-                delete_after=self.config.general.message_delete_after)
-            return
-        except Exception:
-            # check_source stopped being an in-process call at the media_search
-            # cutover: it is a round trip to the search pod now, so it can fail with
-            # a transport error that is not a SearchException and that the clause
-            # above was never written to see. The bundle above is already created
-            # and rendered, so letting one through leaves a placeholder row that
-            # never resolves -- the same stranded-row failure as a dropped search
-            # resolution, reached from the other end of the pipeline.
-            await self.delete_bundle(ctx.guild.id, bundle_uuid)
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'Error searching input "{search}", the search backend is unavailable',
-                delete_after=self.config.general.message_delete_after)
-            raise
-
-        # Multi-item collection — drop the single-search bundle and create a
-        # multi-track bundle whose banner persists across renders.
-        if collection.collection_name:
-            await self.delete_bundle(ctx.guild.id, bundle_uuid)
-            bundle_uuid = await self.create_bundle(
-                ctx.guild.id, ctx.channel.id,
-                input_string=collection.collection_name, has_search_banner=True,
-            )
-
-        media_requests = []
-        for search_result in collection.search_results:
-            if add_to_playlist:
-                mr = PlaylistAddRequest(guild_id=ctx.guild.id, channel_id=ctx.channel.id, requester_name=ctx.author.display_name, requester_id=ctx.author.id,
-                                        search_result=search_result, playlist_id=add_to_playlist)
-            else:
-                mr = MediaRequest(guild_id=ctx.guild.id, channel_id=ctx.channel.id, requester_name=ctx.author.display_name, requester_id=ctx.author.id,
-                                  search_result=search_result)
-            media_requests.append(mr)
-        await self.enqueue_media_requests(ctx, media_requests, bundle_uuid, player=player)
 
     @command(name='play')
     @command_wrapper
@@ -1444,15 +1278,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         shuffle: boolean [Optional]
             If the search input is a spotify url or youtube api playlist, it will shuffle the results from the api before passing it into the download queue
         '''
-        channel = await self.__check_author_voice_chat(ctx)
-        if not channel:
-            return
+        await self.music_logic.play(envelope_from_ctx(ctx), search)
 
-        player = await self.__ensure_player(ctx, channel)
-        if not player:
-            return
-
-        await self._generate_media_requests_from_search(ctx, search, player=player)
 
     @command(name='skip')
     @command_wrapper
@@ -1533,7 +1360,20 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         return MusicCommands(
             self.dispatcher, self.broker_client, self.guild_analytics_store,
-            CogPlayerGateway(self), self.logger, self.config.general.message_delete_after)
+            CogPlayerGateway(self), self.logger, self.config.general.message_delete_after,
+            self.enqueue_logic, self.playlist_logic)
+
+    @property
+    def enqueue_logic(self) -> MediaEnqueuer:
+        '''
+        Search, cache-check and routing of media requests, built from this cog's current clients.
+        Stateless and rebuilt per use, like the other logic properties. The result loops use it too.
+        '''
+        return MediaEnqueuer(
+            self.broker_client, self.search_client, self.youtube_music_search_client,
+            self.download_client, self.playlist_store, CogPlayerGateway(self), self.dispatcher,
+            self.logger, self.config.player.queue_max_size, self.config.playlist.server_playlist_max_size,
+            self.config.general.message_delete_after, self.server_queue_priority)
 
     @property
     def playlist_logic(self) -> PlaylistCommands:
@@ -1547,7 +1387,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         return PlaylistCommands(
             self.dispatcher, self.playlist_store, self.logger,
             self.config.general.message_delete_after, self.config.playlist.server_playlist_max_size,
-            self.broker_client, CogPlayerGateway(self))
+            self.broker_client, CogPlayerGateway(self), self.enqueue_logic)
 
     @group(name='playlist', invoke_without_command=False)
     async def playlist(self, ctx):
@@ -1578,37 +1418,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         await self.playlist_logic.list_playlists(envelope_from_ctx(ctx))
 
-    async def __add_playlist_item(self, request: PlaylistAddRequest, result: PlaylistAddResult):
-        '''
-        Insert a playlist item using the lightweight PlaylistAddResult metadata.
-
-        request : PlaylistAddRequest carrying playlist_id
-        result : PlaylistAddResult with webpage_url, title, uploader
-        '''
-        self.logger.info(f'Adding video_url "{result.webpage_url}" to playlist "{request.playlist_id}"'
-                         f' in guild {request.guild_id}')
-        # A batch of one. The store reports why rather than raising, so the
-        # full-playlist case is an outcome to branch on instead of an exception
-        # whose type cannot survive a network hop.
-        outcomes = await self.playlist_store.add_items(
-            request.playlist_id,
-            [PlaylistItemWrite(video_url=result.webpage_url, title=result.title,
-                               uploader=result.uploader)],
-            self.config.playlist.server_playlist_max_size)
-        outcome = outcomes[0]
-        if outcome.status == PlaylistItemAddStatus.PLAYLIST_FULL:
-            await self._push_state(request, LifecycleEvent.FAILED,
-                                   failure_reason='Unable to add item to playlist, playlist too long',
-                                   rejected=True)
-            return
-        playlist_public_view_id = await self.playlist_logic.get_playlist_public_view(request.playlist_id, request.guild_id)
-        if outcome.status == PlaylistItemAddStatus.ADDED:
-            await self._push_state(request, LifecycleEvent.COMPLETED)
-            return
-        await self._push_state(request, LifecycleEvent.FAILED,
-                               failure_reason=f'Item "{result.title}" already exists in playlist {playlist_public_view_id}',
-                               rejected=True)
-
     @playlist.command(name='item-add')
     @command_wrapper
     async def playlist_item_add(self, ctx, playlist_index, *, search: str):
@@ -1621,20 +1430,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             The video to search and retrieve from youtube.
             This could be a simple search, an ID or URL.
         '''
-        if not await self.playlist_logic.check_database_session(envelope_from_ctx(ctx)):
-            return
+        await self.playlist_logic.item_add(envelope_from_ctx(ctx), playlist_index, search)
 
-        playlist_id, is_history = await self.playlist_logic.get_playlist(playlist_index, envelope_from_ctx(ctx))
-        if not playlist_id:
-            return None
-
-        if is_history:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'Unable to add "{search}" to history playlist, is reserved and cannot be added to manually',
-                delete_after=self.config.general.message_delete_after)
-            return
-
-        await self._generate_media_requests_from_search(ctx, search, add_to_playlist=playlist_id)
 
     @playlist.command(name='item-remove')
     @command_wrapper
@@ -1710,70 +1507,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         self.logger.info(f'Unable to find playlist item {item_id} from history playlist, deleting')
         await self.playlist_store.delete_item(item_id)
 
-    async def __playlist_queue(self, ctx: Context, player: MusicPlayer, playlist_id: int, shuffle: bool, max_num: int, is_history: bool = False):
-
-
-
-        self.logger.info(f'Playlist queue called for playlist {playlist_id} in server "{ctx.guild.id}"')
-
-        # Both reads happen up front and the connection is released before the
-        # enqueue below, which dispatches searches and downloads. The session
-        # used to stay open for that entire stretch because these rows were live.
-        playlist = await self.playlist_store.get_playlist(playlist_id)
-        playlist_name = playlist.name if playlist else None
-        items = await self.playlist_store.list_items(playlist_id)
-        if is_history:
-            playlist_name = PLAYHISTORY_NAME
-        playlist_items = []
-        for item in items:
-            search_result = SearchResult(search_type=SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
-                                         raw_search_string=item.video_url, proper_name=item.title)
-            media_request = MediaRequest(guild_id=ctx.guild.id,
-                                         channel_id=ctx.channel.id,
-                                         requester_name=ctx.author.display_name,
-                                         requester_id=ctx.author.id,
-                                         search_result=search_result,
-                                         added_from_history=is_history,
-                                         history_playlist_item_id=item.id)
-            playlist_items.append(media_request)
-
-        # Check if playlist is empty and provide user feedback
-        if not playlist_items:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'Playlist "{playlist_name}" contains no items to queue',
-                delete_after=self.config.general.message_delete_after)
-            return
-
-        if shuffle:
-            # https://stackoverflow.com/a/51295230
-            random.seed(time())
-            random.shuffle(playlist_items)
-
-        if max_num:
-            if max_num < 0:
-                self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                    f'Invalid number of videos {max_num}',
-                    delete_after=self.config.general.message_delete_after)
-                return
-            if max_num < len(playlist_items):
-                playlist_items = playlist_items[:max_num]
-            else:
-                max_num = 0
-
-
-        bundle_uuid = await self.create_bundle(
-            ctx.guild.id, ctx.channel.id,
-            input_string=playlist_name, has_search_banner=True,
-        )
-        finished_all = await self.enqueue_media_requests(ctx, playlist_items, bundle_uuid, player=player)
-
-        if not finished_all:
-            self.dispatcher.send_message(ctx.guild.id, ctx.channel.id,
-                f'Added as many videos in playlist "{playlist_name}" to queue as possible, but hit limit',
-                delete_after=self.config.general.message_delete_after)
-
-        await self.playlist_store.mark_queued(playlist_id)
-
     @playlist.command(name='queue')
     @command_wrapper
     async def playlist_queue(self, ctx: Context, playlist_index: int, *args):
@@ -1792,32 +1525,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             !playlist queue 0 shuffle
             !playlist queue 0 16
         '''
-        channel = await self.__check_author_voice_chat(ctx)
-        if not channel:
-            return
-        if not await self.playlist_logic.check_database_session(envelope_from_ctx(ctx)):
-            return
+        await self.music_logic.playlist_queue(envelope_from_ctx(ctx), playlist_index, args)
 
-        player = await self.__ensure_player(ctx, channel)
-        if not player:
-            return
-
-        # Make sure sub command is valid
-        playlist_id, is_history = await self.playlist_logic.get_playlist(playlist_index, envelope_from_ctx(ctx))
-        if not playlist_id:
-            return None
-
-        # Parse arguments - can be in any order
-        shuffle = False
-        max_num = None
-
-        for arg in args:
-            arg_str = str(arg).lower()
-            if arg_str == 'shuffle':
-                shuffle = True
-            elif arg_str.isdigit() and max_num is None:  # Use first number found
-                max_num = int(arg_str)
-        return await self.__playlist_queue(ctx, player, playlist_id, shuffle, max_num, is_history=is_history)
 
     @playlist.command(name='merge')
     @command_wrapper
@@ -1840,23 +1549,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
 
         Equivalent to: !playlist queue 0 shuffle 32
         '''
-        channel = await self.__check_author_voice_chat(ctx)
-        if not channel:
-            return
-        if not await self.playlist_logic.check_database_session(envelope_from_ctx(ctx)):
-            return
+        await self.music_logic.random_play(envelope_from_ctx(ctx))
 
-        player = await self.__ensure_player(ctx, channel)
-        if not player:
-            return
-
-        # Get history playlist (id 0)
-        playlist_id, is_history = await self.playlist_logic.get_playlist(0, envelope_from_ctx(ctx))
-        if not playlist_id:
-            return None
-
-        # Play 32 items with shuffle enabled
-        return await self.__playlist_queue(ctx, player, playlist_id, shuffle=True, max_num=32, is_history=is_history)
 
     @command(name='music-stats')
     @command_wrapper

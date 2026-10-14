@@ -20,7 +20,9 @@ from discord_core.types.search import SearchResult
 from discord_core.types.queue import PutsBlocked
 from discord_core.utils.failure_queue import FailureStatus
 
+from discord_gateway.cogs.common import envelope_from_ctx
 from discord_gateway.cogs.music import Music
+from discord_gateway.command_logic.enqueue import MediaEnqueuer
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG
 from discord_search.workers.youtube_music_search_driver import SEARCH_BACKOFF_SLICE_SECONDS
@@ -243,7 +245,7 @@ async def test_search_youtube_music_successful_search_cache_hit(mocker, fake_con
 
             # Mock player methods
             mock_player = MagicMock()
-            mocker.patch.object(cog, 'get_player', return_value=mock_player)
+            cog.players[fake_context['guild'].id] = mock_player
             mock_add_source = mocker.patch.object(cog, 'add_source_to_player', return_value=None)
 
             await search_driver.run_once(cog.bot_shutdown_event)
@@ -292,7 +294,7 @@ async def test_search_youtube_music_cache_hit_marks_request_completed(mocker, fa
             mocker.patch.object(cog.broker_client, 'check_cache', new=AsyncMock(return_value=cached_download))
 
             mock_player = MagicMock()
-            mocker.patch.object(cog, 'get_player', return_value=mock_player)
+            cog.players[fake_context['guild'].id] = mock_player
             mocker.patch.object(cog, 'add_source_to_player', return_value=None)
 
             await search_driver.run_once(cog.bot_shutdown_event)
@@ -433,14 +435,14 @@ async def test_search_youtube_music_playlist_item(mocker, fake_context):  #pylin
             mocker.patch.object(cog.broker_client, 'check_cache', new=AsyncMock(return_value=cached_download))
 
             # Mock playlist addition
-            mocker.patch.object(cog, '_Music__add_playlist_item', return_value=None)
+            add_item = mocker.patch.object(MediaEnqueuer, 'add_playlist_item', return_value=None)
 
             await search_driver.run_once(cog.bot_shutdown_event)
             await cog.process_search_results()
 
             # Verify playlist addition was called with the right request and result
-            cog._Music__add_playlist_item.assert_called_once() #pylint:disable=protected-access
-            call_request, call_result = cog._Music__add_playlist_item.call_args[0] #pylint:disable=protected-access
+            add_item.assert_called_once() #pylint:disable=protected-access
+            call_request, call_result = add_item.call_args[0] #pylint:disable=protected-access
             assert call_request.playlist_id == 123
             assert call_result.webpage_url == cached_download.webpage_url
             assert call_result.title == cached_download.title
@@ -469,7 +471,7 @@ async def test_enqueue_media_download_from_cache_cache_miss(mocker, fake_context
     # Mock cache miss
     mocker.patch.object(cog.broker_client, 'check_cache', new=AsyncMock(return_value=None))
 
-    result = await cog._enqueue_media_download_from_cache(media_request) #pylint:disable=protected-access
+    result = await cog.enqueue_logic.enqueue_from_cache(media_request) #pylint:disable=protected-access
 
     assert result is False
 
@@ -498,10 +500,10 @@ async def test_enqueue_media_download_from_cache_cache_hit_player(mocker, fake_c
 
             # Mock player methods
             mock_player = MagicMock()
-            mocker.patch.object(cog, 'get_player', return_value=mock_player)
+            cog.players[fake_context['guild'].id] = mock_player
             mock_add_source = mocker.patch.object(cog, 'add_source_to_player', return_value=None)
 
-            result = await cog._enqueue_media_download_from_cache(media_request) #pylint:disable=protected-access
+            result = await cog.enqueue_logic.enqueue_from_cache(media_request) #pylint:disable=protected-access
 
             assert result is True
             mock_add_source.assert_called_once_with(cached_download, mock_player)
@@ -530,13 +532,13 @@ async def test_enqueue_media_download_from_cache_playlist_addition(mocker, fake_
             mocker.patch.object(cog.broker_client, 'check_cache', new=AsyncMock(return_value=cached_download))
 
             # Mock playlist addition
-            mocker.patch.object(cog, '_Music__add_playlist_item', return_value=None)
+            add_item = mocker.patch.object(MediaEnqueuer, 'add_playlist_item', return_value=None)
 
-            result = await cog._enqueue_media_download_from_cache(media_request) #pylint:disable=protected-access
+            result = await cog.enqueue_logic.enqueue_from_cache(media_request) #pylint:disable=protected-access
 
             assert result is True
-            cog._Music__add_playlist_item.assert_called_once() #pylint:disable=protected-access
-            call_request, call_result = cog._Music__add_playlist_item.call_args[0] #pylint:disable=protected-access
+            add_item.assert_called_once() #pylint:disable=protected-access
+            call_request, call_result = add_item.call_args[0] #pylint:disable=protected-access
             assert call_request.playlist_id == 456
             assert call_result.webpage_url == cached_download.webpage_url
             assert call_result.title == cached_download.title
@@ -575,10 +577,10 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
 
     # Mock player
     mock_player = MagicMock()
-    mocker.patch.object(cog, 'get_player', return_value=mock_player)
+    cog.players[fake_context['guild'].id] = mock_player
 
     # Call enqueue_media_requests
-    result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle_uuid, player=mock_player)
+    result = await cog.enqueue_logic.enqueue_media_requests(envelope_from_ctx(fake_context['context']), entries, bundle_uuid)
 
     assert result is True
 
@@ -703,10 +705,10 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
 
     # Mock player
     mock_player = MagicMock()
-    mocker.patch.object(cog, 'get_player', return_value=mock_player)
+    cog.players[fake_context['guild'].id] = mock_player
 
     # Call enqueue_media_requests
-    result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle_uuid, player=mock_player)
+    result = await cog.enqueue_logic.enqueue_media_requests(envelope_from_ctx(fake_context['context']), entries, bundle_uuid)
 
     assert result is True
 
@@ -766,10 +768,10 @@ async def test_search_queue_priority_handling(mocker, fake_context):  #pylint:di
 
     # Mock player
     mock_player = MagicMock()
-    mocker.patch.object(cog, 'get_player', return_value=mock_player)
+    cog.players[fake_context['guild'].id] = mock_player
 
     # Call enqueue_media_requests
-    result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle_uuid, player=mock_player)
+    result = await cog.enqueue_logic.enqueue_media_requests(envelope_from_ctx(fake_context['context']), entries, bundle_uuid)
 
     assert result is True
 
@@ -852,10 +854,10 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
 
     # Mock player
     mock_player = MagicMock()
-    mocker.patch.object(cog, 'get_player', return_value=mock_player)
+    cog.players[fake_context['guild'].id] = mock_player
 
     # Should be able to enqueue all search requests to search queue
-    result = await cog.enqueue_media_requests(fake_context['context'], search_requests, bundle_uuid, player=mock_player)
+    result = await cog.enqueue_logic.enqueue_media_requests(envelope_from_ctx(fake_context['context']), search_requests, bundle_uuid)
 
     assert result is True
     # Verify the search queue size is configured correctly
@@ -1230,12 +1232,12 @@ async def test_enqueue_media_requests_download_queue_blocked_deletes_bundle(mock
         fake_context['guild'].id, fake_context['channel'].id, has_search_banner=True,
     )
     direct = create_test_media_request(fake_context, 'https://direct.url', search_type=SearchType.DIRECT)
-    mocker.patch.object(cog, '_enqueue_media_download_from_cache', new=AsyncMock(return_value=False))
+    mocker.patch.object(MediaEnqueuer, 'enqueue_from_cache', new=AsyncMock(return_value=False))
     mocker.patch.object(cog.download_client, 'submit', side_effect=PutsBlocked())
     mock_player = MagicMock()
-    mocker.patch.object(cog, 'get_player', return_value=mock_player)
+    cog.players[fake_context['guild'].id] = mock_player
 
-    result = await cog.enqueue_media_requests(fake_context['context'], [direct], bundle_uuid, player=mock_player)
+    result = await cog.enqueue_logic.enqueue_media_requests(envelope_from_ctx(fake_context['context']), [direct], bundle_uuid)
     assert result is False
     assert cog.broker_client.local_broker.get_bundle_state(bundle_uuid) is None
 
@@ -1251,12 +1253,12 @@ async def test_enqueue_media_requests_download_queue_full_discards_request(mocke
         fake_context['guild'].id, fake_context['channel'].id, has_search_banner=True,
     )
     direct = create_test_media_request(fake_context, 'https://direct.url', search_type=SearchType.DIRECT)
-    mocker.patch.object(cog, '_enqueue_media_download_from_cache', new=AsyncMock(return_value=False))
+    mocker.patch.object(MediaEnqueuer, 'enqueue_from_cache', new=AsyncMock(return_value=False))
     mocker.patch.object(cog.download_client, 'submit', side_effect=QueueFull())
     mock_player = MagicMock()
-    mocker.patch.object(cog, 'get_player', return_value=mock_player)
+    cog.players[fake_context['guild'].id] = mock_player
 
-    result = await cog.enqueue_media_requests(fake_context['context'], [direct], bundle_uuid, player=mock_player)
+    result = await cog.enqueue_logic.enqueue_media_requests(envelope_from_ctx(fake_context['context']), [direct], bundle_uuid)
     assert result is True
     state = cog.broker_client.local_broker.get_bundle_state(bundle_uuid)
     assert state.bundled_requests[0].media_request.lifecycle_stage == MediaRequestLifecycleStage.DISCARDED
@@ -1276,9 +1278,9 @@ async def test_enqueue_media_requests_search_queue_blocked_deletes_bundle(mocker
     search_request = create_test_media_request(fake_context, 'search term', search_type=SearchType.SEARCH)
     mocker.patch.object(cog.youtube_music_search_client.local_worker._input_queue, 'put_nowait', side_effect=PutsBlocked())
     mock_player = MagicMock()
-    mocker.patch.object(cog, 'get_player', return_value=mock_player)
+    cog.players[fake_context['guild'].id] = mock_player
 
-    result = await cog.enqueue_media_requests(fake_context['context'], [search_request], bundle_uuid, player=mock_player)
+    result = await cog.enqueue_logic.enqueue_media_requests(envelope_from_ctx(fake_context['context']), [search_request], bundle_uuid)
     assert result is False
     assert cog.broker_client.local_broker.get_bundle_state(bundle_uuid) is None
 
@@ -1297,9 +1299,8 @@ async def test_generate_media_requests_collection_creates_multitrack_bundle(mock
         search_results=[SearchResult(search_type=SearchType.SEARCH, raw_search_string='track one')],
     )
     mocker.patch.object(cog.search_client, 'check_source', new=AsyncMock(return_value=collection))
-    mock_player = MagicMock()
 
-    await cog._generate_media_requests_from_search(fake_context['context'], 'some album', player=mock_player)  # pylint: disable=protected-access
+    await cog.enqueue_logic.generate_media_requests_from_search(envelope_from_ctx(fake_context['context']), 'some album')
 
     bundles = await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id)
     assert len(bundles) == 1

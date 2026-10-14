@@ -63,3 +63,9 @@ class PlayerGateway(Protocol):
         ``removed`` (they left the queue without playing) and, with ``prefetch``, re-aim the
         prefetch at the new head of the queue.
         '''
+
+    async def add_cached(self, guild_id: int, media_download: MediaDownload) -> bool:
+        '''
+        Queue a track that is already downloaded (a cache hit) on the guild's player. False when
+        the guild has no player, or the broker refused the track.
+        '''

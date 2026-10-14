@@ -19,8 +19,9 @@ from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.cogs.common import envelope_from_ctx
 from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
+from discord_gateway.command_logic.enqueue import MediaEnqueuer
 from discord_gateway.command_logic.playlist import PlaylistCommands
-from discord_gateway.command_logic.player_gateway import PlayerStatus
+from discord_gateway.command_logic.player_gateway import EnsureResult, PlayerStatus
 from discord_gateway.types.playlist_add_result import PlaylistAddResult
 from discord_gateway.tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG, yield_fake_download_worker, yield_fake_search_client, yield_download_worker_download_exception
 from discord_db.database import Playlist, PlaylistItem
@@ -539,7 +540,7 @@ async def test_playlist_queue_with_shuffle_and_max_num(mocker, fake_context, fak
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Mock the __playlist_queue method to capture arguments
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
+    playlist_queue_mock = mocker.patch.object(PlaylistCommands, 'queue_items', new_callable=AsyncMock)
 
     # Create a playlist first
     await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
@@ -547,8 +548,7 @@ async def test_playlist_queue_with_shuffle_and_max_num(mocker, fake_context, fak
     # Test 1: shuffle followed by max_num
     await cog.playlist_queue.callback(cog, fake_context['context'], 1, 'shuffle', '16')
     playlist_queue_mock.assert_called_with(
-        fake_context['context'],
-        mocker.ANY,  # player object
+        mocker.ANY,  # envelope
         mocker.ANY,  # playlist_id
         True,        # shuffle=True
         16,          # max_num=16
@@ -558,8 +558,7 @@ async def test_playlist_queue_with_shuffle_and_max_num(mocker, fake_context, fak
     # Test 2: max_num followed by shuffle
     await cog.playlist_queue.callback(cog, fake_context['context'], 1, '16', 'shuffle')
     playlist_queue_mock.assert_called_with(
-        fake_context['context'],
-        mocker.ANY,  # player object
+        mocker.ANY,  # envelope
         mocker.ANY,  # playlist_id
         True,        # shuffle=True
         16,          # max_num=16
@@ -579,7 +578,7 @@ async def test_playlist_queue_with_only_shuffle(mocker, fake_context, fake_store
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Mock the __playlist_queue method to capture arguments
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
+    playlist_queue_mock = mocker.patch.object(PlaylistCommands, 'queue_items', new_callable=AsyncMock)
 
     # Create a playlist first
     await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
@@ -587,8 +586,7 @@ async def test_playlist_queue_with_only_shuffle(mocker, fake_context, fake_store
     # Test with only shuffle
     await cog.playlist_queue.callback(cog, fake_context['context'], 1, 'shuffle')
     playlist_queue_mock.assert_called_with(
-        fake_context['context'],
-        mocker.ANY,  # player object
+        mocker.ANY,  # envelope
         mocker.ANY,  # playlist_id
         True,        # shuffle=True
         None,        # max_num=None
@@ -608,7 +606,7 @@ async def test_playlist_queue_with_only_max_num(mocker, fake_context, fake_store
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Mock the __playlist_queue method to capture arguments
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
+    playlist_queue_mock = mocker.patch.object(PlaylistCommands, 'queue_items', new_callable=AsyncMock)
 
     # Create a playlist first
     await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
@@ -616,8 +614,7 @@ async def test_playlist_queue_with_only_max_num(mocker, fake_context, fake_store
     # Test with only max_num
     await cog.playlist_queue.callback(cog, fake_context['context'], 1, '25')
     playlist_queue_mock.assert_called_with(
-        fake_context['context'],
-        mocker.ANY,  # player object
+        mocker.ANY,  # envelope
         mocker.ANY,  # playlist_id
         False,       # shuffle=False
         25,          # max_num=25
@@ -637,7 +634,7 @@ async def test_playlist_queue_with_no_arguments(mocker, fake_context, fake_store
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Mock the __playlist_queue method to capture arguments
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
+    playlist_queue_mock = mocker.patch.object(PlaylistCommands, 'queue_items', new_callable=AsyncMock)
 
     # Create a playlist first
     await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
@@ -645,8 +642,7 @@ async def test_playlist_queue_with_no_arguments(mocker, fake_context, fake_store
     # Test with no additional arguments
     await cog.playlist_queue.callback(cog, fake_context['context'], 1)
     playlist_queue_mock.assert_called_with(
-        fake_context['context'],
-        mocker.ANY,  # player object
+        mocker.ANY,  # envelope
         mocker.ANY,  # playlist_id
         False,       # shuffle=False
         None,        # max_num=None
@@ -666,7 +662,7 @@ async def test_playlist_queue_parameter_parsing_edge_cases(mocker, fake_context,
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Mock the __playlist_queue method to capture arguments
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
+    playlist_queue_mock = mocker.patch.object(PlaylistCommands, 'queue_items', new_callable=AsyncMock)
 
     # Create a playlist first
     await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
@@ -674,8 +670,7 @@ async def test_playlist_queue_parameter_parsing_edge_cases(mocker, fake_context,
     # Test mixed order parameters with multiple numbers (should use first number found)
     await cog.playlist_queue.callback(cog, fake_context['context'], 1, 'shuffle', '25', '50')
     playlist_queue_mock.assert_called_with(
-        fake_context['context'],
-        mocker.ANY,  # player object
+        mocker.ANY,  # envelope
         mocker.ANY,  # playlist_id
         True,        # shuffle=True
         25,          # max_num=25 (first number found)
@@ -686,8 +681,7 @@ async def test_playlist_queue_parameter_parsing_edge_cases(mocker, fake_context,
     playlist_queue_mock.reset_mock()
     await cog.playlist_queue.callback(cog, fake_context['context'], 1, 'SHUFFLE', '10')
     playlist_queue_mock.assert_called_with(
-        fake_context['context'],
-        mocker.ANY,  # player object
+        mocker.ANY,  # envelope
         mocker.ANY,  # playlist_id
         True,        # shuffle=True
         10,          # max_num=10
@@ -698,8 +692,7 @@ async def test_playlist_queue_parameter_parsing_edge_cases(mocker, fake_context,
     playlist_queue_mock.reset_mock()
     await cog.playlist_queue.callback(cog, fake_context['context'], 1, '0')
     playlist_queue_mock.assert_called_with(
-        fake_context['context'],
-        mocker.ANY,  # player object
+        mocker.ANY,  # envelope
         mocker.ANY,  # playlist_id
         False,       # shuffle=False
         0,           # max_num=0
@@ -719,7 +712,7 @@ async def test_playlist_queue_history_playlist_basic_command(mocker, fake_contex
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
     # Mock the __playlist_queue method to capture arguments
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
+    playlist_queue_mock = mocker.patch.object(PlaylistCommands, 'queue_items', new_callable=AsyncMock)
 
     # Create a player to ensure history playlist exists
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -727,8 +720,7 @@ async def test_playlist_queue_history_playlist_basic_command(mocker, fake_contex
     # Test the basic command: !playlist queue 0 (history playlist, no arguments)
     await cog.playlist_queue.callback(cog, fake_context['context'], 0)
     playlist_queue_mock.assert_called_with(
-        fake_context['context'],
-        mocker.ANY,  # player object
+        mocker.ANY,  # envelope
         mocker.ANY,  # playlist_id (history playlist ID)
         False,       # shuffle=False (no shuffle)
         None,        # max_num=None (no limit, entire playlist)
@@ -759,7 +751,7 @@ async def test_playlist_queue_comprehensive_integration(mocker, fake_context, fa
         playlist_queue_calls.append((args, kwargs))
         return None
 
-    mocker.patch.object(cog, '_Music__playlist_queue', side_effect=capture_playlist_queue)  #pylint:disable=protected-access
+    mocker.patch.object(PlaylistCommands, 'queue_items', side_effect=capture_playlist_queue)  #pylint:disable=protected-access
 
     # Test various command combinations
     test_cases = [
@@ -780,9 +772,9 @@ async def test_playlist_queue_comprehensive_integration(mocker, fake_context, fa
         assert len(playlist_queue_calls) == 1, f"Test case {i}: Expected 1 call, got {len(playlist_queue_calls)}"
 
         call_args, call_kwargs = playlist_queue_calls[0]
-        # call_args: (ctx, player, playlist_id, shuffle, max_num)
-        assert call_args[3] == expected_shuffle, f"Test case {i}: Expected shuffle={expected_shuffle}, got {call_args[3]}"
-        assert call_args[4] == expected_max_num, f"Test case {i}: Expected max_num={expected_max_num}, got {call_args[4]}"
+        # call_args: (env, playlist_id, shuffle, max_num)
+        assert call_args[2] == expected_shuffle, f"Test case {i}: Expected shuffle={expected_shuffle}, got {call_args[2]}"
+        assert call_args[3] == expected_max_num, f"Test case {i}: Expected max_num={expected_max_num}, got {call_args[3]}"
         assert call_kwargs.get('is_history', False) == expected_is_history, f"Test case {i}: Expected is_history={expected_is_history}, got {call_kwargs.get('is_history', False)}"
 
     # Verify our tests covered both regular and history playlists
@@ -1258,11 +1250,11 @@ async def test_playlist_queue_adds_history_playlist_item_id(fake_context, fake_s
         captured_requests.extend(entries)
         return True
 
-    with patch.object(cog, 'enqueue_media_requests', side_effect=mock_enqueue):
+    with patch.object(MediaEnqueuer, 'enqueue_media_requests', side_effect=mock_enqueue):
         with patch.object(cog, 'get_player', return_value=MagicMock()):
             # Call the private playlist queue method directly
             # pylint: disable=protected-access
-            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 123, False, 0, False)
+            await cog.playlist_logic.queue_items(envelope_from_ctx(fake_context['context']), 123, False, 0, False)
 
             # Verify media requests were created with history_playlist_item_id
             assert len(captured_requests) == 2
@@ -1286,11 +1278,11 @@ async def test_playlist_queue_completion_messaging_simplified(fake_context, fake
         ])
 
     cog.dispatcher = MagicMock()
-    with patch.object(cog, 'enqueue_media_requests', return_value=False):  # finished_all = False
+    with patch.object(MediaEnqueuer, 'enqueue_media_requests', return_value=False):  # finished_all = False
         with patch.object(cog, 'get_player', return_value=MagicMock()):
             # Call the private playlist queue method directly
             # pylint: disable=protected-access
-            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 123, False, 0, False)
+            await cog.playlist_logic.queue_items(envelope_from_ctx(fake_context['context']), 123, False, 0, False)
 
             # Verify only failure message is sent (hit limit case)
             cog.dispatcher.send_message.assert_called_once()
@@ -1319,7 +1311,7 @@ async def test_playlist_queue_bundle_creation_with_channel_id(fake_context):  #p
     )
 
     # Call enqueue_media_requests directly to test bundle population
-    result = await cog.enqueue_media_requests(fake_context['context'], entries, bundle_uuid, mock_player)
+    result = await cog.enqueue_logic.enqueue_media_requests(envelope_from_ctx(fake_context['context']), entries, bundle_uuid)
 
     assert result is True
 
@@ -1349,11 +1341,11 @@ async def test_history_playlist_queue_behavior(fake_context, fake_stores):  #pyl
         ])
 
     cog.dispatcher = MagicMock()
-    with patch.object(cog, 'enqueue_media_requests', return_value=False):  # finished_all = False
+    with patch.object(MediaEnqueuer, 'enqueue_media_requests', return_value=False):  # finished_all = False
         with patch.object(cog, 'get_player', return_value=MagicMock()):
             # Call history playlist queue (playlist_id = guild_id for history)
             # pylint: disable=protected-access
-            await cog._Music__playlist_queue(fake_context['context'], MagicMock(), fake_context['guild'].id, False, 0, True)
+            await cog.playlist_logic.queue_items(envelope_from_ctx(fake_context['context']), fake_context['guild'].id, False, 0, True)
 
             # For history playlists, should still send completion message
             cog.dispatcher.send_message.assert_called_once()
@@ -1681,9 +1673,9 @@ async def test_playlist_queue_internal_shuffle(fake_context):  #pylint:disable=r
     cog.dispatcher = MagicMock()
     attach_playlist_store(cog, playlist=PlaylistEntry(id=1, name='Playlist'),
                           items=fake_playlist_items(3))
-    with patch.object(cog, 'enqueue_media_requests', return_value=True):
+    with patch.object(MediaEnqueuer, 'enqueue_media_requests', return_value=True):
         # pylint: disable=protected-access
-        await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, True, 0, False)
+        await cog.playlist_logic.queue_items(envelope_from_ctx(fake_context['context']), 1, True, 0, False)
     # No exception means shuffle path executed
     assert cog.dispatcher.send_message.call_count == 0
 
@@ -1696,9 +1688,9 @@ async def test_playlist_queue_internal_max_num_negative(fake_context):  #pylint:
     cog.dispatcher = MagicMock()
     attach_playlist_store(cog, playlist=PlaylistEntry(id=1, name='Playlist'),
                           items=fake_playlist_items(1, start=1))
-    with patch.object(cog, 'enqueue_media_requests', return_value=True):
+    with patch.object(MediaEnqueuer, 'enqueue_media_requests', return_value=True):
         # pylint: disable=protected-access
-        await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, False, -1, False)
+        await cog.playlist_logic.queue_items(envelope_from_ctx(fake_context['context']), 1, False, -1, False)
     assert any('Invalid number of videos' in call[0][2] for call in cog.dispatcher.send_message.call_args_list)
 
 
@@ -1716,9 +1708,9 @@ async def test_playlist_queue_internal_max_num_truncates(fake_context):  #pylint
         captured.extend(items)
         return True
 
-    with patch.object(cog, 'enqueue_media_requests', side_effect=capture_enqueue):
+    with patch.object(MediaEnqueuer, 'enqueue_media_requests', side_effect=capture_enqueue):
         # pylint: disable=protected-access
-        await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, False, 2, False)
+        await cog.playlist_logic.queue_items(envelope_from_ctx(fake_context['context']), 1, False, 2, False)
     assert len(captured) == 2
 
 
@@ -1736,9 +1728,9 @@ async def test_playlist_queue_internal_max_num_larger_than_list(fake_context):  
         captured.extend(items)
         return True
 
-    with patch.object(cog, 'enqueue_media_requests', side_effect=capture_enqueue):
+    with patch.object(MediaEnqueuer, 'enqueue_media_requests', side_effect=capture_enqueue):
         # pylint: disable=protected-access
-        await cog._Music__playlist_queue(fake_context['context'], MagicMock(), 1, False, 5, False)
+        await cog.playlist_logic.queue_items(envelope_from_ctx(fake_context['context']), 1, False, 5, False)
     assert len(captured) == 2
 
 
@@ -1767,15 +1759,15 @@ async def test_playlist_queue_no_db_check(fake_context):  #pylint:disable=redefi
 
 @pytest.mark.asyncio
 async def test_playlist_queue_player_fails(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_queue returns early when __ensure_player returns None"""
+    """playlist_queue returns early when the player cannot be ensured"""
     fake_context['author'].voice = FakeVoiceClient()
     fake_context['author'].voice.channel = fake_context['channel']
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch.object(cog, '_Music__ensure_player', return_value=None)
+    mocker.patch.object(CogPlayerGateway, 'ensure', new=AsyncMock(return_value=EnsureResult(ok=False)))
     await cog.playlist_queue.callback(cog, fake_context['context'], 1)
-    # __check_database_session and __ensure_player (None) → function returns
+    # __check_database_session and the player (not ensured) → function returns
     assert cog.dispatcher.send_message.call_count == 0
 
 
@@ -1789,7 +1781,7 @@ async def test_playlist_queue_playlist_not_found_cmd(mocker, fake_context, fake_
     cog.dispatcher = MagicMock()
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch.object(cog, '_Music__ensure_player', return_value=MagicMock())
+    mocker.patch.object(CogPlayerGateway, 'ensure', new=AsyncMock(return_value=EnsureResult(ok=True)))
     # index=1 on empty DB → "No playlists in database" → returns None
     await cog.playlist_queue.callback(cog, fake_context['context'], 1)
     assert any('No playlists in database' in call[0][2] for call in cog.dispatcher.send_message.call_args_list)
@@ -1900,13 +1892,13 @@ async def test_playlist_random_play_no_db(fake_context):  #pylint:disable=redefi
 
 @pytest.mark.asyncio
 async def test_playlist_random_play_player_fails(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_random_play returns early when __ensure_player returns None"""
+    """playlist_random_play returns early when the player cannot be ensured"""
     fake_context['author'].voice = FakeVoiceClient()
     fake_context['author'].voice.channel = fake_context['channel']
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch.object(cog, '_Music__ensure_player', return_value=None)
+    mocker.patch.object(CogPlayerGateway, 'ensure', new=AsyncMock(return_value=EnsureResult(ok=False)))
     await cog.playlist_random_play.callback(cog, fake_context['context'])
     assert cog.dispatcher.send_message.call_count == 0
 
@@ -1919,7 +1911,7 @@ async def test_playlist_random_play_no_history(mocker, fake_context, fake_stores
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch.object(cog, '_Music__ensure_player', return_value=MagicMock())
+    mocker.patch.object(CogPlayerGateway, 'ensure', new=AsyncMock(return_value=EnsureResult(ok=True)))
     await cog.playlist_random_play.callback(cog, fake_context['context'])
     assert any('Invalid playlist index 0' in call[0][2] for call in cog.dispatcher.send_message.call_args_list)
 
@@ -1953,10 +1945,10 @@ async def test_playlist_random_play_success(mocker, fake_context, fake_stores): 
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    mocker.patch.object(cog, '_Music__ensure_player', return_value=MagicMock())
+    mocker.patch.object(CogPlayerGateway, 'ensure', new=AsyncMock(return_value=EnsureResult(ok=True)))
     # pylint: disable=protected-access
     await cog._Music__get_history_playlist(fake_context['guild'].id)
-    playlist_queue_mock = mocker.patch.object(cog, '_Music__playlist_queue', new_callable=AsyncMock)
+    playlist_queue_mock = mocker.patch.object(PlaylistCommands, 'queue_items', new_callable=AsyncMock)
     await cog.playlist_random_play.callback(cog, fake_context['context'])
     playlist_queue_mock.assert_called_once()
     _args, kwargs = playlist_queue_mock.call_args
@@ -1966,7 +1958,7 @@ async def test_playlist_random_play_success(mocker, fake_context, fake_stores): 
 
 
 @pytest.mark.asyncio
-async def test_add_playlist_item_marks_failed_when_playlist_full(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
+async def test_add_playlist_item_marks_failed_when_playlist_full(mocker, fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     """__add_playlist_item pushes FAILED with the 'playlist too long' reason
     when __playlist_insert_item raises PlaylistMaxLength."""
     config = music_config({'music': {'playlist': {'server_playlist_max_size': 1}}})
@@ -1974,7 +1966,7 @@ async def test_add_playlist_item_marks_failed_when_playlist_full(fake_engine, fa
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
     push_mock = AsyncMock()
-    cog._push_state = push_mock  #pylint:disable=protected-access
+    mocker.patch.object(MediaEnqueuer, 'push_state', push_mock)
 
     async with async_mock_session(fake_engine) as session:
         playlist = Playlist(server_id=fake_context['guild'].id, name='full',
@@ -1997,7 +1989,7 @@ async def test_add_playlist_item_marks_failed_when_playlist_full(fake_engine, fa
         playlist_id=playlist_id,
     )
     result = PlaylistAddResult(webpage_url='https://ex.com/b', title='B', uploader='u')
-    await cog._Music__add_playlist_item(request, result)  #pylint:disable=protected-access
+    await cog.enqueue_logic.add_playlist_item(request, result)  #pylint:disable=protected-access
     push_mock.assert_awaited_once()
     args, kwargs = push_mock.await_args
     assert args[0] is request
@@ -2006,14 +1998,14 @@ async def test_add_playlist_item_marks_failed_when_playlist_full(fake_engine, fa
 
 
 @pytest.mark.asyncio
-async def test_add_playlist_item_marks_failed_when_item_already_exists(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
+async def test_add_playlist_item_marks_failed_when_item_already_exists(mocker, fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     """__add_playlist_item pushes FAILED with 'already exists' when the item
     URL is already in the playlist (insert returns None)."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
     push_mock = AsyncMock()
-    cog._push_state = push_mock  #pylint:disable=protected-access
+    mocker.patch.object(MediaEnqueuer, 'push_state', push_mock)
 
     async with async_mock_session(fake_engine) as session:
         playlist = Playlist(server_id=fake_context['guild'].id, name='dup',
@@ -2035,7 +2027,7 @@ async def test_add_playlist_item_marks_failed_when_item_already_exists(fake_engi
         playlist_id=playlist_id,
     )
     result = PlaylistAddResult(webpage_url='https://ex.com/same', title='same', uploader='u')
-    await cog._Music__add_playlist_item(request, result)  #pylint:disable=protected-access
+    await cog.enqueue_logic.add_playlist_item(request, result)  #pylint:disable=protected-access
     push_mock.assert_awaited_once()
     args, kwargs = push_mock.await_args
     assert args[0] is request
