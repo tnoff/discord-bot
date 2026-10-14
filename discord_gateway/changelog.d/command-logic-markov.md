@@ -1,0 +1,1 @@
+The `!markov` subcommands (`on`, `off`, `list-channels`, `speak`) now run through `discord_gateway.command_logic.markov.MarkovCommands` (#1030, Phase 1). The cog keeps thin stubs, the `markov` group's invalid-subcommand reply, and the Discord channel-type check that `markov on` asks for. No behaviour change.
