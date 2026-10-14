@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.15] - 2026-10-14
+
+### Changed
+
+- `clear`, `shuffle`, `remove` and `bump` now run through `discord_gateway.command_logic.music.MusicCommands` (#1030, Phase 1, step 4b). The player-side follow-up (dropping staged copies of tracks that left the queue, refreshing the prefetch) is one new `PlayerGateway.queue_changed` call, implemented in-process by `CogPlayerGateway`. The cog keeps thin stubs. No behaviour change: `clear` still does not refresh the prefetch, the others still do.
+
 ## [3.2.14] - 2026-10-14
 
 ### Changed
