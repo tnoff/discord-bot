@@ -17,6 +17,8 @@ from discord_core.types.playlist import PlaylistEntry, PlaylistItemEntry, Playli
 
 from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
+from discord_gateway.cogs.common import envelope_from_ctx
+from discord_gateway.command_logic.playlist import PlaylistCommands
 from discord_gateway.types.playlist_add_result import PlaylistAddResult
 from discord_gateway.tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG, yield_fake_download_worker, yield_fake_search_client, yield_download_worker_download_exception
 from discord_db.database import Playlist, PlaylistItem
@@ -127,7 +129,7 @@ async def test_create_playlist_message_with_none_public_id(mocker, fake_context,
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
 
     # Mock __get_playlist_public_view to return None
-    mocker.patch.object(cog, '_Music__get_playlist_public_view', return_value=None)
+    mocker.patch.object(PlaylistCommands, 'get_playlist_public_view', return_value=None)
 
     await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
     assert cog.dispatcher.send_message.call_args[0][2] == 'Created playlist "test-playlist" with ID None'
@@ -897,7 +899,7 @@ async def test_get_playlist_public_view_history_playlist_returns_zero(fake_engin
         await db_session.refresh(history_playlist)
 
         # Test the function
-        result = await cog._Music__get_playlist_public_view(history_playlist.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        result = await cog.playlist_logic.get_playlist_public_view(history_playlist.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         assert result == 0
 
@@ -921,7 +923,7 @@ async def test_get_playlist_public_view_first_playlist_returns_one(fake_engine, 
         await db_session.refresh(playlist1)
 
         # Test the function
-        result = await cog._Music__get_playlist_public_view(playlist1.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        result = await cog.playlist_logic.get_playlist_public_view(playlist1.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         assert result == 1
 
@@ -960,9 +962,9 @@ async def test_get_playlist_public_view_multiple_playlists_correct_ordering(fake
         await db_session.refresh(playlist3)
 
         # Test each playlist returns correct index
-        result1 = await cog._Music__get_playlist_public_view(playlist1.id, fake_context['guild'].id)  #pylint:disable=protected-access
-        result2 = await cog._Music__get_playlist_public_view(playlist2.id, fake_context['guild'].id)  #pylint:disable=protected-access
-        result3 = await cog._Music__get_playlist_public_view(playlist3.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        result1 = await cog.playlist_logic.get_playlist_public_view(playlist1.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        result2 = await cog.playlist_logic.get_playlist_public_view(playlist2.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        result3 = await cog.playlist_logic.get_playlist_public_view(playlist3.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         # Newest first. These carry no explicit created_at, so they used to tie
         # on NULL and come back in heap order -- which is why this test and
@@ -1010,11 +1012,11 @@ async def test_get_playlist_public_view_ignores_history_playlists_in_ordering(fa
         await db_session.refresh(playlist2)
 
         # History playlist should return 0
-        history_result = await cog._Music__get_playlist_public_view(history_playlist.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        history_result = await cog.playlist_logic.get_playlist_public_view(history_playlist.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         # Regular playlists should be ordered 1, 2 (ignoring history)
-        result1 = await cog._Music__get_playlist_public_view(playlist1.id, fake_context['guild'].id)  #pylint:disable=protected-access
-        result2 = await cog._Music__get_playlist_public_view(playlist2.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        result1 = await cog.playlist_logic.get_playlist_public_view(playlist1.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        result2 = await cog.playlist_logic.get_playlist_public_view(playlist2.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         assert history_result == 0
         # Newest first among the non-history playlists.
@@ -1060,11 +1062,11 @@ async def test_get_playlist_public_view_different_servers_isolated(fake_engine, 
         await db_session.refresh(server2_playlist1)
 
         # Server 1 playlists should be ordered 1, 2
-        s1_result1 = await cog._Music__get_playlist_public_view(server1_playlist1.id, fake_context['guild'].id)  #pylint:disable=protected-access
-        s1_result2 = await cog._Music__get_playlist_public_view(server1_playlist2.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        s1_result1 = await cog.playlist_logic.get_playlist_public_view(server1_playlist1.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        s1_result2 = await cog.playlist_logic.get_playlist_public_view(server1_playlist2.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         # Server 2 playlist should be index 1 (not affected by server 1)
-        s2_result1 = await cog._Music__get_playlist_public_view(server2_playlist1.id, other_guild_id)  #pylint:disable=protected-access
+        s2_result1 = await cog.playlist_logic.get_playlist_public_view(server2_playlist1.id, other_guild_id)  #pylint:disable=protected-access
 
         # Newest first within each guild; the guilds stay independent.
         assert s1_result2 == 1
@@ -1090,7 +1092,7 @@ async def test_get_playlist_public_view_nonexistent_playlist_returns_none(fake_e
 
         # Test with non-existent playlist ID
         nonexistent_id = 99999
-        result = await cog._Music__get_playlist_public_view(nonexistent_id, fake_context['guild'].id)  #pylint:disable=protected-access
+        result = await cog.playlist_logic.get_playlist_public_view(nonexistent_id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         assert result is None
 
@@ -1116,7 +1118,7 @@ async def test_get_playlist_public_view_cross_server_playlist_returns_none(fake_
         await db_session.refresh(playlist)
 
         # Try to get the playlist's public view from a different server
-        result = await cog._Music__get_playlist_public_view(playlist.id, str(other_guild_id))  #pylint:disable=protected-access
+        result = await cog.playlist_logic.get_playlist_public_view(playlist.id, str(other_guild_id))  #pylint:disable=protected-access
 
         assert result is None
 
@@ -1171,9 +1173,9 @@ async def test_get_playlist_public_view_ordering_by_creation_time(fake_engine, f
 
         # Ordering is by created_at DESC, not by insert order: these were added
         # newest-first above and come back newest-first regardless.
-        oldest_result = await cog._Music__get_playlist_public_view(playlist_oldest.id, fake_context['guild'].id)  #pylint:disable=protected-access
-        middle_result = await cog._Music__get_playlist_public_view(playlist_middle.id, fake_context['guild'].id)  #pylint:disable=protected-access
-        newest_result = await cog._Music__get_playlist_public_view(playlist_newest.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        oldest_result = await cog.playlist_logic.get_playlist_public_view(playlist_oldest.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        middle_result = await cog.playlist_logic.get_playlist_public_view(playlist_middle.id, fake_context['guild'].id)  #pylint:disable=protected-access
+        newest_result = await cog.playlist_logic.get_playlist_public_view(playlist_newest.id, fake_context['guild'].id)  #pylint:disable=protected-access
 
         assert newest_result == 1   # Newest created = index 1
         assert middle_result == 2   # Second newest = index 2
@@ -1187,7 +1189,7 @@ async def test_get_playlist_public_view_handles_empty_server(fake_context, fake_
     attach_in_process_broker(cog)
 
     # Try to get public view for non-existent playlist on server with no playlists
-    result = await cog._Music__get_playlist_public_view(1, fake_context['guild'].id)  #pylint:disable=protected-access
+    result = await cog.playlist_logic.get_playlist_public_view(1, fake_context['guild'].id)  #pylint:disable=protected-access
 
     assert result is None
 
@@ -1218,7 +1220,7 @@ async def test_get_playlist_public_view_mixed_history_and_regular_complex(fake_e
 
         results = []
         for playlist in playlists:
-            result = await cog._Music__get_playlist_public_view(playlist.id, fake_context['guild'].id)  #pylint:disable=protected-access
+            result = await cog.playlist_logic.get_playlist_public_view(playlist.id, fake_context['guild'].id)  #pylint:disable=protected-access
             results.append(result)
 
         # History playlists should return 0
@@ -1439,8 +1441,7 @@ async def test_get_playlist_invalid_string_index(fake_context, fake_stores):  #p
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    # pylint: disable=protected-access
-    result = await cog._Music__get_playlist('abc', fake_context['context'])
+    result = await cog.playlist_logic.get_playlist('abc', envelope_from_ctx(fake_context['context']))
     assert result == (None, False)
     assert 'Invalid playlist index abc' in cog.dispatcher.send_message.call_args[0][2]
 
@@ -1451,8 +1452,7 @@ async def test_get_playlist_no_playlists_in_database(fake_context, fake_stores):
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    # pylint: disable=protected-access
-    result = await cog._Music__get_playlist(1, fake_context['context'])
+    result = await cog.playlist_logic.get_playlist(1, envelope_from_ctx(fake_context['context']))
     assert result == (None, False)
     assert 'No playlists in database' in cog.dispatcher.send_message.call_args[0][2]
 
@@ -1463,8 +1463,7 @@ async def test_get_playlist_history_not_found(fake_context, fake_stores):  #pyli
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    # pylint: disable=protected-access
-    result = await cog._Music__get_playlist(0, fake_context['context'])
+    result = await cog.playlist_logic.get_playlist(0, envelope_from_ctx(fake_context['context']))
     assert result == (None, False)
     assert 'Invalid playlist index 0' in cog.dispatcher.send_message.call_args[0][2]
 
@@ -1821,8 +1820,8 @@ async def test_playlist_merge_p2_not_found(mocker, fake_context, fake_stores):  
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    # Patch __get_playlist so p1 is found but p2 is not
-    mocker.patch.object(cog, '_Music__get_playlist', new_callable=AsyncMock,
+    # Patch get_playlist so p1 is found but p2 is not
+    mocker.patch.object(PlaylistCommands, 'get_playlist', new_callable=AsyncMock,
                         side_effect=[(42, False), (None, False)])
     await cog.playlist_merge.callback(cog, fake_context['context'], '1', '2')
     messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
@@ -2059,4 +2058,4 @@ async def test_public_view_is_none_when_the_playlist_vanishes_mid_lookup(fake_co
     store.list_playlists.return_value = []
 
     # pylint: disable=protected-access
-    assert await cog._Music__get_playlist_public_view(7, fake_context['guild'].id) is None
+    assert await cog.playlist_logic.get_playlist_public_view(7, fake_context['guild'].id) is None
