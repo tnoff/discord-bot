@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.16] - 2026-10-14
+
+### Changed
+
+- `playlist save-queue` and `playlist save-history` now run through `discord_gateway.command_logic.playlist.PlaylistCommands.save` (#1030, Phase 1, step 4c, part 1). They read the broker's queue or history and ask the player only whether one exists (`PlayerGateway.status`), so `PlaylistCommands` now also takes the broker client and the player gateway. The cog keeps thin stubs. No behaviour change.
+
 ## [3.2.15] - 2026-10-14
 
 ### Changed
