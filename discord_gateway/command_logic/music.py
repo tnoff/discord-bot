@@ -7,8 +7,10 @@ from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.interfaces.database_protocols import GuildAnalyticsStore
 
+from discord_gateway.command_logic.enqueue import MediaEnqueuer
 from discord_gateway.command_logic.envelope import CommandEnvelope
 from discord_gateway.command_logic.player_gateway import PlayerGateway, PlayerStatus
+from discord_gateway.command_logic.playlist import PlaylistCommands
 
 
 class MusicCommands:
@@ -22,13 +24,16 @@ class MusicCommands:
 
     def __init__(self, dispatcher: DispatchClientBase, broker_client: BrokerClient,
                  guild_analytics_store: GuildAnalyticsStore | None, player_gateway: PlayerGateway,
-                 logger: Logger, message_delete_after: int):
+                 logger: Logger, message_delete_after: int, enqueuer: MediaEnqueuer,
+                 playlist: PlaylistCommands):
         self.dispatcher = dispatcher
         self.broker_client = broker_client
         self.guild_analytics_store = guild_analytics_store
         self.player_gateway = player_gateway
         self.logger = logger
         self.message_delete_after = message_delete_after
+        self.enqueuer = enqueuer
+        self.playlist = playlist
 
     def _send(self, guild_id: int, channel_id: int, content: str) -> None:
         self.dispatcher.send_message(guild_id, channel_id, content,
@@ -247,3 +252,61 @@ class MusicCommands:
             return
         self._send(env.guild_id, env.channel_id, f'Bumped item "{item.title}" to top of queue')
         await self.player_gateway.queue_changed(env.guild_id, [])
+
+    async def _ensure_player(self, env: CommandEnvelope, voice_channel_id: int) -> bool:
+        '''Make sure the guild has a player in the author's voice channel, telling the channel if not.'''
+        result = await self.player_gateway.ensure(env.guild_id, voice_channel_id, env.channel_id)
+        if result.error:
+            self._send(env.guild_id, env.channel_id, result.error)
+        return result.ok
+
+    async def play(self, env: CommandEnvelope, search: str) -> None:
+        '''Search for a video and queue it, joining the author's voice channel if needed.'''
+        voice_channel_id = await self.check_author_voice_chat(env)
+        if not voice_channel_id:
+            return
+        if not await self._ensure_player(env, voice_channel_id):
+            return
+        await self.enqueuer.generate_media_requests_from_search(env, search)
+
+    async def playlist_queue(self, env: CommandEnvelope, playlist_index, args) -> None:
+        '''Queue a playlist; ``args`` may hold ``shuffle`` and a count, in any order.'''
+        voice_channel_id = await self.check_author_voice_chat(env)
+        if not voice_channel_id:
+            return
+        if not await self.playlist.check_database_session(env):
+            return
+        if not await self._ensure_player(env, voice_channel_id):
+            return
+
+        # Make sure sub command is valid
+        playlist_id, is_history = await self.playlist.get_playlist(playlist_index, env)
+        if not playlist_id:
+            return
+
+        # Parse arguments - can be in any order
+        shuffle = False
+        max_num = None
+        for arg in args:
+            arg_str = str(arg).lower()
+            if arg_str == 'shuffle':
+                shuffle = True
+            elif arg_str.isdigit() and max_num is None:  # Use first number found
+                max_num = int(arg_str)
+        await self.playlist.queue_items(env, playlist_id, shuffle, max_num, is_history=is_history)
+
+    async def random_play(self, env: CommandEnvelope) -> None:
+        '''Queue 32 shuffled items from the history playlist.'''
+        voice_channel_id = await self.check_author_voice_chat(env)
+        if not voice_channel_id:
+            return
+        if not await self.playlist.check_database_session(env):
+            return
+        if not await self._ensure_player(env, voice_channel_id):
+            return
+
+        # Get history playlist (id 0)
+        playlist_id, is_history = await self.playlist.get_playlist(0, env)
+        if not playlist_id:
+            return
+        await self.playlist.queue_items(env, playlist_id, shuffle=True, max_num=32, is_history=is_history)

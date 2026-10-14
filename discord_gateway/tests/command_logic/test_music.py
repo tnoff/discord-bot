@@ -40,14 +40,18 @@ class FakePlayerGateway:
     async def move_messages(self, guild_id, text_channel_id):
         self.calls.append(('move_messages', guild_id, text_channel_id))
 
+    async def add_cached(self, guild_id, media_download):
+        self.calls.append(('add_cached', guild_id, media_download))
+        return True
+
     async def queue_changed(self, guild_id, removed, prefetch=True):
         self.calls.append(('queue_changed', guild_id, [i.title for i in removed], prefetch))
 
 
-def make_logic(gateway, analytics=None, broker=None):
+def make_logic(gateway, analytics=None, broker=None, enqueuer=None, playlist=None):
     dispatcher = MagicMock()
     logic = MusicCommands(dispatcher, broker or AsyncMock(), analytics, gateway,
-                          logging.getLogger('test'), 300)
+                          logging.getLogger('test'), 300, enqueuer or AsyncMock(), playlist or AsyncMock())
     return logic, dispatcher
 
 
@@ -378,3 +382,127 @@ async def test_track_that_moved_since_the_user_looked(verb, voiced):  #pylint:di
     await getattr(logic, verb)(voiced, '1')
     assert sent(dispatcher) == [(22, f'Unable to {verb} queue index 1', 300)]
     assert [c[0] for c in gateway.calls] == ['status']
+
+
+@pytest.mark.asyncio
+async def test_play_needs_voice(envelope):  #pylint:disable=redefined-outer-name
+    enqueuer = AsyncMock()
+    logic, dispatcher = make_logic(FakePlayerGateway(), enqueuer=enqueuer)
+    await logic.play(envelope, 'song')
+    assert sent(dispatcher) == [(22, 'Tyler not in voice chat channel. Please join one and try again', 300)]
+    enqueuer.generate_media_requests_from_search.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_play_stops_when_the_player_cannot_be_ensured(voiced):  #pylint:disable=redefined-outer-name
+    enqueuer = AsyncMock()
+    gateway = FakePlayerGateway(ensure=EnsureResult(ok=False, error='Bot cannot join channel music'))
+    logic, dispatcher = make_logic(gateway, enqueuer=enqueuer)
+    await logic.play(voiced, 'song')
+    assert sent(dispatcher) == [(22, 'Bot cannot join channel music', 300)]
+    enqueuer.generate_media_requests_from_search.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_play_stops_quietly_when_the_player_already_explained(voiced):  #pylint:disable=redefined-outer-name
+    enqueuer = AsyncMock()
+    logic, dispatcher = make_logic(FakePlayerGateway(ensure=EnsureResult(ok=False)), enqueuer=enqueuer)
+    await logic.play(voiced, 'song')
+    dispatcher.send_message.assert_not_called()
+    enqueuer.generate_media_requests_from_search.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_play_searches(voiced):  #pylint:disable=redefined-outer-name
+    enqueuer = AsyncMock()
+    gateway = FakePlayerGateway()
+    logic, _ = make_logic(gateway, enqueuer=enqueuer)
+    await logic.play(voiced, 'song')
+    assert ('ensure', 11, 55, 22) in gateway.calls
+    enqueuer.generate_media_requests_from_search.assert_awaited_once_with(voiced, 'song')
+
+
+def playlist_commands(playlist_id=5, is_history=False, database=True):
+    playlist = AsyncMock()
+    playlist.check_database_session.return_value = database
+    playlist.get_playlist.return_value = (playlist_id, is_history)
+    return playlist
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('args,shuffle,max_num', [
+    ((), False, None),
+    (('shuffle',), True, None),
+    (('SHUFFLE', '16'), True, 16),
+    (('16', 'shuffle'), True, 16),
+    (('4', '9'), False, 4),
+    (('nonsense',), False, None),
+])
+async def test_playlist_queue_parses_its_arguments(args, shuffle, max_num, voiced):  #pylint:disable=redefined-outer-name
+    playlist = playlist_commands(is_history=True)
+    logic, _ = make_logic(FakePlayerGateway(), playlist=playlist)
+    await logic.playlist_queue(voiced, 3, args)
+    playlist.get_playlist.assert_awaited_once_with(3, voiced)
+    playlist.queue_items.assert_awaited_once_with(voiced, 5, shuffle, max_num, is_history=True)
+
+
+@pytest.mark.asyncio
+async def test_playlist_queue_gates(envelope, voiced):  #pylint:disable=redefined-outer-name
+    # not in voice
+    playlist = playlist_commands()
+    logic, dispatcher = make_logic(FakePlayerGateway(), playlist=playlist)
+    await logic.playlist_queue(envelope, 1, ())
+    assert len(sent(dispatcher)) == 1
+    playlist.check_database_session.assert_not_called()
+
+    # no database: asked before the player is touched
+    playlist = playlist_commands(database=False)
+    gateway = FakePlayerGateway()
+    logic, _ = make_logic(gateway, playlist=playlist)
+    await logic.playlist_queue(voiced, 1, ())
+    assert not gateway.calls
+    playlist.queue_items.assert_not_called()
+
+    # player cannot be ensured
+    playlist = playlist_commands()
+    logic, _ = make_logic(FakePlayerGateway(ensure=EnsureResult(ok=False)), playlist=playlist)
+    await logic.playlist_queue(voiced, 1, ())
+    playlist.get_playlist.assert_not_called()
+
+    # unknown playlist
+    playlist = playlist_commands(playlist_id=None)
+    logic, _ = make_logic(FakePlayerGateway(), playlist=playlist)
+    await logic.playlist_queue(voiced, 1, ())
+    playlist.queue_items.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_random_play(voiced):  #pylint:disable=redefined-outer-name
+    playlist = playlist_commands(playlist_id=9, is_history=True)
+    logic, _ = make_logic(FakePlayerGateway(), playlist=playlist)
+    await logic.random_play(voiced)
+    playlist.get_playlist.assert_awaited_once_with(0, voiced)
+    playlist.queue_items.assert_awaited_once_with(voiced, 9, shuffle=True, max_num=32, is_history=True)
+
+
+@pytest.mark.asyncio
+async def test_random_play_gates(envelope, voiced):  #pylint:disable=redefined-outer-name
+    playlist = playlist_commands()
+    logic, _ = make_logic(FakePlayerGateway(), playlist=playlist)
+    await logic.random_play(envelope)
+    playlist.queue_items.assert_not_called()
+
+    playlist = playlist_commands(database=False)
+    logic, _ = make_logic(FakePlayerGateway(), playlist=playlist)
+    await logic.random_play(voiced)
+    playlist.queue_items.assert_not_called()
+
+    playlist = playlist_commands()
+    logic, _ = make_logic(FakePlayerGateway(ensure=EnsureResult(ok=False)), playlist=playlist)
+    await logic.random_play(voiced)
+    playlist.get_playlist.assert_not_called()
+
+    playlist = playlist_commands(playlist_id=None)
+    logic, _ = make_logic(FakePlayerGateway(), playlist=playlist)
+    await logic.random_play(voiced)
+    playlist.queue_items.assert_not_called()

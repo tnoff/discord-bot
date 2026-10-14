@@ -17,6 +17,7 @@ from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 
 from discord_gateway.cogs.music import Music
+from discord_gateway.command_logic.enqueue import MediaEnqueuer
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG, yield_download_worker_download_exception, yield_fake_download_worker, yield_download_worker_download_error
 from discord_downloader.interfaces import download_protocols
@@ -338,11 +339,11 @@ async def test_download_playlist_add_request_cache_hit(mocker, fake_context, fak
             )
             await cog.download_client.submit(fake_context['guild'].id, req)
             # Patch __add_playlist_item to avoid DB operations
-            mocker.patch.object(cog, '_Music__add_playlist_item')
+            add_item = mocker.patch.object(MediaEnqueuer, 'add_playlist_item')
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
             # __add_playlist_item should have been called (playlist add path)
-            cog._Music__add_playlist_item.assert_called_once()  # pylint: disable=protected-access
+            add_item.assert_called_once()  # pylint: disable=protected-access
 
 
 @pytest.mark.asyncio()

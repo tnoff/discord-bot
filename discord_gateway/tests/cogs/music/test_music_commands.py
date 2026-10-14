@@ -9,9 +9,12 @@ import pytest
 
 from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
+from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
+from discord_gateway.command_logic.enqueue import MediaEnqueuer
+from discord_gateway.command_logic.player_gateway import EnsureResult
 
 from discord_gateway.tests.cogs.test_music import BASE_MUSIC_CONFIG
-from tests.helpers import fake_engine, fake_context, FakeChannel, fake_media_download  # pylint: disable=unused-import
+from tests.helpers import fake_engine, fake_context, fake_media_download  # pylint: disable=unused-import
 from tests.helpers import attach_in_process_broker, queue_in_broker
 
 
@@ -54,67 +57,22 @@ async def _player_in_voice(cog, fake_context, mocker):  # pylint: disable=redefi
 
 
 # ---------------------------------------------------------------------------
-# __check_author_voice_chat
+# play_ joining voice (the voice-chat check itself is tested in tests/command_logic)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_check_author_voice_chat_no_voice(fake_context):  # pylint: disable=redefined-outer-name
-    """Returns None and sends message when author is not in any voice channel."""
-    # author.voice is None by default → AttributeError → early return
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    result = await cog._Music__check_author_voice_chat(fake_context['context'])  # pylint: disable=protected-access
-    assert result is None
-    cog.dispatcher.send_message.assert_called_once()
-    assert 'not in voice chat channel' in cog.dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_check_author_voice_chat_wrong_guild(fake_context):  # pylint: disable=redefined-outer-name
-    """Returns None when author's voice channel belongs to a different guild."""
-    # FakeChannel() creates its own new FakeGuild → different guild.id object
-    other_channel = FakeChannel()
-    _set_author_voice(fake_context, channel=other_channel)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    result = await cog._Music__check_author_voice_chat(fake_context['context'])  # pylint: disable=protected-access
-    assert result is None
-    cog.dispatcher.send_message.assert_called_once()
-    assert 'not joined to channel bot is in' in cog.dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_check_author_voice_chat_no_check_returns_channel(fake_context):  # pylint: disable=redefined-outer-name
-    """check_voice_chats=False skips guild comparison and returns channel even for 'other' guild."""
-    other_channel = FakeChannel()
-    _set_author_voice(fake_context, channel=other_channel)
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    result = await cog._Music__check_author_voice_chat(  # pylint: disable=protected-access
-        fake_context['context'], check_voice_chats=False
-    )
-    assert result is other_channel
-
-
-# ---------------------------------------------------------------------------
-# __ensure_player
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_ensure_player_async_timeout(fake_context, mocker):  # pylint: disable=redefined-outer-name
-    """Returns None and sends message when joining voice channel times out."""
+async def test_play_async_timeout_joining_voice(fake_context, mocker):  # pylint: disable=redefined-outer-name
+    """play_ tells the channel and queues nothing when joining the voice channel times out."""
     _set_author_voice(fake_context)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
     mocker.patch.object(cog, 'get_player', side_effect=asyncio.TimeoutError('timed out'))
-    result = await cog._Music__ensure_player(fake_context['context'], fake_context['channel'])  # pylint: disable=protected-access
-    assert result is None
+    generate = mocker.patch.object(MediaEnqueuer, 'generate_media_requests_from_search')
+    await cog.play_.callback(cog, fake_context['context'], search='anything')
     cog.dispatcher.send_message.assert_called_once()
     assert 'cannot join channel' in cog.dispatcher.send_message.call_args[0][2]
+    generate.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -556,13 +514,13 @@ async def test_move_messages_here_same_channel(fake_context, mocker):  # pylint:
 
 @pytest.mark.asyncio
 async def test_play_no_player(fake_context, mocker):  # pylint: disable=redefined-outer-name
-    """play_ returns early when __ensure_player returns None (e.g., timeout joining channel)."""
+    """play_ returns early when the player cannot be ensured (e.g., it already told the channel why)."""
     _set_author_voice(fake_context)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    # Patch the name-mangled method to return None (simulates timeout / failure)
-    mocker.patch.object(cog, '_Music__ensure_player', new=AsyncMock(return_value=None))
+    mocker.patch.object(CogPlayerGateway, 'ensure', new=AsyncMock(return_value=EnsureResult(ok=False)))
+    generate = mocker.patch.object(MediaEnqueuer, 'generate_media_requests_from_search')
     await cog.play_.callback(cog, fake_context['context'], search='anything')
-    # __ensure_player returned None → play_ returns before calling _generate_media_requests_from_search
     cog.dispatcher.send_message.assert_not_called()
+    generate.assert_not_called()

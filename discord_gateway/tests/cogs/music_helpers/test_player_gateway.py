@@ -160,3 +160,21 @@ async def test_queue_changed_without_prefetch():
 async def test_queue_changed_after_the_player_is_gone():
     gateway, _ = make_gateway()
     await gateway.queue_changed(11, ['a'])
+
+
+@pytest.mark.asyncio
+async def test_add_cached_queues_on_the_guilds_player():
+    player = make_player()
+    gateway, cog = make_gateway({11: player})
+    cog.add_source_to_player = AsyncMock(return_value=True)
+    download = SimpleNamespace(media_request='request')
+    assert await gateway.add_cached(11, download) is True
+    cog.add_source_to_player.assert_awaited_once_with(download, player)
+
+
+@pytest.mark.asyncio
+async def test_add_cached_without_a_player_does_nothing():
+    gateway, cog = make_gateway()
+    cog.add_source_to_player = AsyncMock()
+    assert await gateway.add_cached(11, SimpleNamespace(media_request='request')) is False
+    cog.add_source_to_player.assert_not_called()

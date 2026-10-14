@@ -22,7 +22,7 @@ def make_logic(player_exists=True, queue=(), history=(), outcomes=(), created=7)
     broker.get_guild_history.return_value = list(history)
     gateway = AsyncMock()
     gateway.status.return_value = PlayerStatus(exists=player_exists)
-    logic = PlaylistCommands(dispatcher, store, logging.getLogger('test'), 300, 50, broker, gateway)
+    logic = PlaylistCommands(dispatcher, store, logging.getLogger('test'), 300, 50, broker, gateway, AsyncMock())
     logic.create = AsyncMock(return_value=created)
     return logic, dispatcher, store
 

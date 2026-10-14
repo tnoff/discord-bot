@@ -9,7 +9,7 @@ from discord_core.types.search import SearchResult, SearchCollection
 from discord_core.types.catalog import CatalogResponse, CatalogItem
 from discord_core.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 
-from discord_gateway.cogs.music_helpers.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, check_youtube_video
+from discord_gateway.clients.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, check_youtube_video
 from discord_search.clients.media_search_client import LocalMediaSearchClient
 
 from tests.helpers import fake_engine, fake_source_dict #pylint:disable=unused-import

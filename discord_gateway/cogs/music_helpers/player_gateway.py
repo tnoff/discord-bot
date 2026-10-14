@@ -88,3 +88,11 @@ class CogPlayerGateway:
             player.discard_staged(item)
         if prefetch:
             player.trigger_prefetch()
+
+    async def add_cached(self, guild_id: int, media_download: MediaDownload) -> bool:
+        '''Queue a cache hit on the guild's player, if it has one.'''
+        player = self.cog.players.get(guild_id)
+        if player is None:
+            return False
+        self.cog.logger.debug(f'Search "{str(media_download.media_request)}" found in cache, placing in player queue')
+        return await self.cog.add_source_to_player(media_download, player)

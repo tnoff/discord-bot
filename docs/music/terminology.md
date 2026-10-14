@@ -73,7 +73,7 @@ This document defines all key components, types, and concepts used throughout th
   standalone `discord-search` pod over HTTP — this class itself is a thin
   gateway-side client, not where those integrations live
 - Returns list of `SearchResult` for each track found
-- Located in `discord_gateway/cogs/music_helpers/search_client.py`
+- Located in `discord_gateway/clients/search_client.py`
 
 ### **Download pipeline**
 - There is no single `DownloadClient` class any more — yt-dlp download logic

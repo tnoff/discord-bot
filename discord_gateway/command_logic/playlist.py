@@ -1,16 +1,23 @@
+import random
 from logging import Logger
+from time import time
 
 from dappertable import shorten_string, DapperTable, Columns, Column, PaginationLength
 
-from discord_core.cogs.music_helpers.common import PLAYHISTORY_PREFIX
+from discord_core.cogs.music_helpers.common import PLAYHISTORY_PREFIX, SearchType
 from discord_core.clients.dispatch_client_base import DispatchClientBase
 from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.interfaces.database_protocols import PlaylistStore
+from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
+from discord_core.types.search import SearchResult
 
+from discord_gateway.clients.search_client import check_youtube_video
+from discord_gateway.command_logic.enqueue import MediaEnqueuer
 from discord_gateway.command_logic.envelope import CommandEnvelope
 from discord_gateway.command_logic.player_gateway import PlayerGateway
+from discord_gateway.command_logic.playlist_view import playlist_public_view
 
 PLAYHISTORY_NAME = 'Channel History'
 
@@ -20,10 +27,10 @@ class PlaylistCommands:
     Playlist commands that only touch the playlist store. Discord-free: see
     ``command_logic.envelope``.
 
-    The resolve/create helpers are public because the playlist commands that still
-    live on the cog (``queue``, ``item-add``, ``random-play``) call them. ``save-queue``
-    and ``save-history`` read the broker's queue and history, and ask the player only
-    whether one exists.
+    The resolve/create helpers are public because ``MusicCommands`` (``playlist queue``,
+    ``random-play``) calls them. ``save-queue`` and ``save-history`` read the broker's queue
+    and history, and ask the player only whether one exists. ``item-add`` and ``queue_items``
+    hand their requests to the ``MediaEnqueuer``.
 
     playlist_store is None when the database is not enabled, which every command
     reports rather than failing on.
@@ -31,11 +38,12 @@ class PlaylistCommands:
 
     def __init__(self, dispatcher: DispatchClientBase, playlist_store: PlaylistStore | None,
                  logger: Logger, message_delete_after: int, server_playlist_max_size: int,
-                 broker_client: BrokerClient, player_gateway: PlayerGateway):
+                 broker_client: BrokerClient, player_gateway: PlayerGateway, enqueuer: MediaEnqueuer):
         self.dispatcher = dispatcher
         self.playlist_store = playlist_store
         self.broker_client = broker_client
         self.player_gateway = player_gateway
+        self.enqueuer = enqueuer
         self.logger = logger
         self.message_delete_after = message_delete_after
         self.server_playlist_max_size = server_playlist_max_size
@@ -61,20 +69,7 @@ class PlaylistCommands:
         '''
         Get playlist by db id, and view which public index servers see it as
         '''
-        playlist = await self.playlist_store.get_playlist(playlist_id)
-        if not playlist:
-            return None
-        if playlist.server_id != guild_id:
-            return None
-        if playlist.is_history:
-            return 0
-
-        # The index IS the position in list order, which is why that order is
-        # part of the store's contract rather than a detail of this loop.
-        for (count, playlist_obj) in enumerate(await self.playlist_store.list_playlists(guild_id)):
-            if playlist_id == playlist_obj.id:
-                return count + 1
-        return None
+        return await playlist_public_view(self.playlist_store, playlist_id, guild_id)
 
     async def get_playlist(self, playlist_index: int, env: CommandEnvelope):
         '''
@@ -339,3 +334,70 @@ class PlaylistCommands:
                 continue
             self._send(env, f'Unable to add playlist item "{outcome.title}", likely already exists')
         self._send(env, f'Finished adding items to playlist "{name}"')
+
+    async def item_add(self, env: CommandEnvelope, playlist_index, search: str) -> None:
+        '''Search for ``search`` and add what it finds to a playlist.'''
+        if not await self.check_database_session(env):
+            return
+
+        playlist_id, is_history = await self.get_playlist(playlist_index, env)
+        if not playlist_id:
+            return
+
+        if is_history:
+            self._send(env, f'Unable to add "{search}" to history playlist, is reserved and cannot be added to manually')
+            return
+
+        await self.enqueuer.generate_media_requests_from_search(env, search, add_to_playlist=playlist_id)
+
+    async def queue_items(self, env: CommandEnvelope, playlist_id: int, shuffle: bool, max_num: int | None,
+                          is_history: bool = False) -> None:
+        '''Put the playlist's items on the guild's queue, optionally shuffled and capped at ``max_num``.'''
+        self.logger.info(f'Playlist queue called for playlist {playlist_id} in server "{env.guild_id}"')
+
+        # Both reads happen up front and the connection is released before the
+        # enqueue below, which dispatches searches and downloads. The session
+        # used to stay open for that entire stretch because these rows were live.
+        playlist = await self.playlist_store.get_playlist(playlist_id)
+        playlist_name = playlist.name if playlist else None
+        items = await self.playlist_store.list_items(playlist_id)
+        if is_history:
+            playlist_name = PLAYHISTORY_NAME
+        playlist_items = []
+        for item in items:
+            search_result = SearchResult(search_type=SearchType.YOUTUBE if check_youtube_video(item.video_url) else SearchType.DIRECT,
+                                         raw_search_string=item.video_url, proper_name=item.title)
+            media_request = MediaRequest(guild_id=env.guild_id,
+                                         channel_id=env.channel_id,
+                                         requester_name=env.author_display_name,
+                                         requester_id=env.author_id,
+                                         search_result=search_result,
+                                         added_from_history=is_history,
+                                         history_playlist_item_id=item.id)
+            playlist_items.append(media_request)
+
+        # Check if playlist is empty and provide user feedback
+        if not playlist_items:
+            self._send(env, f'Playlist "{playlist_name}" contains no items to queue')
+            return
+
+        if shuffle:
+            # https://stackoverflow.com/a/51295230
+            random.seed(time())
+            random.shuffle(playlist_items)
+
+        if max_num:
+            if max_num < 0:
+                self._send(env, f'Invalid number of videos {max_num}')
+                return
+            if max_num < len(playlist_items):
+                playlist_items = playlist_items[:max_num]
+
+        bundle_uuid = await self.broker_client.create_bundle(
+            env.guild_id, env.channel_id, input_string=playlist_name, has_search_banner=True)
+        finished_all = await self.enqueuer.enqueue_media_requests(env, playlist_items, bundle_uuid)
+
+        if not finished_all:
+            self._send(env, f'Added as many videos in playlist "{playlist_name}" to queue as possible, but hit limit')
+
+        await self.playlist_store.mark_queued(playlist_id)

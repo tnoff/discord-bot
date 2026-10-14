@@ -27,7 +27,10 @@ from discord_gateway.cogs import music as music_module
 from discord_gateway.cogs.music import (Music, LOOP_CLEANUP_PLAYERS,
                                     LOOP_PROCESS_DOWNLOAD_RESULTS, LOOP_PROCESS_SEARCH_RESULTS)
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
-from discord_gateway.cogs.music_helpers.search_client import SearchException
+from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
+from discord_gateway.command_logic.player_gateway import EnsureResult
+from discord_gateway.command_logic.playlist import PlaylistCommands
+from discord_gateway.clients.search_client import SearchException
 from discord_gateway.types.cleanup_reason import CleanupReason
 from discord_gateway.utils.bot_metrics import BotMetricNaming
 from discord_downloader.interfaces.download_protocols import ClearGuildResult
@@ -719,12 +722,15 @@ async def test_random_play(mocker, fake_context, fake_stores):  #pylint:disable=
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
-    # Mock __playlist_queue to verify it's called with correct parameters
-    mock_playlist_queue = mocker.patch.object(cog, '_Music__playlist_queue', return_value=None)
+    # Mock queue_items to verify it's called with correct parameters
+    mocker.patch.object(CogPlayerGateway, 'ensure', new=AsyncMock(return_value=EnsureResult(ok=True)))
+    # What a real ensure would have created: random-play reads the history playlist
+    await cog._Music__get_history_playlist(fake_context['guild'].id)  #pylint:disable=protected-access
+    mock_playlist_queue = mocker.patch.object(PlaylistCommands, 'queue_items', return_value=None)
 
     await cog.playlist_random_play(cog, fake_context['context'])  #pylint:disable=too-many-function-args
 
-    # Verify __playlist_queue was called with shuffle=True, max_num=32, and history playlist
+    # Verify queue_items was called with shuffle=True, max_num=32, and history playlist
     assert mock_playlist_queue.called
     call_args = mock_playlist_queue.call_args
     assert call_args.kwargs['shuffle'] is True
