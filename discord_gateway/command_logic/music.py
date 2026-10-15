@@ -12,6 +12,10 @@ from discord_gateway.command_logic.envelope import CommandEnvelope
 from discord_gateway.command_logic.player_gateway import PlayerGateway, PlayerStatus
 from discord_gateway.command_logic.playlist import PlaylistCommands
 
+# The broker's answer to a skip it recorded (SkipTrackResponse.result); the others are
+# 'no_player' and 'not_current', which both mean there was nothing to skip.
+SKIP_OK = 'ok'
+
 
 class MusicCommands:
     '''
@@ -163,10 +167,18 @@ class MusicCommands:
         if not await self.check_player_active(env):
             return
 
-        current_title = await self.player_gateway.skip(env.guild_id)
-        if current_title is None:
+        # Name the track being skipped: the broker only skips it if it is still the one playing,
+        # so a skip that lands as the track ends cannot skip its successor. The player stops the
+        # audio when its next poll sees the marker.
+        playing = (await self.broker_client.get_guild_queue(env.guild_id)).playing
+        if playing is None:
             return
-        self._send(env.guild_id, env.channel_id, f'Skipping video "{current_title}"')
+        if await self.broker_client.skip_track(env.guild_id, playing.uuid) != SKIP_OK:
+            return
+        if playing.download is None:
+            self._send(env.guild_id, env.channel_id, 'Skipping current video')
+            return
+        self._send(env.guild_id, env.channel_id, f'Skipping video "{playing.download.title}"')
 
     async def stop(self, env: CommandEnvelope) -> None:
         '''Stop playback and leave voice.'''

@@ -575,7 +575,11 @@ voice_client.play(audio_source, after=set_next)
     ↓
 Update "Now Playing" message
     ↓
-Wait for track to finish (self.next.wait())
+Wait for track to finish (self.next.wait()). Meanwhile _watch_skip polls the broker
+every second (poll_guild_queue; "unchanged" is a cheap 204). `!skip` records a skip
+marker on the broker (skip_track, a compare-and-set on the playing uuid); when the
+poll shows a skip for this track the player marks it skipped and stops the voice
+client, which ends the wait.
     ↓
 broker_client.finish_track(guild, uuid, skipped, queue_max_size)
     - played out: the broker records it in the guild's history and queues a play

@@ -695,6 +695,102 @@ async def test_a_skipped_track_is_released_but_not_recorded(fake_context): #pyli
             assert await player.broker.local_broker.get_entry(str(media_download.media_request.uuid)) is None
 
 
+class _StoppableVoiceClient(_HoldingVoiceClient):
+    '''A holding voice client whose stop() ends the track, as discord.py's does.'''
+
+    def __init__(self, guild=None):
+        super().__init__(guild)
+        self.after = None
+        self.stopped = 0
+
+    def play(self, *_args, after=None, **_kwargs):
+        self.after = after
+        return True
+
+    def stop(self):
+        self.stopped += 1
+        if self.after:
+            self.after()
+        return True
+
+
+@pytest.mark.asyncio
+async def test_a_skip_recorded_on_the_broker_stops_the_track(mocker, fake_context): #pylint:disable=redefined-outer-name
+    '''`!skip` from any pod is a marker on the broker: the player sees it on its poll, stops the audio,
+    and finishes the track as skipped, so it stays out of history'''
+    mocker.patch.object(music_player_module, 'SKIP_POLL_SECONDS', 0.01)
+    voice_client = _StoppableVoiceClient()
+    fake_context['guild'].voice_client = voice_client
+    with with_music_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            await queue_track(player, media_download)
+            task = asyncio.create_task(player.player_loop())
+            await until(lambda: player.current_media_download is not None)
+            await until(lambda: voice_client.after is not None)
+            assert await player.broker.skip_track(player.guild.id, str(media_download.media_request.uuid)) == 'ok'
+            await asyncio.wait_for(task, timeout=1)
+            assert voice_client.stopped == 1
+            assert player.video_skipped is True
+            assert await history(player) == []
+
+
+@pytest.mark.asyncio
+async def test_a_skip_for_another_track_is_ignored(mocker, fake_context): #pylint:disable=redefined-outer-name
+    mocker.patch.object(music_player_module, 'SKIP_POLL_SECONDS', 0.01)
+    voice_client = _StoppableVoiceClient()
+    fake_context['guild'].voice_client = voice_client
+    with with_music_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            await queue_track(player, media_download)
+            poll = mocker.patch.object(player.broker, 'poll_guild_queue',
+                                       side_effect=[(1, 'some-other-uuid')] * 3 + [None] * 100)
+            task = asyncio.create_task(player.player_loop())
+            await until(lambda: player.current_media_download is not None)
+            await until(lambda: voice_client.after is not None)
+            await asyncio.sleep(0.1)
+            assert poll.call_count >= 3
+            assert voice_client.stopped == 0
+            assert player.video_skipped is False
+            player.set_next()
+            await asyncio.wait_for(task, timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_skip_poll_does_not_stop_the_music(mocker, fake_context): #pylint:disable=redefined-outer-name
+    mocker.patch.object(music_player_module, 'SKIP_POLL_SECONDS', 0.01)
+    voice_client = _StoppableVoiceClient()
+    fake_context['guild'].voice_client = voice_client
+    with with_music_player(fake_context) as player:
+        player.logger = Mock()
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            await queue_track(player, media_download)
+            mocker.patch.object(player.broker, 'poll_guild_queue', side_effect=RuntimeError('broker down'))
+            task = asyncio.create_task(player.player_loop())
+            await until(lambda: voice_client.after is not None)
+            await until(lambda: player.logger.warning.called)
+            assert voice_client.stopped == 0
+            player.set_next()
+            await asyncio.wait_for(task, timeout=1)
+            assert await history(player) != []
+
+
+@pytest.mark.asyncio
+async def test_a_skip_without_a_voice_client_marks_the_track_skipped(mocker, fake_context): #pylint:disable=redefined-outer-name
+    '''Nothing to stop, but the watcher still records the skip rather than raising'''
+    mocker.patch.object(music_player_module, 'SKIP_POLL_SECONDS', 0.01)
+    fake_context['guild'].voice_client = _HoldingVoiceClient()
+    with with_music_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            await queue_track(player, media_download)
+            task = asyncio.create_task(player.player_loop())
+            await until(lambda: player.current_media_download is not None)
+            fake_context['guild'].voice_client = None
+            await player.broker.skip_track(player.guild.id, str(media_download.media_request.uuid))
+            await until(lambda: player.video_skipped)
+            player.set_next()
+            await asyncio.wait_for(task, timeout=1)
+
+
 @pytest.mark.asyncio
 async def test_a_stopped_track_is_left_with_the_broker(fake_context): #pylint:disable=redefined-outer-name
     '''
