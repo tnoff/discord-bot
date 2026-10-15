@@ -2,11 +2,24 @@ import pytest
 
 from discord_core.exceptions import CogMissingRequiredArg
 
+from discord_gateway.cogs.common import envelope_from_ctx
 from discord_gateway.cogs.role import RoleAssignment, RoleConfig
+from discord_gateway.command_logic.role_gateway import MemberInfo, RoleInfo
 
 from tests.helpers import fake_context #pylint:disable=unused-import
 from tests.helpers import FakeAuthor, FakeRole
 
+
+def env(fakes):
+    return envelope_from_ctx(fakes['context'])
+
+def info(role):
+    return RoleInfo(id=role.id, name=role.name)
+
+def member_info(member):
+    if member is None:
+        return None
+    return MemberInfo(id=member.id, display_name=member.display_name, role_ids=tuple(r.id for r in member.roles))
 
 BASE_GENERAL_CONFIG = {
     'general': {
@@ -31,24 +44,24 @@ def test_role_no_enabled(fake_context):  #pylint:disable=redefined-outer-name
 
 def test_clean_string(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    assert 'foo' == cog.clean_input('foo')
-    assert cog.clean_input('“foo“') == 'foo'
+    assert 'foo' == cog.logic.clean_input('foo')
+    assert cog.logic.clean_input('“foo“') == 'foo'
 
 def test_rejected_roles_no_data(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    assert [] == cog.get_rejected_roles_list(fake_context['context'])
+    assert [] == cog.logic.get_rejected_roles_list(fake_context['guild'].id)
 
 def test_required_roles_no_data(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    assert [] == cog.get_required_roles(fake_context['context'])
+    assert [] == cog.logic.get_required_roles(fake_context['guild'].id)
 
 def test_override_roles_no_data(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    assert [] == cog.get_override_role(fake_context['context'])
+    assert [] == cog.logic.get_override_role(fake_context['guild'].id)
 
 def test_self_service_roles_no_data(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    assert [] == cog.get_self_service_roles(fake_context['context'])
+    assert [] == cog.logic.get_self_service_roles(fake_context['guild'].id)
 
 def test_rejected_roles_with_data(fake_context):  #pylint:disable=redefined-outer-name
     config = {
@@ -61,7 +74,7 @@ def test_rejected_roles_with_data(fake_context):  #pylint:disable=redefined-oute
         }
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    assert ['reject-role-1234'] == cog.get_rejected_roles_list(fake_context['context'])
+    assert ['reject-role-1234'] == cog.logic.get_rejected_roles_list(fake_context['guild'].id)
 
 def test_required_roles_with_data(fake_context):  #pylint:disable=redefined-outer-name
     config = {
@@ -74,7 +87,7 @@ def test_required_roles_with_data(fake_context):  #pylint:disable=redefined-oute
         }
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    assert ['required-role-1234'] == cog.get_required_roles(fake_context['context'])
+    assert ['required-role-1234'] == cog.logic.get_required_roles(fake_context['guild'].id)
 
 def test_override_roles_with_data(fake_context):  #pylint:disable=redefined-outer-name
     config = {
@@ -87,7 +100,7 @@ def test_override_roles_with_data(fake_context):  #pylint:disable=redefined-oute
         }
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    assert ['admin-role-1234'] == cog.get_override_role(fake_context['context'])
+    assert ['admin-role-1234'] == cog.logic.get_override_role(fake_context['guild'].id)
 
 def test_self_service_roles_with_data(fake_context):  #pylint:disable=redefined-outer-name
     config = {
@@ -100,52 +113,57 @@ def test_self_service_roles_with_data(fake_context):  #pylint:disable=redefined-
         }
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    assert ['self-service-role-1234'] == cog.get_self_service_roles(fake_context['context'])
+    assert ['self-service-role-1234'] == cog.logic.get_self_service_roles(fake_context['guild'].id)
 
 @pytest.mark.asyncio
 async def test_get_user_invalid_input(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    result = await cog.get_user(fake_context['context'], 'foo bar')
+    result = await cog.logic.get_user(env(fake_context), 'foo bar')
     assert result is None
 
 @pytest.mark.asyncio
 async def test_get_user_valid_user(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    result = await cog.get_user(fake_context['context'], f'<@{fake_context["author"].id}>')
+    result = await cog.logic.get_user(env(fake_context), f'<@{fake_context["author"].id}>')
     assert result.id == fake_context['author'].id
 
 @pytest.mark.asyncio
 async def test_get_user_not_found(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
     # Add one to current user id
-    result = await cog.get_user(fake_context['context'], f'<@{fake_context["author"].id + 123}>')
+    result = await cog.logic.get_user(env(fake_context), f'<@{fake_context["author"].id + 123}>')
     assert result is None
 
-def test_get_role_valid_id(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_role_valid_id(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    result = cog.get_role(fake_context['context'], fake_context['author'].roles[0].id)
+    result = await cog.logic.get_role(env(fake_context), fake_context['author'].roles[0].id)
     assert result.id == fake_context['author'].roles[0].id
 
-def test_get_role_valid_id_but_no_roles(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_role_valid_id_but_no_roles(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    result = cog.get_role(fake_context['context'], fake_context['author'].roles[0].id + 123)
+    result = await cog.logic.get_role(env(fake_context), fake_context['author'].roles[0].id + 123)
     assert result is None
 
-def test_get_role_valid_name(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_role_valid_name(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    result = cog.get_role(fake_context['context'], fake_context['author'].roles[0].name)
+    result = await cog.logic.get_role(env(fake_context), fake_context['author'].roles[0].name)
     assert result.id == fake_context['author'].roles[0].id
 
-def test_get_role_valid_name_with_space(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_role_valid_name_with_space(fake_context):  #pylint:disable=redefined-outer-name
     new_role = FakeRole()
     fake_context['guild'].roles.append(new_role)
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    result = cog.get_role(fake_context['context'], new_role.name)
+    result = await cog.logic.get_role(env(fake_context), new_role.name)
     assert result.id == new_role.id
 
-def test_get_role_invalid_name(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_get_role_invalid_name(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    result = cog.get_role(fake_context['context'], 'another-fake-role')
+    result = await cog.logic.get_role(env(fake_context), 'another-fake-role')
     assert result is None
 
 @pytest.mark.asyncio
@@ -153,13 +171,13 @@ async def test_get_user_roles_with_spaces_for_role(fake_context):  #pylint:disab
     new_role = FakeRole()
     fake_context['guild'].roles.append(new_role)
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    result = await cog.get_user_or_role(fake_context['context'], f'<@{fake_context["author"].id}> {new_role.name}')
+    result = await cog.logic.get_user_or_role(env(fake_context), f'<@{fake_context["author"].id}> {new_role.name}')
     assert result[0][0].id == fake_context['author'].id
     assert result[1].id == new_role.id
 
 def test_required_roles_with_no_config(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    result = cog.check_required_roles(fake_context['context'])
+    result = cog.logic.check_required_roles(env(fake_context))
     assert result is True
 
 def test_required_roles_just_author(fake_context):  #pylint:disable=redefined-outer-name
@@ -173,7 +191,7 @@ def test_required_roles_just_author(fake_context):  #pylint:disable=redefined-ou
         }
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.check_required_roles(fake_context['context'])
+    result = cog.logic.check_required_roles(env(fake_context))
     assert result is True
 
 def test_required_roles_just_author_with_invalid(fake_context):  #pylint:disable=redefined-outer-name
@@ -190,7 +208,7 @@ def test_required_roles_just_author_with_invalid(fake_context):  #pylint:disable
         }
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.check_required_roles(fake_context['context'])
+    result = cog.logic.check_required_roles(env(fake_context))
     assert result is False
 
 def test_required_roles_author_user_but_author_invalid(fake_context):  #pylint:disable=redefined-outer-name
@@ -209,7 +227,7 @@ def test_required_roles_author_user_but_author_invalid(fake_context):  #pylint:d
         }
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.check_required_roles(fake_context['context'], user=fake_user2)
+    result = cog.logic.check_required_roles(env(fake_context), user=member_info(fake_user2))
     assert result is False
 
 def test_required_roles_both(fake_context):  #pylint:disable=redefined-outer-name
@@ -227,7 +245,7 @@ def test_required_roles_both(fake_context):  #pylint:disable=redefined-outer-nam
         }
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.check_required_roles(fake_context['context'], user=fake_user2)
+    result = cog.logic.check_required_roles(env(fake_context), user=member_info(fake_user2))
     assert result is True
 
 def test_check_override_role(fake_context):  #pylint:disable=redefined-outer-name
@@ -244,7 +262,7 @@ def test_check_override_role(fake_context):  #pylint:disable=redefined-outer-nam
         }
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.check_override_role(fake_context['context'])
+    result = cog.logic.check_override_role(env(fake_context))
     assert result is True
 
 def test_check_override_role_with_no_role(fake_context):  #pylint:disable=redefined-outer-name
@@ -261,7 +279,7 @@ def test_check_override_role_with_no_role(fake_context):  #pylint:disable=redefi
         }
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.check_override_role(fake_context['context'])
+    result = cog.logic.check_override_role(env(fake_context))
     assert result is False
 
 @pytest.mark.asyncio
@@ -445,12 +463,14 @@ async def test_role_list_users_with_users(fake_context):  #pylint:disable=redefi
     assert fake_context['context'].messages_sent == [f'```User Name\n---------\n@{fake_context["author"].display_name}```']
     assert result is True
 
-def test_managed_roles_no_results(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_managed_roles_no_results(fake_context):  #pylint:disable=redefined-outer-name
     cog = RoleAssignment(fake_context['bot'], VALID_BASIC_CONFIG, fake_context['dispatcher'])
-    result = cog.get_managed_roles(fake_context['context'])
+    result = await cog.logic.get_managed_roles(env(fake_context))
     assert not result
 
-def test_managed_roles_basic_config(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_managed_roles_basic_config(fake_context):  #pylint:disable=redefined-outer-name
     fake_role2 = FakeRole()
     fake_context['guild'].roles.append(fake_role2)
     config = {
@@ -471,10 +491,11 @@ def test_managed_roles_basic_config(fake_context):  #pylint:disable=redefined-ou
     }
 
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.get_managed_roles(fake_context['context'])
-    assert result[fake_role2] is False
+    result = await cog.logic.get_managed_roles(env(fake_context))
+    assert result[info(fake_role2)] is False
 
-def test_managed_roles_reject_list(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_managed_roles_reject_list(fake_context):  #pylint:disable=redefined-outer-name
     fake_role2 = FakeRole()
     fake_context['guild'].roles.append(fake_role2)
     config = {
@@ -498,10 +519,11 @@ def test_managed_roles_reject_list(fake_context):  #pylint:disable=redefined-out
     }
 
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.get_managed_roles(fake_context['context'])
+    result = await cog.logic.get_managed_roles(env(fake_context))
     assert not result
 
-def test_managed_roles_with_self_service(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_managed_roles_with_self_service(fake_context):  #pylint:disable=redefined-outer-name
     fake_role2 = FakeRole()
     fake_context['guild'].roles.append(fake_role2)
     config = {
@@ -525,10 +547,11 @@ def test_managed_roles_with_self_service(fake_context):  #pylint:disable=redefin
     }
 
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.get_managed_roles(fake_context['context'])
-    assert result[fake_role2] is True
+    result = await cog.logic.get_managed_roles(env(fake_context))
+    assert result[info(fake_role2)] is True
 
-def test_managed_roles_with_self_service_but_turned_off(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_managed_roles_with_self_service_but_turned_off(fake_context):  #pylint:disable=redefined-outer-name
     fake_role2 = FakeRole()
     fake_role3 = FakeRole()
     fake_context['guild'].roles.extend([fake_role2, fake_role3])
@@ -553,10 +576,11 @@ def test_managed_roles_with_self_service_but_turned_off(fake_context):  #pylint:
     }
 
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.get_managed_roles(fake_context['context'], exclude_self_service=True)
-    assert fake_role2 not in result
+    result = await cog.logic.get_managed_roles(env(fake_context), exclude_self_service=True)
+    assert info(fake_role2) not in result
 
-def test_managed_roles_with_self_service_rejected_list(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_managed_roles_with_self_service_rejected_list(fake_context):  #pylint:disable=redefined-outer-name
     fake_role2 = FakeRole()
     fake_role3 = FakeRole()
     fake_context['guild'].roles.extend([fake_role2, fake_role3])
@@ -584,11 +608,12 @@ def test_managed_roles_with_self_service_rejected_list(fake_context):  #pylint:d
     }
 
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.get_managed_roles(fake_context['context'])
-    assert result[fake_role3] is False
-    assert fake_role2 not in result
+    result = await cog.logic.get_managed_roles(env(fake_context))
+    assert result[info(fake_role3)] is False
+    assert info(fake_role2) not in result
 
-def test_managed_roles_basic_config_with_fake_ids(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_managed_roles_basic_config_with_fake_ids(fake_context):  #pylint:disable=redefined-outer-name
     fake_role2 = FakeRole()
     fake_role3 = FakeRole()
     fake_context['guild'].roles.extend([fake_role2, fake_role3])
@@ -614,7 +639,7 @@ def test_managed_roles_basic_config_with_fake_ids(fake_context):  #pylint:disabl
     }
 
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.get_managed_roles(fake_context['context'])
+    result = await cog.logic.get_managed_roles(env(fake_context))
     # Should have 2 roles: fake_role2 (managed) and fake_role3 (self-service)
     assert len(list(result.keys())) == 2
 
@@ -1210,7 +1235,7 @@ def test_required_roles_author_lacks_role_with_user_provided(fake_context):  #py
         }
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.check_required_roles(fake_context['context'], user=fake_user2)
+    result = cog.logic.check_required_roles(env(fake_context), user=member_info(fake_user2))
     assert result is False
 
 
@@ -1231,7 +1256,8 @@ async def test_role_group_no_subcommand(fake_context):  #pylint:disable=redefine
 # get_managed_roles: NotFound for self-service and managed roles
 # ---------------------------------------------------------------------------
 
-def test_managed_roles_self_service_role_not_in_guild(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_managed_roles_self_service_role_not_in_guild(fake_context):  #pylint:disable=redefined-outer-name
     '''Self-service role ID absent from guild is silently skipped (lines 342-343, 347)'''
     missing_role_id = 99999  # not added to guild.roles
     config = {
@@ -1242,11 +1268,12 @@ def test_managed_roles_self_service_role_not_in_guild(fake_context):  #pylint:di
         }
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.get_managed_roles(fake_context['context'])
+    result = await cog.logic.get_managed_roles(env(fake_context))
     assert not result
 
 
-def test_managed_roles_managed_role_not_in_guild(fake_context):  #pylint:disable=redefined-outer-name
+@pytest.mark.asyncio
+async def test_managed_roles_managed_role_not_in_guild(fake_context):  #pylint:disable=redefined-outer-name
     '''Managed role ID absent from guild is silently skipped (lines 364-365, 369)'''
     author_role = fake_context['author'].roles[0]
     missing_role_id = 99999  # not added to guild.roles
@@ -1260,5 +1287,5 @@ def test_managed_roles_managed_role_not_in_guild(fake_context):  #pylint:disable
         }
     } | BASE_GENERAL_CONFIG
     cog = RoleAssignment(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog.get_managed_roles(fake_context['context'])
+    result = await cog.logic.get_managed_roles(env(fake_context))
     assert not result

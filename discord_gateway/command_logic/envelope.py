@@ -20,3 +20,5 @@ class CommandEnvelope:
     author_voice_channel_id: int | None = None
     author_voice_channel_name: str | None = None
     author_voice_guild_id: int | None = None
+    # Ids of the roles the author holds; the role commands check permissions against them.
+    author_role_ids: tuple[int, ...] = ()
