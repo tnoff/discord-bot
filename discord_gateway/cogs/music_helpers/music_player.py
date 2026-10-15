@@ -244,9 +244,10 @@ class MusicPlayer:
             except Exception as exc:  #pylint:disable=broad-except
                 self.logger.warning(f'Heartbeat for guild {self.guild.id} failed: {exc}')
 
-    async def _watch_skip(self, media_uuid: str, stop: Event):
+    async def _watch_skip(self, media_uuid: str):
         '''
-        Stop the voice client when the broker records a skip for this track, until `stop` is set.
+        Stop the voice client when the broker records a skip for this track. Runs until it has
+        acted on one, or is cancelled when the track ends.
 
         `!skip` is a compare-and-set on the broker's now-playing record, so it can come from any
         pod. The poll carries the queue version, and the broker answers "unchanged" cheaply until a
@@ -255,11 +256,7 @@ class MusicPlayer:
         '''
         since = None
         while True:
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=SKIP_POLL_SECONDS)
-                return
-            except async_timeout:
-                pass
+            await asyncio.sleep(SKIP_POLL_SECONDS)
             try:
                 state = await self.broker.poll_guild_queue(self.guild.id, since)
             except Exception as exc:  #pylint:disable=broad-except
@@ -305,7 +302,7 @@ class MusicPlayer:
                 return
             # Only once the track is playing: a skip marker set while it was staging is still
             # there (it lasts 30s) and is picked up by the first poll.
-            skip_watch = asyncio.create_task(self._watch_skip(media_uuid, stop_heartbeat))
+            skip_watch = asyncio.create_task(self._watch_skip(media_uuid))
             await self.next.wait()
             cleanup_source(audio_source)
             if self.shutdown_called:
