@@ -33,6 +33,7 @@ def envelope_from_ctx(ctx: Context) -> CommandEnvelope:
         author_voice_channel_id=voice_channel.id if voice_channel else None,
         author_voice_channel_name=voice_channel.name if voice_channel else None,
         author_voice_guild_id=voice_channel.guild.id if voice_channel else None,
+        author_role_ids=tuple(role.id for role in getattr(ctx.author, 'roles', ())),
     )
 
 
