@@ -52,17 +52,6 @@ class CogPlayerGateway:
         # get_player has already told the channel why when it returns nothing.
         return EnsureResult(ok=player is not None)
 
-    async def skip(self, guild_id: int) -> str | None:
-        '''Skip the current track, returning its title, or None if nothing is playing.'''
-        player = self.cog.players.get(guild_id)
-        if player is None or not player.guild.voice_client or not player.guild.voice_client.is_playing():
-            return None
-        # No await from the check to the stop: nothing can change what is playing in between.
-        current_title = player.current_media_download.title
-        player.video_skipped = True
-        player.guild.voice_client.stop()
-        return current_title
-
     async def stop(self, guild_id: int, text_channel_id: int) -> None:
         '''Destroy the guild's player at the user's request.'''
         player = await self.cog.get_player(

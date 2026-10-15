@@ -45,12 +45,6 @@ class PlayerGateway(Protocol):
     async def ensure(self, guild_id: int, voice_channel_id: int, text_channel_id: int) -> EnsureResult:
         '''Create the player if needed and join the voice channel.'''
 
-    async def skip(self, guild_id: int) -> str | None:
-        '''
-        Skip the current track if one is playing, returning its title, else None. Check and
-        act in one call so nothing can change between them.
-        '''
-
     async def stop(self, guild_id: int, text_channel_id: int) -> None:
         '''Tear the player down at the user's request.'''
 

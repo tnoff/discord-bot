@@ -355,10 +355,13 @@ async def test_skip(mocker, fake_context):  #pylint:disable=redefined-outer-name
             await cog.process_search_results()
             await cog.download_client.run(cog.bot_shutdown_event)
             await cog.process_download_results()
-            # Mock current playing
-            cog.players[fake_context['guild'].id].current_media_download = sd
+            # The player claims the queued track, as its loop would
+            guild_id = fake_context['guild'].id
+            claimed = await cog.broker_client.claim_next_track(guild_id, 'gateway-1')
             await cog.skip_(cog, fake_context['context'])
-            assert cog.players[fake_context['guild'].id].video_skipped
+            # The skip is a marker on the broker; the player's poll acts on it
+            playing_uuid = str(claimed.download.media_request.uuid)
+            assert await cog.broker_client.poll_guild_queue(guild_id) == (mocker.ANY, playing_uuid)
 
 @pytest.mark.asyncio()
 async def test_clear(mocker, fake_context):  #pylint:disable=redefined-outer-name

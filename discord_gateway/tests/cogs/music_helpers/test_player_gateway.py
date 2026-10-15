@@ -91,25 +91,6 @@ async def test_channel_falls_back_to_fetch():
 
 
 @pytest.mark.asyncio
-async def test_skip():
-    player = make_player(title='Song')
-    gateway, _ = make_gateway({11: player})
-    assert await gateway.skip(11) == 'Song'
-    assert player.video_skipped is True
-    player.guild.voice_client.stop.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_skip_when_nothing_to_skip():
-    for players in ({}, {11: make_player(connected=False)}, {11: make_player(playing=False)}):
-        gateway, _ = make_gateway(players)
-        assert await gateway.skip(11) is None
-    player = players[11]
-    assert player.video_skipped is False
-    player.guild.voice_client.stop.assert_not_called()
-
-
-@pytest.mark.asyncio
 async def test_stop_destroys_the_player():
     player = make_player()
     gateway, cog = make_gateway()

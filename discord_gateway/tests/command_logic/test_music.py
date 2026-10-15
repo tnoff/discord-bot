@@ -16,10 +16,9 @@ NOT_PLAYING = 'I am not currently playing anything'
 class FakePlayerGateway:
     '''Records calls and answers with canned results.'''
 
-    def __init__(self, status=None, ensure=None, skip=None):
+    def __init__(self, status=None, ensure=None):
         self.status_result = status or PlayerStatus(exists=False)
         self.ensure_result = ensure or EnsureResult(ok=True)
-        self.skip_result = skip
         self.calls = []
 
     async def status(self, guild_id):
@@ -29,10 +28,6 @@ class FakePlayerGateway:
     async def ensure(self, guild_id, voice_channel_id, text_channel_id):
         self.calls.append(('ensure', guild_id, voice_channel_id, text_channel_id))
         return self.ensure_result
-
-    async def skip(self, guild_id):
-        self.calls.append(('skip', guild_id))
-        return self.skip_result
 
     async def stop(self, guild_id, text_channel_id):
         self.calls.append(('stop', guild_id, text_channel_id))
@@ -178,33 +173,67 @@ async def test_join_failure_still_says_connected(voiced):  #pylint:disable=redef
     assert [content for _, content, _ in sent(dispatcher)] == ['Bot cannot join channel music', 'Connected to: music']
 
 
+def broker_playing(title='Song', uuid='u-1', skip_result='ok', download=True):
+    '''A broker that reports one playing track and answers skip_track with skip_result.'''
+    broker = AsyncMock()
+    playing = SimpleNamespace(uuid=uuid, download=SimpleNamespace(title=title) if download else None)
+    broker.get_guild_queue.return_value = SimpleNamespace(playing=playing)
+    broker.skip_track.return_value = skip_result
+    return broker
+
+
+PLAYING = PlayerStatus(exists=True, voice_connected=True, is_playing=True, text_channel_id=22)
+
+
 @pytest.mark.asyncio
-async def test_skip(voiced):  #pylint:disable=redefined-outer-name
-    playing = PlayerStatus(exists=True, voice_connected=True, is_playing=True, text_channel_id=22)
-    gateway = FakePlayerGateway(playing, skip='Song')
-    logic, dispatcher = make_logic(gateway)
+async def test_skip_asks_the_broker_to_skip_the_playing_track(voiced):  #pylint:disable=redefined-outer-name
+    gateway = FakePlayerGateway(PLAYING)
+    broker = broker_playing()
+    logic, dispatcher = make_logic(gateway, broker=broker)
     await logic.skip(voiced)
-    assert ('skip', 11) in gateway.calls
+    broker.skip_track.assert_awaited_once_with(11, 'u-1')
+    assert gateway.calls == [('status', 11)]
     assert sent(dispatcher) == [(22, 'Skipping video "Song"', 300)]
 
 
 @pytest.mark.asyncio
-async def test_skip_nothing_playing_is_silent(voiced):  #pylint:disable=redefined-outer-name
-    '''Downloads pending but nothing playing: the gate passes, the skip finds nothing, no message'''
-    pending = PlayerStatus(exists=True, voice_connected=True, is_playing=False, pending_downloads=1, text_channel_id=22)
-    logic, dispatcher = make_logic(FakePlayerGateway(pending, skip=None))
+async def test_skip_names_the_track_even_when_its_entry_expired(voiced):  #pylint:disable=redefined-outer-name
+    logic, dispatcher = make_logic(FakePlayerGateway(PLAYING), broker=broker_playing(download=False))
     await logic.skip(voiced)
+    assert sent(dispatcher) == [(22, 'Skipping current video', 300)]
+
+
+@pytest.mark.asyncio
+async def test_skip_with_nothing_playing_is_silent(voiced):  #pylint:disable=redefined-outer-name
+    '''Downloads pending but nothing playing: the gate passes, the broker has no track, no message'''
+    pending = PlayerStatus(exists=True, voice_connected=True, is_playing=False, pending_downloads=1, text_channel_id=22)
+    broker = AsyncMock()
+    broker.get_guild_queue.return_value = SimpleNamespace(playing=None)
+    logic, dispatcher = make_logic(FakePlayerGateway(pending), broker=broker)
+    await logic.skip(voiced)
+    broker.skip_track.assert_not_called()
     dispatcher.send_message.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_skip_the_broker_refused_is_silent(voiced):  #pylint:disable=redefined-outer-name
+    '''The track ended (or was already skipped) between reading the queue and the skip'''
+    for result in ('not_current', 'no_player'):
+        logic, dispatcher = make_logic(FakePlayerGateway(PLAYING), broker=broker_playing(skip_result=result))
+        await logic.skip(voiced)
+        dispatcher.send_message.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_skip_stops_at_each_gate(envelope, voiced):  #pylint:disable=redefined-outer-name
     gateway = FakePlayerGateway()
-    logic, _ = make_logic(gateway)
+    broker = broker_playing()
+    logic, _ = make_logic(gateway, broker=broker)
     await logic.skip(envelope)
     assert not gateway.calls
     await logic.skip(voiced)
     assert gateway.calls == [('status', 11)]
+    broker.skip_track.assert_not_called()
 
 
 @pytest.mark.asyncio

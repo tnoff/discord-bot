@@ -41,6 +41,8 @@ HEARTBEAT_INTERVAL_SECONDS = 5.0
 # How often an idle player asks the broker for its next track. The gateway's own enqueue wakes it
 # at once (see notify_enqueued), so this only bounds how long a track added by anything else waits.
 CLAIM_POLL_SECONDS = 1.0
+# How often a playing track asks the broker whether a skip was requested for it.
+SKIP_POLL_SECONDS = 1.0
 
 
 
@@ -242,6 +244,34 @@ class MusicPlayer:
             except Exception as exc:  #pylint:disable=broad-except
                 self.logger.warning(f'Heartbeat for guild {self.guild.id} failed: {exc}')
 
+    async def _watch_skip(self, media_uuid: str):
+        '''
+        Stop the voice client when the broker records a skip for this track. Runs until it has
+        acted on one, or is cancelled when the track ends.
+
+        `!skip` is a compare-and-set on the broker's now-playing record, so it can come from any
+        pod. The poll carries the queue version, and the broker answers "unchanged" cheaply until a
+        skip is pending. A skip aimed at another track (this one ended first) is ignored here.
+        A failed poll is logged and retried: the broker blipping must not stop the music.
+        '''
+        since = None
+        while True:
+            await asyncio.sleep(SKIP_POLL_SECONDS)
+            try:
+                state = await self.broker.poll_guild_queue(self.guild.id, since)
+            except Exception as exc:  #pylint:disable=broad-except
+                self.logger.warning(f'Skip poll for guild {self.guild.id} failed: {exc}')
+                continue
+            if state is None:
+                continue
+            since, skip_for = state
+            if skip_for == media_uuid:
+                self.logger.info(f'Skip requested for "{media_uuid}" in guild {self.guild.id}')
+                self.video_skipped = True
+                if self.guild.voice_client:
+                    self.guild.voice_client.stop()
+                return
+
     async def _finish_track(self, media_download: MediaDownload, skipped: bool):
         '''
         Tell the broker this track is done: it clears the now-playing record, records the play
@@ -265,10 +295,14 @@ class MusicPlayer:
         # track is orphaned.
         stop_heartbeat = Event()
         heartbeat = asyncio.create_task(self._heartbeat(media_uuid, stop_heartbeat))
+        skip_watch = None
         try:
             audio_source = await self._start_track(claimed)
             if audio_source is None:
                 return
+            # Only once the track is playing: a skip marker set while it was staging is still
+            # there (it lasts 30s) and is picked up by the first poll.
+            skip_watch = asyncio.create_task(self._watch_skip(media_uuid))
             await self.next.wait()
             cleanup_source(audio_source)
             if self.shutdown_called:
@@ -284,6 +318,8 @@ class MusicPlayer:
         finally:
             stop_heartbeat.set()
             heartbeat.cancel()
+            if skip_watch:
+                skip_watch.cancel()
             self.current_media_download = None
 
     async def _start_track(self, claimed: ClaimedDownload) -> PCMAudio | None:
