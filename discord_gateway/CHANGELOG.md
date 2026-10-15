@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.20] - 2026-10-15
+
+### Changed
+
+- The markov loops now run their per-iteration work through `discord_gateway.loop_logic` (#1030, Phase 1b): `MarkovLoop.request` (the producer), `process_emojis_result` and `process_history_result` (the consumer's handlers), with `clean_message` and `build_word_pairs` moving alongside. It reaches Discord only through the cog's `dispatch_guild_emojis` and `dispatch_channel_history`, and the store through `MarkovStore`; the emoji cache stays owned by the cog. The cog keeps the wiring (tasks, `LOOP_HEALTH`, gauges, the result-queue loop). No behaviour change.
+
 ## [3.2.19] - 2026-10-15
 
 ### Changed
