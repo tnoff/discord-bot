@@ -186,21 +186,71 @@ async def test_playback_falls_back_to_the_staged_file_on_a_checkout_miss(fake_co
             assert not staged.exists()
 
 
-def test_discarding_a_track_discards_only_its_staged_file(fake_context): #pylint:disable=redefined-outer-name
-    '''A track that leaves the queue unplayed takes its staged copy with it, and no one else's.'''
+def _stage(player, item):
+    path = player._staged_path(str(item.media_request.uuid), item.file_path) #pylint:disable=protected-access
+    path.write_bytes(b'audio')
+    return path
+
+
+@pytest.mark.asyncio
+async def test_prefetch_drops_the_staged_files_of_tracks_that_left_the_queue(fake_context): #pylint:disable=redefined-outer-name
+    '''A track removed from the queue unplayed takes its staged copy with it, and no one else's.'''
     with TemporaryDirectory() as tmp_dir:
-        player = _player(fake_context, tmp_dir)
+        player = _player(fake_context, tmp_dir, prefetch_limit=0)
         with fake_media_download(tmp_dir, fake_context=fake_context) as first, \
                 fake_media_download(tmp_dir, fake_context=fake_context) as second:
-            paths = []
             for item in (first, second):
-                path = player._staged_path(str(item.media_request.uuid), item.file_path) #pylint:disable=protected-access
-                path.write_bytes(b'audio')
-                paths.append(path)
-            player.discard_staged(first)
+                await _enqueue(player, item)
+            paths = [_stage(player, first), _stage(player, second)]
+            await player.broker.remove_queued_track(player.guild.id, str(first.media_request.uuid))
+            await player._prefetch() #pylint:disable=protected-access
             assert not paths[0].exists() and paths[1].exists()
-            player.discard_staged(second)
-            assert not paths[1].exists()
+
+
+@pytest.mark.asyncio
+async def test_prefetch_keeps_the_playing_track_and_unfinished_downloads(fake_context): #pylint:disable=redefined-outer-name
+    '''Not queued does not mean unwanted: the playing track's copy, a download still landing and a
+    track mid-download are all left alone.'''
+    with TemporaryDirectory() as tmp_dir:
+        player = _player(fake_context, tmp_dir, prefetch_limit=0)
+        with fake_media_download(tmp_dir, fake_context=fake_context) as current, \
+                fake_media_download(tmp_dir, fake_context=fake_context) as downloading:
+            current_path = _stage(player, current)
+            part_path = current_path.with_name('unrelated.mp3.part')
+            part_path.write_bytes(b'half')
+            downloading_path = _stage(player, downloading)
+            player.current_media_download = current
+            player._staging[str(downloading.media_request.uuid)] = Mock() #pylint:disable=protected-access
+            await player._prefetch() #pylint:disable=protected-access
+            assert current_path.exists() and part_path.exists() and downloading_path.exists()
+            player.current_media_download = None
+            player._staging.clear() #pylint:disable=protected-access
+            await player._prefetch() #pylint:disable=protected-access
+            assert not current_path.exists() and not downloading_path.exists() and part_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_prefetch_keeps_the_track_the_broker_lists_as_playing(fake_context): #pylint:disable=redefined-outer-name
+    '''A track just claimed, before this player has set it as current, is still the broker's playing
+    track and keeps its staged copy.'''
+    with TemporaryDirectory() as tmp_dir:
+        player = _player(fake_context, tmp_dir, prefetch_limit=0)
+        with fake_media_download(tmp_dir, fake_context=fake_context) as claimed_item:
+            await _enqueue(player, claimed_item)
+            path = _stage(player, claimed_item)
+            assert await player.broker.claim_next_track(player.guild.id, 'gw-test') is not None
+            await player._prefetch() #pylint:disable=protected-access
+            assert path.exists()
+
+
+@pytest.mark.asyncio
+async def test_prefetch_with_nothing_staged_yet(fake_context): #pylint:disable=redefined-outer-name
+    '''The player directory is created by the first download; sweeping before that is a no-op.'''
+    with TemporaryDirectory() as tmp_dir:
+        player = _player(fake_context, tmp_dir, prefetch_limit=0)
+        player.file_dir = Path(tmp_dir) / 'not-yet'
+        await player._prefetch() #pylint:disable=protected-access
+        assert not player.file_dir.exists()
 
 
 class _BlockedDownload:

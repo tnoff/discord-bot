@@ -170,21 +170,19 @@ async def test_clear_empty_queue(fake_context, mocker):  # pylint: disable=redef
 
 @pytest.mark.asyncio
 async def test_clear_empties_the_broker_queue(fake_context, mocker):  # pylint: disable=redefined-outer-name
-    """clear takes every queued track out of the broker and drops each one's staged copy."""
+    """clear takes every queued track out of the broker and releases each one's entry."""
     _set_author_voice(fake_context)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    player = await _player_in_voice(cog, fake_context, mocker)
-    discard = mocker.patch.object(player, 'discard_staged')
+    await _player_in_voice(cog, fake_context, mocker)
     async with _queued_tracks(cog, fake_context, 2) as (first, second):
         await cog.clear.callback(cog, fake_context['context'])
         assert await _queued_titles(cog, fake_context) == []
         sent = [c[0][2] for c in cog.dispatcher.send_message.call_args_list]
         assert any('Cleared player queue' in m for m in sent)
-        assert [str(call.args[0].media_request.uuid) for call in discard.call_args_list] == [
-            str(first.media_request.uuid), str(second.media_request.uuid)]
         assert await cog.broker_client.local_broker.get_entry(str(first.media_request.uuid)) is None
+        assert await cog.broker_client.local_broker.get_entry(str(second.media_request.uuid)) is None
 
 
 # ---------------------------------------------------------------------------
@@ -338,20 +336,17 @@ async def test_remove_item_not_found(fake_context, mocker, index):  # pylint: di
 
 @pytest.mark.asyncio
 async def test_remove_item_takes_the_track_out_of_the_broker_queue(fake_context, mocker):  # pylint: disable=redefined-outer-name
-    """remove_item takes the numbered track out, tells the channel, and drops its staged copy."""
+    """remove_item takes the numbered track out and tells the channel."""
     _set_author_voice(fake_context)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    player = await _player_in_voice(cog, fake_context, mocker)
-    discard = mocker.patch.object(player, 'discard_staged')
+    await _player_in_voice(cog, fake_context, mocker)
     async with _queued_tracks(cog, fake_context, 3) as (first, second, third):
         await cog.remove_item.callback(cog, fake_context['context'], '2')
         assert await _queued_titles(cog, fake_context) == [first.title, third.title]
         sent = [c[0][2] for c in cog.dispatcher.send_message.call_args_list]
         assert any(f'Removed item {second.title} from queue' in m for m in sent)
-        discard.assert_called_once()
-        assert str(discard.call_args.args[0].media_request.uuid) == str(second.media_request.uuid)
         # Its entry is released too, not left registered in the broker
         assert await cog.broker_client.local_broker.get_entry(str(second.media_request.uuid)) is None
 
@@ -432,19 +427,17 @@ async def test_bump_item_not_found(fake_context, mocker, index):  # pylint: disa
 
 @pytest.mark.asyncio
 async def test_bump_item_moves_the_track_to_the_top(fake_context, mocker):  # pylint: disable=redefined-outer-name
-    """bump_item moves the numbered track to the head of the broker's queue and restages the window."""
+    """bump_item moves the numbered track to the head of the broker's queue (the player's poll re-aims the prefetch)."""
     _set_author_voice(fake_context)
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = MagicMock()
-    player = await _player_in_voice(cog, fake_context, mocker)
-    prefetch = mocker.patch.object(player, 'trigger_prefetch')
+    await _player_in_voice(cog, fake_context, mocker)
     async with _queued_tracks(cog, fake_context, 3) as (first, second, third):
         await cog.bump_item.callback(cog, fake_context['context'], '3')
         assert await _queued_titles(cog, fake_context) == [third.title, first.title, second.title]
         sent = [c[0][2] for c in cog.dispatcher.send_message.call_args_list]
         assert any(f'Bumped item "{third.title}" to top of queue' in m for m in sent)
-        prefetch.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
