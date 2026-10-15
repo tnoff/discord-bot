@@ -28,8 +28,8 @@ see — name, description, unit, and which pod.
 | `cache_filesystem_used_bytes` | Used size of cache filesystem | `bytes` | gateway | `discord_gateway/cogs/music.py:392` |
 | `heartbeat` | Broker HTTP server heartbeat | `1` | broker | `discord_broker/servers/broker_server.py:95` |
 | `heartbeat` | Broker history worker heartbeat | `1` | broker | `discord_broker/workers/history_worker.py:75` |
-| `heartbeat` | Delete message loop heartbeat | `1` | gateway | `discord_gateway/cogs/delete_messages.py:63` |
-| `heartbeat` | Delete message result loop heartbeat | `1` | gateway | `discord_gateway/cogs/delete_messages.py:65` |
+| `heartbeat` | Delete message loop heartbeat | `1` | gateway | `discord_gateway/cogs/delete_messages.py:57` |
+| `heartbeat` | Delete message result loop heartbeat | `1` | gateway | `discord_gateway/cogs/delete_messages.py:59` |
 | `heartbeat` | Download HTTP server heartbeat | `1` | downloader | `discord_core/servers/queue_worker_server.py:75` |
 | `heartbeat` | Markov check loop heartbeat | `1` | gateway | `discord_gateway/cogs/markov.py:125` |
 | `heartbeat` | Markov result loop heartbeat | `1` | gateway | `discord_gateway/cogs/markov.py:127` |
@@ -42,7 +42,7 @@ see — name, description, unit, and which pod.
 | `queue_worker_depth` | Pending searches across all guild queues | `1` | search | `discord_core/workers/queue_metrics.py:49` |
 | `queue_worker_failures` | Failures in the shared YouTube failure queue | `1` | downloader | `discord_core/workers/queue_metrics.py:55` |
 | `queue_worker_failures` | Failures in the shared search failure queue | `1` | search | `discord_core/workers/queue_metrics.py:55` |
-| `result_queue_depth` | Delete message dispatch result queue depth | `1` | gateway | `discord_gateway/cogs/delete_messages.py:67` |
+| `result_queue_depth` | Delete message dispatch result queue depth | `1` | gateway | `discord_gateway/cogs/delete_messages.py:61` |
 | `result_queue_depth` | Markov dispatch result queue depth | `1` | gateway | `discord_gateway/cogs/markov.py:129` |
 | `result_queue_depth` | Pending results on the broker bot-ready queues, by result type | `1` | broker | `discord_broker/workers/broker_metrics.py:75` |
 | `seam_contract_breach` | 1 when a peer has been missing a called route longer than the grace window | `1` | core (shared) | `discord_core/clients/seam_contract.py:307` |

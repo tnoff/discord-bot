@@ -447,6 +447,8 @@
         "discord_gateway.command_logic.role",
         "discord_gateway.command_logic.role_gateway",
         "discord_gateway.command_logic.urban",
+        "discord_gateway.loop_logic",
+        "discord_gateway.loop_logic.delete_messages",
         "discord_gateway.servers",
         "discord_gateway.servers.health_server",
         "discord_gateway.types",
