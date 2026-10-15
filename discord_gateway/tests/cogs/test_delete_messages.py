@@ -2,7 +2,6 @@ import asyncio
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
-from freezegun import freeze_time
 import pytest
 
 from discord_core.exceptions import CogMissingRequiredArg
@@ -12,8 +11,9 @@ from discord_core.utils.otel import loop_heartbeat_observations
 from discord_core.types.dispatch_result import ChannelHistoryResult
 from discord_core.types.fetched_message import FetchedMessage
 
-from discord_gateway.cogs.delete_messages import (DeleteMessages, DELETE_AFTER_DEFAULT,
+from discord_gateway.cogs.delete_messages import (DeleteMessages,
                                                LOOP_DELETE_MESSAGE_CHECK, LOOP_DELETE_MESSAGE_RESULT)
+from discord_gateway.loop_logic.delete_messages import DeleteMessagesLoop
 
 from tests.helpers import fake_context #pylint:disable=unused-import
 from tests.helpers import FakeMessage
@@ -81,109 +81,19 @@ _FULL_CONFIG = {
 } | BASE_CONFIG
 
 
-@pytest.mark.asyncio
-@freeze_time('2025-12-01 12:00:00', tz_offset=0)
-async def test_delete_messages_process_result_deletes_old(fake_context):  #pylint:disable=redefined-outer-name
-    '''_process_delete_result deletes messages older than delete_after days'''
-    old_created_at = datetime(2024, 12, 31, 0, 0, 0, tzinfo=timezone.utc)
-    fake_message = FakeMessage(channel=fake_context['channel'], created_at=old_created_at)
-    fake_context['channel'].messages = [fake_message]
-    config = {
-        'delete_messages': {
-            'loop_sleep_interval': 5,
-            'discord_channels': [
-                {'server_id': fake_context['guild'].id, 'channel_id': fake_context['channel'].id},
-            ]
-        }
-    } | BASE_CONFIG
-    cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
-    result = ChannelHistoryResult(
-        guild_id=fake_context['guild'].id,
-        channel_id=fake_context['channel'].id,
-        messages=[FetchedMessage(
-            id=fake_message.id,
-            content=fake_message.content,
-            created_at=old_created_at,
-            author_bot=False,
-        )],
-    )
-    await cog._process_delete_result(result)  #pylint:disable=protected-access
-    assert fake_message.deleted is True
 
 
-@pytest.mark.asyncio
-@freeze_time('2024-01-01 12:00:00', tz_offset=0)
-async def test_delete_messages_process_result_skips_recent(fake_context):  #pylint:disable=redefined-outer-name
-    '''_process_delete_result skips messages newer than delete_after days'''
-    recent_created_at = datetime(2024, 1, 1, 11, 59, 0, tzinfo=timezone.utc)
-    fake_message = FakeMessage(channel=fake_context['channel'], created_at=recent_created_at)
-    fake_context['channel'].messages = [fake_message]
-    config = {
-        'delete_messages': {
-            'loop_sleep_interval': 5,
-            'discord_channels': [
-                {'server_id': fake_context['guild'].id, 'channel_id': fake_context['channel'].id, 'delete_after': 7},
-            ]
-        }
-    } | BASE_CONFIG
-    cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
-    result = ChannelHistoryResult(
-        guild_id=fake_context['guild'].id,
-        channel_id=fake_context['channel'].id,
-        messages=[FetchedMessage(
-            id=fake_message.id,
-            content=fake_message.content,
-            created_at=recent_created_at,
-            author_bot=False,
-        )],
-    )
-    await cog._process_delete_result(result)  #pylint:disable=protected-access
-    assert fake_message.deleted is False
 
 
-@pytest.mark.asyncio
-async def test_delete_messages_process_result_handles_error(fake_context):  #pylint:disable=redefined-outer-name
-    '''_process_delete_result logs an error and returns when result has an error'''
-    config = {
-        'delete_messages': {
-            'loop_sleep_interval': 5,
-            'discord_channels': [
-                {'server_id': fake_context['guild'].id, 'channel_id': fake_context['channel'].id},
-            ]
-        }
-    } | BASE_CONFIG
-    cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
-    result = ChannelHistoryResult(
-        guild_id=fake_context['guild'].id,
-        channel_id=fake_context['channel'].id,
-        messages=[],
-        error=Exception('test error'),
-    )
-    # Should not raise
-    await cog._process_delete_result(result)  #pylint:disable=protected-access
 
 
-def test_get_channel_config_returns_config(fake_context):  #pylint:disable=redefined-outer-name
-    '''_get_channel_config returns the config dict for a known channel_id'''
-    config = {
-        'delete_messages': {
-            'loop_sleep_interval': 5,
-            'discord_channels': [
-                {'server_id': fake_context['guild'].id, 'channel_id': fake_context['channel'].id, 'delete_after': 14},
-            ]
-        }
-    } | BASE_CONFIG
-    cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
-    result = cog._get_channel_config(fake_context['channel'].id)  #pylint:disable=protected-access
-    assert result['delete_after'] == 14
 
 
-def test_get_channel_config_returns_empty_for_unknown(fake_context):  #pylint:disable=redefined-outer-name
-    '''_get_channel_config returns empty dict for an unknown channel_id'''
-    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
-    result = cog._get_channel_config(999999)  #pylint:disable=protected-access
-    assert result == {}
-    assert result.get('delete_after', DELETE_AFTER_DEFAULT) == DELETE_AFTER_DEFAULT
+
+
+
+
+
 
 
 def test_loop_heartbeat_emits_nothing_before_registration():
@@ -250,7 +160,7 @@ async def test_delete_request_loop_submits_history_request(mocker, fake_context)
             ]
         }
     } | BASE_CONFIG
-    mocker.patch('discord_gateway.cogs.delete_messages.sleep', return_value=True)
+    mocker.patch('discord_gateway.loop_logic.delete_messages.sleep', return_value=True)
     cog = DeleteMessages(fake_context['bot'], config, fake_context['dispatcher'])
     cog.register_result_queue()
     await cog._delete_request_loop()  #pylint:disable=protected-access
@@ -348,7 +258,7 @@ async def test_delete_result_loop_survives_processing_error(fake_context, mocker
     cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
     cog.register_result_queue()
     cog.logger = mocker.MagicMock()
-    mocker.patch.object(cog, '_process_delete_result', side_effect=RuntimeError('boom'))
+    mocker.patch.object(DeleteMessagesLoop, 'process_result', side_effect=RuntimeError('boom'))
     cog._result_queue.put_nowait(ChannelHistoryResult(guild_id=1, channel_id=2, messages=[]))  #pylint:disable=protected-access
     task = asyncio.create_task(cog._delete_result_loop())  #pylint:disable=protected-access
     await asyncio.sleep(0.05)

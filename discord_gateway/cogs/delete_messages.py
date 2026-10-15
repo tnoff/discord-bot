@@ -1,26 +1,20 @@
-from asyncio import sleep
-from datetime import datetime, timedelta, timezone
 from functools import partial
 
 from discord.ext.commands import Bot
 from discord.errors import DiscordServerError
-from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import Observation
 from pydantic import BaseModel
 
 from discord_core.exceptions import CogMissingRequiredArg
 from discord_core.utils.common import return_loop_runner
-from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.loop_health import LOOP_HEALTH, health_aware_queue_get
-from discord_core.utils.otel import async_otel_span_wrapper, MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
+from discord_core.utils.otel import MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations
 
 from discord_core.clients.dispatch_client_base import DispatchClientBase
 from discord_core.types.dispatch_result import ChannelHistoryResult
 
 from discord_gateway.cogs.common import CogHelperBase
-
-# Default for deleting messages after X days
-DELETE_AFTER_DEFAULT = 7
+from discord_gateway.loop_logic.delete_messages import DELETE_AFTER_DEFAULT, DeleteMessagesLoop
 
 # Default for how to wait between each loop
 LOOP_SLEEP_INTERVAL_DEFAULT = 300
@@ -98,58 +92,17 @@ class DeleteMessages(CogHelperBase):
         if self._result_task:
             self._result_task.cancel()
 
-    def _get_channel_config(self, channel_id: int) -> dict:
-        '''Return config dict for the given channel_id, or empty dict if not found.'''
-        for channel in self.discord_channels:
-            if channel['channel_id'] == channel_id:
-                return channel
-        return {}
+    @property
+    def loop_logic(self) -> DeleteMessagesLoop:
+        '''One iteration of each loop, over this cog's dispatcher.'''
+        return DeleteMessagesLoop(self.logger, self.discord_channels, self.loop_sleep_interval,
+                                  self.dispatch_channel_history, self.dispatch_delete)
 
     async def _delete_request_loop(self):
         '''
         Producer loop: submit channel history fetch requests for each configured channel.
         '''
-        await sleep(self.loop_sleep_interval)
-        async with async_otel_span_wrapper('delete_messages.check'):
-            for channel_dict in self.discord_channels:
-                guild_id = channel_dict['server_id']
-                channel_id = channel_dict['channel_id']
-                async with async_otel_span_wrapper('delete_messages.channel_check', kind=SpanKind.CONSUMER, attributes={'discord.channel': channel_id}):
-                    self.logger.debug(f'Checking Channel ID {channel_id}')
-                    await self.dispatch_channel_history(guild_id, channel_id)
-
-    async def _process_delete_result(self, result: ChannelHistoryResult) -> None:
-        '''
-        Process a single channel history result, deleting old messages.
-
-        Opens its own span linked back to the requesting one: this runs in the
-        result-consumer task, by which point the span that dispatched the fetch
-        has long closed and these logs would otherwise carry no trace.
-        '''
-        async with async_otel_span_wrapper('delete_messages.history_result', kind=SpanKind.CONSUMER,
-                                           attributes={DiscordContextNaming.CHANNEL.value: result.channel_id,
-                                                       DiscordContextNaming.GUILD.value: result.guild_id},
-                                           links=span_links_from_context(result.span_context)):
-            return await self._apply_delete_result(result)
-
-    async def _apply_delete_result(self, result: ChannelHistoryResult) -> None:
-        '''Body of _process_delete_result, run inside the consumer span.'''
-        if result.error:
-            self.logger.error(
-                f'DeleteMessages :: Failed to fetch history for channel {result.channel_id} '
-                f'in server {result.guild_id}: {result.error}'
-            )
-            return
-        channel_config = self._get_channel_config(result.channel_id)
-        delete_after = channel_config.get('delete_after', DELETE_AFTER_DEFAULT)
-        cutoff_period = (datetime.now(timezone.utc) - timedelta(days=delete_after))
-        for message in result.messages:
-            if message.created_at < cutoff_period:
-                self.logger.info(
-                    f'Deleting message id {message.id}, in channel {result.channel_id}, '
-                    f'in server {result.guild_id}'
-                )
-                await self.dispatch_delete(result.guild_id, result.channel_id, message.id)
+        await self.loop_logic.request()
 
     async def _delete_result_loop(self) -> None:
         '''Consumer loop: read channel history results and delete old messages.'''
@@ -158,7 +111,7 @@ class DeleteMessages(CogHelperBase):
             result = await health_aware_queue_get(self._result_queue, health)
             try:
                 if isinstance(result, ChannelHistoryResult):
-                    await self._process_delete_result(result)
+                    await self.loop_logic.process_result(result)
                 health.record_success()
             except Exception:  # pylint: disable=broad-except
                 health.record_error()
