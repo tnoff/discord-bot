@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.19] - 2026-10-15
+
+### Changed
+
+- The delete-messages loops now run their per-iteration work through a new discord-free package, `discord_gateway.loop_logic` (#1030, Phase 1b): `DeleteMessagesLoop.request` (the producer) and `DeleteMessagesLoop.process_result` (the consumer). It reaches Discord only through the cog's `dispatch_channel_history` and `dispatch_delete`. The cog keeps the wiring (tasks, `LOOP_HEALTH`, heartbeat and queue-depth gauges). The import-boundary test now covers `loop_logic` as well as `command_logic`. No behaviour change.
+
 ## [3.2.18] - 2026-10-15
 
 ### Changed
