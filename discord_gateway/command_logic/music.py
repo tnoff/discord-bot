@@ -208,13 +208,11 @@ class MusicCommands:
 
     async def clear(self, env: CommandEnvelope) -> None:
         '''Clear every queued item.'''
-        items = await self._queued_items(env)
-        if items is None:
+        if await self._queued_items(env) is None:
             return
         self.logger.info(f'Player clear called in guild {env.guild_id}')
+        # The player sees the queue change on its next poll and drops the staged copies.
         await self.broker_client.clear_queue(env.guild_id)
-        # Nothing is left to prefetch, so only the staged copies need to go.
-        await self.player_gateway.queue_changed(env.guild_id, items, prefetch=False)
         self._send(env.guild_id, env.channel_id, 'Cleared player queue')
 
     async def shuffle(self, env: CommandEnvelope) -> None:
@@ -222,8 +220,6 @@ class MusicCommands:
         if await self._queued_items(env) is None:
             return
         await self.broker_client.shuffle_queue(env.guild_id)
-        # The head of the queue changed, so the files worth having on disk did too.
-        await self.player_gateway.queue_changed(env.guild_id, [])
 
     async def remove(self, env: CommandEnvelope, queue_index: str) -> None:
         '''Remove the item at ``queue_index``.'''
@@ -243,7 +239,6 @@ class MusicCommands:
             self._send(env.guild_id, env.channel_id, f'Unable to remove queue index {index}')
             return
         self._send(env.guild_id, env.channel_id, f'Removed item {item.title} from queue')
-        await self.player_gateway.queue_changed(env.guild_id, [item])
 
     async def bump(self, env: CommandEnvelope, queue_index: str) -> None:
         '''Bump the item at ``queue_index`` to the top of the queue.'''
@@ -263,7 +258,6 @@ class MusicCommands:
             self._send(env.guild_id, env.channel_id, f'Unable to bump queue index {index}')
             return
         self._send(env.guild_id, env.channel_id, f'Bumped item "{item.title}" to top of queue')
-        await self.player_gateway.queue_changed(env.guild_id, [])
 
     async def _ensure_player(self, env: CommandEnvelope, voice_channel_id: int) -> bool:
         '''Make sure the guild has a player in the author's voice channel, telling the channel if not.'''

@@ -39,8 +39,6 @@ class FakePlayerGateway:
         self.calls.append(('add_cached', guild_id, media_download))
         return True
 
-    async def queue_changed(self, guild_id, removed, prefetch=True):
-        self.calls.append(('queue_changed', guild_id, [i.title for i in removed], prefetch))
 
 
 def make_logic(gateway, analytics=None, broker=None, enqueuer=None, playlist=None):
@@ -315,7 +313,6 @@ async def test_queue_commands_need_voice_and_an_active_player(run, envelope, voi
     logic, dispatcher = make_logic(gateway, broker=queue_broker('a'))
     await run(logic, voiced)
     assert sent(dispatcher) == [(22, NOT_PLAYING, 300)]
-    assert ('queue_changed', 11, [], True) not in gateway.calls
 
 
 @pytest.mark.asyncio
@@ -337,8 +334,7 @@ async def test_clear(voiced):  #pylint:disable=redefined-outer-name
     logic, dispatcher = make_logic(gateway, broker=broker)
     await logic.clear(voiced)
     broker.clear_queue.assert_awaited_once_with(11)
-    # staged copies go, but there is nothing left to prefetch
-    assert gateway.calls[-1] == ('queue_changed', 11, ['a', 'b'], False)
+    assert gateway.calls == [('status', 11)]
     assert sent(dispatcher) == [(22, 'Cleared player queue', 300)]
 
 
@@ -349,7 +345,7 @@ async def test_shuffle(voiced):  #pylint:disable=redefined-outer-name
     logic, dispatcher = make_logic(gateway, broker=broker)
     await logic.shuffle(voiced)
     broker.shuffle_queue.assert_awaited_once_with(11)
-    assert gateway.calls[-1] == ('queue_changed', 11, [], True)
+    assert gateway.calls == [('status', 11)]
     dispatcher.send_message.assert_not_called()
 
 
@@ -362,7 +358,7 @@ async def test_remove(voiced):  #pylint:disable=redefined-outer-name
     await logic.remove(voiced, '2')
     broker.remove_queued_track.assert_awaited_once_with(11, 'u-b')
     assert sent(dispatcher) == [(22, 'Removed item b from queue', 300)]
-    assert gateway.calls[-1] == ('queue_changed', 11, ['b'], True)
+    assert gateway.calls == [('status', 11)]
 
 
 @pytest.mark.asyncio
@@ -374,7 +370,7 @@ async def test_bump(voiced):  #pylint:disable=redefined-outer-name
     await logic.bump(voiced, '2')
     broker.bump_queued_track.assert_awaited_once_with(11, 'u-b')
     assert sent(dispatcher) == [(22, 'Bumped item "b" to top of queue', 300)]
-    assert gateway.calls[-1] == ('queue_changed', 11, [], True)
+    assert gateway.calls == [('status', 11)]
 
 
 @pytest.mark.asyncio

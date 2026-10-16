@@ -7,7 +7,6 @@ discord.py. Command logic must not, so it reaches the player only through
 object. The cog implements it in-process today; the commands pod (#1030, Phase 2)
 would put an HTTP client behind the same Protocol.
 '''
-from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -50,13 +49,6 @@ class PlayerGateway(Protocol):
 
     async def move_messages(self, guild_id: int, text_channel_id: int) -> None:
         '''Point the player, and the session a restart would rejoin from, at a new text channel.'''
-
-    async def queue_changed(self, guild_id: int, removed: Sequence[MediaDownload], prefetch: bool = True) -> None:
-        '''
-        Tell the player the broker's queue changed: drop the staged copy of each track in
-        ``removed`` (they left the queue without playing) and, with ``prefetch``, re-aim the
-        prefetch at the new head of the queue.
-        '''
 
     async def add_cached(self, guild_id: int, media_download: MediaDownload) -> bool:
         '''

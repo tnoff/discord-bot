@@ -718,7 +718,7 @@ class _StoppableVoiceClient(_HoldingVoiceClient):
 async def test_a_skip_recorded_on_the_broker_stops_the_track(mocker, fake_context): #pylint:disable=redefined-outer-name
     '''`!skip` from any pod is a marker on the broker: the player sees it on its poll, stops the audio,
     and finishes the track as skipped, so it stays out of history'''
-    mocker.patch.object(music_player_module, 'SKIP_POLL_SECONDS', 0.01)
+    mocker.patch.object(music_player_module, 'QUEUE_POLL_SECONDS', 0.01)
     voice_client = _StoppableVoiceClient()
     fake_context['guild'].voice_client = voice_client
     with with_music_player(fake_context) as player:
@@ -736,7 +736,7 @@ async def test_a_skip_recorded_on_the_broker_stops_the_track(mocker, fake_contex
 
 @pytest.mark.asyncio
 async def test_a_skip_for_another_track_is_ignored(mocker, fake_context): #pylint:disable=redefined-outer-name
-    mocker.patch.object(music_player_module, 'SKIP_POLL_SECONDS', 0.01)
+    mocker.patch.object(music_player_module, 'QUEUE_POLL_SECONDS', 0.01)
     voice_client = _StoppableVoiceClient()
     fake_context['guild'].voice_client = voice_client
     with with_music_player(fake_context) as player:
@@ -757,7 +757,7 @@ async def test_a_skip_for_another_track_is_ignored(mocker, fake_context): #pylin
 
 @pytest.mark.asyncio
 async def test_a_failed_skip_poll_does_not_stop_the_music(mocker, fake_context): #pylint:disable=redefined-outer-name
-    mocker.patch.object(music_player_module, 'SKIP_POLL_SECONDS', 0.01)
+    mocker.patch.object(music_player_module, 'QUEUE_POLL_SECONDS', 0.01)
     voice_client = _StoppableVoiceClient()
     fake_context['guild'].voice_client = voice_client
     with with_music_player(fake_context) as player:
@@ -777,7 +777,7 @@ async def test_a_failed_skip_poll_does_not_stop_the_music(mocker, fake_context):
 @pytest.mark.asyncio
 async def test_a_skip_without_a_voice_client_marks_the_track_skipped(mocker, fake_context): #pylint:disable=redefined-outer-name
     '''Nothing to stop, but the watcher still records the skip rather than raising'''
-    mocker.patch.object(music_player_module, 'SKIP_POLL_SECONDS', 0.01)
+    mocker.patch.object(music_player_module, 'QUEUE_POLL_SECONDS', 0.01)
     fake_context['guild'].voice_client = _HoldingVoiceClient()
     with with_music_player(fake_context) as player:
         with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
@@ -787,6 +787,30 @@ async def test_a_skip_without_a_voice_client_marks_the_track_skipped(mocker, fak
             fake_context['guild'].voice_client = None
             await player.broker.skip_track(player.guild.id, str(media_download.media_request.uuid))
             await until(lambda: player.video_skipped)
+            player.set_next()
+            await asyncio.wait_for(task, timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_a_queue_change_while_a_track_plays_re_aims_the_prefetch(mocker, fake_context): #pylint:disable=redefined-outer-name
+    '''Any pod's queue edit moves the broker's queue version; the player notices on its poll and
+    refreshes the prefetch, once per change and not for the baseline answer'''
+    mocker.patch.object(music_player_module, 'QUEUE_POLL_SECONDS', 0.01)
+    voice_client = _StoppableVoiceClient()
+    fake_context['guild'].voice_client = voice_client
+    with with_music_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download, \
+                fake_media_download(player.file_dir, fake_context=fake_context) as other:
+            await queue_track(player, media_download)
+            task = asyncio.create_task(player.player_loop())
+            await until(lambda: voice_client.after is not None)
+            prefetch = mocker.patch.object(player, 'trigger_prefetch')
+            await asyncio.sleep(0.1)
+            prefetch.assert_not_called()
+            await queue_track(player, other)
+            await until(lambda: prefetch.call_count == 1)
+            await asyncio.sleep(0.1)
+            assert prefetch.call_count == 1
             player.set_next()
             await asyncio.wait_for(task, timeout=1)
 
@@ -1171,13 +1195,3 @@ async def test_cleanup_leaves_the_brokers_queue_alone(fake_context): #pylint:dis
             player.current_media_download = media_download
             await player.cleanup()
             assert player.broker.mock_calls == []
-
-
-def test_discard_staged_removes_the_local_copy(fake_context): #pylint:disable=redefined-outer-name
-    '''Commands call this for a track they took out of the queue without playing it'''
-    with with_music_player(fake_context, bucket_name='my-bucket') as player:
-        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
-            staged = player._staged_path(str(media_download.media_request.uuid), media_download.file_path) #pylint:disable=protected-access
-            staged.write_bytes(b'audio')
-            player.discard_staged(media_download)
-            assert not staged.exists()

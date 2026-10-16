@@ -116,34 +116,6 @@ async def test_move_messages_saves_the_session():
 
 
 @pytest.mark.asyncio
-async def test_queue_changed_discards_then_prefetches():
-    player = make_player()
-    player.discard_staged = MagicMock()
-    player.trigger_prefetch = MagicMock()
-    gateway, _ = make_gateway({11: player})
-    await gateway.queue_changed(11, ['a', 'b'])
-    assert [c.args[0] for c in player.discard_staged.call_args_list] == ['a', 'b']
-    player.trigger_prefetch.assert_called_once_with()
-
-
-@pytest.mark.asyncio
-async def test_queue_changed_without_prefetch():
-    player = make_player()
-    player.discard_staged = MagicMock()
-    player.trigger_prefetch = MagicMock()
-    gateway, _ = make_gateway({11: player})
-    await gateway.queue_changed(11, ['a'], prefetch=False)
-    player.discard_staged.assert_called_once_with('a')
-    player.trigger_prefetch.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_queue_changed_after_the_player_is_gone():
-    gateway, _ = make_gateway()
-    await gateway.queue_changed(11, ['a'])
-
-
-@pytest.mark.asyncio
 async def test_add_cached_queues_on_the_guilds_player():
     player = make_player()
     gateway, cog = make_gateway({11: player})

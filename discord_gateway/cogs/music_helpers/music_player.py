@@ -41,8 +41,9 @@ HEARTBEAT_INTERVAL_SECONDS = 5.0
 # How often an idle player asks the broker for its next track. The gateway's own enqueue wakes it
 # at once (see notify_enqueued), so this only bounds how long a track added by anything else waits.
 CLAIM_POLL_SECONDS = 1.0
-# How often a playing track asks the broker whether a skip was requested for it.
-SKIP_POLL_SECONDS = 1.0
+# How often a playing track asks the broker whether a skip was requested for it, or the queue
+# changed (which re-aims the prefetch). Bounds how long either takes to be noticed.
+QUEUE_POLL_SECONDS = 1.0
 
 
 
@@ -244,27 +245,33 @@ class MusicPlayer:
             except Exception as exc:  #pylint:disable=broad-except
                 self.logger.warning(f'Heartbeat for guild {self.guild.id} failed: {exc}')
 
-    async def _watch_skip(self, media_uuid: str):
+    async def _watch_queue(self, media_uuid: str):
         '''
-        Stop the voice client when the broker records a skip for this track. Runs until it has
-        acted on one, or is cancelled when the track ends.
+        Watch the broker while this track plays: stop the voice client when a skip is recorded
+        for it, and re-aim the prefetch when the guild's queue changes. Runs until the player
+        cancels it at the end of the track (or it has skipped the track).
 
-        `!skip` is a compare-and-set on the broker's now-playing record, so it can come from any
-        pod. The poll carries the queue version, and the broker answers "unchanged" cheaply until a
-        skip is pending. A skip aimed at another track (this one ended first) is ignored here.
+        Both come from one poll. `!skip` is a compare-and-set on the broker's now-playing
+        record, so it can come from any pod; every queue edit moves the queue version, so
+        neither needs a call into this process. The broker answers "unchanged" cheaply until
+        something is pending. A skip aimed at another track (this one ended first) is ignored.
         A failed poll is logged and retried: the broker blipping must not stop the music.
         '''
         since = None
         while True:
-            await asyncio.sleep(SKIP_POLL_SECONDS)
+            await asyncio.sleep(QUEUE_POLL_SECONDS)
             try:
                 state = await self.broker.poll_guild_queue(self.guild.id, since)
             except Exception as exc:  #pylint:disable=broad-except
-                self.logger.warning(f'Skip poll for guild {self.guild.id} failed: {exc}')
+                self.logger.warning(f'Queue poll for guild {self.guild.id} failed: {exc}')
                 continue
             if state is None:
                 continue
-            since, skip_for = state
+            version, skip_for = state
+            # The first answer is only a baseline: the track start has just aimed the prefetch.
+            if since is not None and version != since:
+                self.trigger_prefetch()
+            since = version
             if skip_for == media_uuid:
                 self.logger.info(f'Skip requested for "{media_uuid}" in guild {self.guild.id}')
                 self.video_skipped = True
@@ -295,14 +302,14 @@ class MusicPlayer:
         # track is orphaned.
         stop_heartbeat = Event()
         heartbeat = asyncio.create_task(self._heartbeat(media_uuid, stop_heartbeat))
-        skip_watch = None
+        queue_watch = None
         try:
             audio_source = await self._start_track(claimed)
             if audio_source is None:
                 return
             # Only once the track is playing: a skip marker set while it was staging is still
             # there (it lasts 30s) and is picked up by the first poll.
-            skip_watch = asyncio.create_task(self._watch_skip(media_uuid))
+            queue_watch = asyncio.create_task(self._watch_queue(media_uuid))
             await self.next.wait()
             cleanup_source(audio_source)
             if self.shutdown_called:
@@ -318,8 +325,8 @@ class MusicPlayer:
         finally:
             stop_heartbeat.set()
             heartbeat.cancel()
-            if skip_watch:
-                skip_watch.cancel()
+            if queue_watch:
+                queue_watch.cancel()
             self.current_media_download = None
 
     async def _start_track(self, claimed: ClaimedDownload) -> PCMAudio | None:
@@ -500,8 +507,18 @@ class MusicPlayer:
             self._prefetch_task.add_done_callback(self._on_prefetch_done)
 
     async def _prefetch(self):
-        '''Stage the first prefetch_limit queued items, in queue order, as the broker has them now.'''
+        '''
+        Bring the staged files in line with the broker's queue as it is now: drop the copies of
+        tracks that left the queue without playing, then stage the first prefetch_limit queued
+        items, in queue order.
+        '''
         queue = await self.broker.get_guild_queue(self.guild.id)
+        keep = {str(item.media_request.uuid) for item in queue.items}
+        if queue.playing:
+            keep.add(queue.playing.uuid)
+        if self.current_media_download:
+            keep.add(str(self.current_media_download.media_request.uuid))
+        self._sweep_staged(keep)
         for item in queue.items[:self.prefetch_limit]:
             try:
                 await self._ensure_staged(str(item.media_request.uuid), self.bucket_name, str(item.file_path))
@@ -558,9 +575,24 @@ class MusicPlayer:
             task.cancel()
         self._staged_path(media_uuid, media_download.file_path).unlink(missing_ok=True)
 
-    def discard_staged(self, media_download: MediaDownload):
-        '''Delete the staged copy of a track that left the queue without playing.'''
-        self._discard_staged(media_download)
+    def _sweep_staged(self, keep: set[str]):
+        '''
+        Delete the staged copy of every track whose request uuid is not in `keep` (the queued
+        and playing ones).
+
+        A staged file is named after its request uuid (see _staged_path), and a request uuid
+        itself contains a dot, so files are matched by that prefix. Only whole files of
+        downloads that are not in flight: a .part file or a running download belongs to a track
+        that may be about to play (it can be claimed between the broker's answer and here), and
+        a download of a track that did leave the queue is cleared by the next sweep.
+        '''
+        if not self.bucket_name or not self.file_dir.exists():
+            return
+        wanted = tuple(keep | set(self._staging))
+        for path in self.file_dir.iterdir():
+            if path.suffix == '.part' or path.name.startswith(wanted):
+                continue
+            path.unlink(missing_ok=True)
 
     async def stop_loop(self):
         '''
