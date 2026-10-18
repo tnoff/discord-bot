@@ -279,7 +279,7 @@ async def test_add_source_to_player_queue_full_with_bundle(mocker, fake_context,
             assert await cog.add_source_to_player(already_queued, player) is True
         with fake_media_download(tmp_dir, fake_context=fake_context) as media_download:
             # Register a broker bundle and link it to the media request
-            bundle_uuid = await cog.create_bundle(
+            bundle_uuid = await cog.broker_client.create_bundle(
                 fake_context['guild'].id, fake_context['channel'].id, input_string='test',
             )
             media_download.media_request.bundle_uuid = bundle_uuid

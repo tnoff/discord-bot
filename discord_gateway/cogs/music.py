@@ -3,7 +3,6 @@
 
 import asyncio
 from asyncio import sleep
-from asyncio import QueueFull
 from functools import partial
 from pathlib import Path
 from shutil import disk_usage
@@ -15,30 +14,25 @@ from uuid import uuid4
 from discord.ext.commands import Bot, Context, group, command
 from discord.errors import ClientException
 from opentelemetry.trace import SpanKind
-from opentelemetry.trace.status import StatusCode
 from opentelemetry.metrics import Observation
 from pydantic import BaseModel, Field, model_validator
 
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
-from discord_core.types.download import LifecycleEvent, LifecycleStatusUpdate, is_rejection
-from discord_core.types.media_download import MediaDownload, media_download_attributes
-from discord_core.types.media_request import MediaRequest, media_request_attributes
-from discord_core.types.playlist_add_request import PlaylistAddRequest
-from discord_core.types.search_resolution import SearchResolution
+from discord_core.types.download import LifecycleEvent
+from discord_core.types.media_download import MediaDownload
 from discord_core.utils.common import (rm_tree, return_loop_runner,
                                       seam_contract_from_settings,
                                       tracing_config_from_settings)
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.loop_health import LOOP_HEALTH
-from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations, span_links_from_context
+from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations
 from discord_core.interfaces.database_protocols import GuildAnalyticsStore, PlaylistStore
 from discord_core.types.video_cache import MusicCacheConfig
 from discord_core.clients.http_broker_client import HttpBrokerClient
 from discord_core.interfaces.download_client_protocol import (
     DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
 )
-from discord_core.types.queue import PutsBlocked
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.types.player_session import PlayerSession
 from discord_core.clients.dispatch_client_base import DispatchClientBase
@@ -52,11 +46,11 @@ from discord_gateway.cogs.common import CogHelperBase, envelope_from_ctx
 from discord_gateway.command_logic.enqueue import MediaEnqueuer
 from discord_gateway.command_logic.music import MusicCommands
 from discord_gateway.command_logic.playlist import PlaylistCommands
+from discord_gateway.loop_logic.music_results import MusicResultsLoop
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
 from discord_gateway.clients.search_client import SearchClient
 from discord_gateway.types.cleanup_reason import CleanupReason
-from discord_gateway.types.playlist_add_result import PlaylistAddResult
 from discord_gateway.utils.bot_metrics import BotMetricNaming
 from discord_gateway.utils.otel_command import command_wrapper
 from discord_gateway.utils.peer_probe import wait_for_peers
@@ -223,10 +217,6 @@ _IDLE_POLL_BACKOFF_SECONDS = 0.25
 # How long a restarted gateway waits for the previous one's now-playing record to lapse before
 # taking over a guild anyway. The broker expires the record 15s after the last heartbeat.
 FOREIGN_PLAYER_WAIT_SECONDS = 20.0
-# What enqueue_track answers when it does not accept a track (the broker's own spellings).
-ENQUEUE_FULL = 'full'
-ENQUEUE_CLOSED = 'closed'
-ENQUEUE_DUPLICATE = 'duplicate'
 
 # Background-loop names. Used as both the LoopHealth registry key and the
 # heartbeat gauge's background_job attribute, so the metric series and the health
@@ -596,35 +586,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             return True
 
 
-    async def create_bundle(self, guild_id: int, channel_id: int,
-                            input_string: str | None = None,
-                            has_search_banner: bool = False) -> str:
-        '''Create a broker-owned bundle and return its uuid.'''
-        return await self.broker_client.create_bundle(
-            guild_id, channel_id,
-            input_string=input_string, has_search_banner=has_search_banner,
-        )
-
-    async def delete_bundle(self, _guild_id: int, bundle_uuid: str) -> None:
-        '''Tear down a broker-owned bundle.
-
-        guild_id is accepted for callers that already have it on hand but the
-        broker keys bundles by uuid alone.
-        '''
-        await self.broker_client.delete_bundle(bundle_uuid)
-
-    async def _push_state(self, media_request: MediaRequest, event: LifecycleEvent,
-                          **details) -> None:
-        '''Send a lifecycle transition to the broker (which renders the bundle).
-
-        The broker performs the mark AND re-renders the bundle — closing the render gap left by the
-        retired set_on_change callback.
-        '''
-        await self.broker_client.update_request_status(
-            str(media_request.uuid),
-            LifecycleStatusUpdate(event=event, **details),
-        )
-
     async def _cleanup_orphaned_voice_clients(self):
         '''
         Disconnect any voice client that has no backing MusicPlayer in
@@ -681,91 +642,21 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Queue a downloaded track for the guild's player.
 
+        The broker half is results_logic.enqueue_download; what stays here is waking the player
+        once the broker has the track.
+
         media_download : Standard MediaDownload for post download
         player : MusicPlayer
         '''
-        attributes = media_download_attributes(media_download)
-        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.add_source_to_player', kind=SpanKind.INTERNAL, attributes=attributes, links=span_links_from_context(media_download.media_request.span_context)):
-            media_uuid = str(media_download.media_request.uuid)
-            # Register with the broker BEFORE the track becomes visible in the queue. For a
-            # cache hit this is the only point the broker learns of the entry, and the
-            # player can claim the track the instant it is queued. If that race puts the
-            # claim ahead of registration the broker has no entry to check out, and the
-            # player would fall back to the raw S3 cache key (crashing on open()).
-            # Registering first closes the window.
-            await self.broker_client.register_download(media_download)
-            result = await self.broker_client.enqueue_track(
-                media_download.media_request.guild_id, media_uuid, self.config.player.queue_max_size)
-            if result == ENQUEUE_FULL:
-                self.logger.info(f'Play queue full, aborting download of item "{str(media_download.media_request)}"')
-                reason = (f'Cannot add item "{media_download.title}" to play queue, play queue is full'
-                          if media_download.media_request.bundle_uuid else None)
-                await self._push_state(media_download.media_request, LifecycleEvent.FAILED, failure_reason=reason)
-                await self.broker_client.discard(media_uuid)
-                return False
-                # Dont return to loop, file was downloaded so we can iterate on cache at least
-            if result == ENQUEUE_CLOSED:
-                self.logger.info(f'Queue closed in guild "{media_download.media_request.guild_id}", assuming shutdown')
-                await self._push_state(media_download.media_request, LifecycleEvent.DISCARDED)
-                await self.broker_client.discard(media_uuid)
-                return False
-            if result == ENQUEUE_DUPLICATE:
-                # Already queued, so the track will play; nothing to undo.
-                self.logger.warning(f'"{media_download.webpage_url}" was already queued in guild '
-                                    f'{media_download.media_request.guild_id}')
-            self.logger.info(f'Adding "{media_download.webpage_url}" '
-                             f'to queue in guild {media_download.media_request.guild_id}')
+        def wake_player():
             player.notify_enqueued()
             player.trigger_prefetch()
-            await self._push_state(media_download.media_request, LifecycleEvent.COMPLETED)
-            return True
-
-    # Take both source dict and media download
-    # Since media download might be none
-    async def __ensure_video_download_result(self, media_request: MediaRequest, media_download: MediaDownload):
-        if media_download is None:
-            await self._push_state(media_request, LifecycleEvent.FAILED,
-                                   failure_reason=f'Issue downloading video "{media_request}"')
-            return False
-        return True
-
-    async def __return_bad_video(self, media_request: MediaRequest, user_message: str | None,
-                                 skip_callback_functions: bool=False, rejected: bool=False):
-        await self._push_state(media_request, LifecycleEvent.FAILED, failure_reason=user_message,
-                               rejected=rejected)
-        if not skip_callback_functions and media_request.history_playlist_item_id:
-            await self.__delete_non_existing_item(media_request.history_playlist_item_id)
-        return
-
-    async def _requeue_search_result(self, resolution: SearchResolution) -> None:
-        '''
-        Put a resolution back on the broker's search-result queue.
-
-        next_search_result is a destructive pop: the resolution exists nowhere
-        else once this loop holds it, so any failure between that pop and a
-        successful submit destroys the request outright -- the media request is
-        never downloaded and its bundle row strands on QUEUED forever, with no
-        error the user can see.  The downloader deploys under Recreate (one
-        Mullvad key, so no rolling overlap is possible), which makes a hard gap
-        on its Service a routine event rather than an exotic one.
-
-        A failure to requeue is the one case where the request really is lost,
-        so it is logged as such rather than folded into the caller's traceback.
-        '''
-        try:
-            await self.broker_client.register_search_result(resolution)
-        except Exception:
-            self.logger.exception(
-                f'Failed to requeue search result for media_request '
-                f'{resolution.media_request.uuid}; the request is lost')
+        return await self.results_logic.enqueue_download(media_download, wake_player)
 
     async def process_search_results(self):
         '''
-        Search-result consumer: routes resolved searches into the download
-        pipeline.  Resolution happens on the search loop (on the
-        standalone search pod); this loop runs the bot-side tail —
-        cache-check then download submit — which can only run where the download
-        client and cache live.  Mirrors process_download_results.
+        Search-result consumer: pops one resolved search and hands it to results_logic.
+        Mirrors process_download_results.
         '''
         if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot shutdown called, exiting early')
@@ -777,56 +668,11 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             # GET /search-results/next poll).
             await sleep(_BROKER_POLL_INTERVAL_SECONDS)
             return
-
-        media_request = resolution.media_request
-        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.process_search_results', kind=SpanKind.CONSUMER,
-                                           attributes=media_request_attributes(media_request),
-                                           links=span_links_from_context(media_request.span_context) + span_links_from_context(resolution.span_context)) as span:
-            await self._push_state(media_request, LifecycleEvent.QUEUED)
-
-            # Check if cache item exists already
-            if await self.enqueue_logic.enqueue_from_cache(media_request):
-                # Cache hit: _enqueue_media_download_from_cache already pushed COMPLETED
-                # on this same media_request (check_cache binds the cached download to
-                # this request object), which advances the bundle row toward teardown.
-                # A second COMPLETED here is redundant and trails an extra render behind
-                # the remove — the source of the stranded "Media request queued for
-                # download" status message — so it is intentionally omitted.
-                span.set_status(StatusCode.OK)
-                return
-
-            try:
-                self.logger.debug(f'Handing off media_request "{str(media_request)}" to download queue, uuid: {media_request.uuid}')
-                await self.download_client.submit(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
-            except PutsBlocked:
-                self.logger.info(f'Puts to queue in guild {media_request.guild_id} are currently blocked, assuming shutdown')
-                await self._push_state(media_request, LifecycleEvent.DISCARDED)
-                return
-            except QueueFull:
-                self.logger.info(f'Queue full in guild {media_request.guild_id}, cannot add more media requests')
-                await self._push_state(media_request, LifecycleEvent.DISCARDED)
-            except Exception:
-                # PutsBlocked and QueueFull are the downloader *answering*; anything
-                # else means it never got the request. Most often that is a
-                # ClientConnectorError against a downloader pod that is mid-Recreate,
-                # which downloader-app.yaml calls harmless on the grounds that
-                # "downloads queue in Redis and resume when the new pod's tunnel is
-                # up". That holds for work already on the downloader's queue and not
-                # for work in this handoff, which is why the resolution goes back
-                # before the exception propagates.
-                #
-                # Re-raised rather than swallowed so the loop runner's capped backoff
-                # applies. Returning normally here would re-pop the same resolution
-                # immediately and spin against a Service that is still down.
-                await self._requeue_search_result(resolution)
-                raise
-            span.set_status(StatusCode.OK)
+        await self.results_logic.process_search_result(resolution)
 
     async def process_download_results(self):
         '''
-        Result consumer: routes completed DownloadResults to players or playlist handlers.
-        Retryable errors are handled inside download_client.run(); only successes and
-        terminal failures reach this method.
+        Result consumer: pops one completed DownloadResult and hands it to results_logic.
         '''
         if self.bot_shutdown_event.is_set():
             raise ExitEarlyException('Bot shutdown called, exiting early')
@@ -838,63 +684,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             # (a remote GET /results/next poll).
             await sleep(_BROKER_POLL_INTERVAL_SECONDS)
             return
-
-        media_request = result.media_request
-        is_playlist_add = isinstance(media_request, PlaylistAddRequest)
-        attributes = media_request_attributes(media_request)
-
-        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.process_download_results', kind=SpanKind.CONSUMER, attributes=attributes, links=span_links_from_context(media_request.span_context) + span_links_from_context(result.span_context)) as span:
-            if not result.status.success:
-                rejected = is_rejection(result.status.error_type)
-                self.logger.info(f'Terminal error on "{str(media_request)}": {result.status.error_detail or ""}')
-                # A rejection is a decision, not a fault — the pipeline looked at the
-                # video and declined it (too long, banned, private, age restricted).
-                # Marking those spans ERROR made the Consumer Span Error Rate alert
-                # page on ordinary user input, so only genuine failures stay ERROR.
-                span.set_status(StatusCode.OK if rejected else StatusCode.ERROR)
-                await self.__return_bad_video(media_request, result.status.user_message,
-                                              rejected=rejected)
-                return
-
-            self.logger.info(f'Successfully fetched media request "{str(media_request)}" in guild "{media_request.guild_id}"')
-
-            if is_playlist_add:
-                data = result.ytdlp_data
-                if not data:
-                    await self._push_state(media_request, LifecycleEvent.FAILED,
-                                           failure_reason=f'No metadata returned for "{str(media_request)}"')
-                    span.set_status(StatusCode.ERROR)
-                    return
-                playlist_result = PlaylistAddResult(
-                    webpage_url=data.get('webpage_url', ''),
-                    title=data.get('title', ''),
-                    uploader=data.get('uploader', ''),
-                )
-                span.set_status(StatusCode.OK)
-                await self.enqueue_logic.add_playlist_item(media_request, playlist_result)
-                return
-
-            player = await self.get_player(media_request.guild_id, create_player=False)
-            if not player or player.shutdown_called:
-                self.logger.info(f'Player gone after download for guild {media_request.guild_id}, discarding "{str(media_request)}"')
-                await self.broker_client.update_request_status(
-                    str(media_request.uuid), LifecycleStatusUpdate(event=LifecycleEvent.DISCARDED)
-                )
-                span.set_status(StatusCode.OK)
-                return
-
-            # The broker pod already persisted this result when the download
-            # client reported it — build the MediaDownload the player needs from
-            # the result rather than from a return value the HTTP client can't
-            # round-trip.
-            media_download = MediaDownload(result.file_name, result.ytdlp_data, media_request)
-            media_download.file_size_bytes = result.file_size_bytes
-            if not await self.__ensure_video_download_result(media_request, media_download):
-                span.set_status(StatusCode.ERROR)
-                return
-            span.set_status(StatusCode.OK)
-            await self.add_source_to_player(media_download, player)
-            await self.broker_client.cache_cleanup()
+        await self.results_logic.process_download_result(result)
 
     async def __get_history_playlist(self, guild_id: int):
         '''
@@ -1127,7 +917,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 preserved_bundle_uuids |= clear_result.preserved_bundle_uuids
                 self.logger.debug(f'Cleanup found {len(clear_result.dropped)} existing download items')
                 for item in clear_result.dropped:
-                    await self._push_state(item, LifecycleEvent.DISCARDED)
+                    await self.enqueue_logic.push_state(item, LifecycleEvent.DISCARDED)
 
                 search_clear_result = await self.youtube_music_search_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
                 # Playlist-adds queue for search before they queue for download, so the
@@ -1136,7 +926,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 preserved_bundle_uuids |= search_clear_result.preserved_bundle_uuids
                 self.logger.debug(f'Cleanup found {len(search_clear_result.dropped)} existing search queue items')
                 for item in search_clear_result.dropped:
-                    await self._push_state(item, LifecycleEvent.DISCARDED)
+                    await self.enqueue_logic.push_state(item, LifecycleEvent.DISCARDED)
 
                 await self.download_client.block_guild(guild.id)
                 await self.youtube_music_search_client.block_guild(guild.id)
@@ -1177,7 +967,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                     if bundle_uuid in preserved_bundle_uuids:
                         self.logger.debug(f'Skipping delete of bundle {bundle_uuid} — has active playlist-add requests')
                         continue
-                    await self.delete_bundle(guild.id, bundle_uuid)
+                    await self.broker_client.delete_bundle(bundle_uuid)
 
             if reason != CleanupReason.BOT_SHUTDOWN:
                 self.logger.debug(f'Deleting player dir for guild {guild.id}')
@@ -1376,6 +1166,17 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             self.config.general.message_delete_after, self.server_queue_priority)
 
     @property
+    def results_logic(self) -> MusicResultsLoop:
+        '''
+        What happens to one search result and one download result, built from this cog's current
+        clients. Stateless and rebuilt per use, like the other logic properties.
+        '''
+        return MusicResultsLoop(
+            self.logger, self.broker_client, self.download_client, self.enqueue_logic,
+            CogPlayerGateway(self), self.playlist_store, self.config.player.queue_max_size,
+            self.server_queue_priority)
+
+    @property
     def playlist_logic(self) -> PlaylistCommands:
         '''
         The playlist commands that only touch the store, built from this cog's current
@@ -1502,10 +1303,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             Name of new playlist to create
         '''
         await self.playlist_logic.save(envelope_from_ctx(ctx), name, is_history=True)
-
-    async def __delete_non_existing_item(self, item_id: int):
-        self.logger.info(f'Unable to find playlist item {item_id} from history playlist, deleting')
-        await self.playlist_store.delete_item(item_id)
 
     @playlist.command(name='queue')
     @command_wrapper

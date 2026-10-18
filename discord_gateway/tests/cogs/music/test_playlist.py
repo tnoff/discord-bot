@@ -1306,7 +1306,7 @@ async def test_playlist_queue_bundle_creation_with_channel_id(fake_context):  #p
     mock_player.text_channel = fake_context['channel']
 
     # Create a broker-owned bundle for the test
-    bundle_uuid = await cog.create_bundle(
+    bundle_uuid = await cog.broker_client.create_bundle(
         fake_context['guild'].id, fake_context['channel'].id, has_search_banner=True,
     )
 

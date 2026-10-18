@@ -524,7 +524,9 @@ Poll the broker for the next finished result
 **Step 4.1: Add to the Guild's Queue**
 
 The queue is the broker's, not the player's. `add_source_to_player` registers the
-download with the broker, then asks it to enqueue the track:
+download with the broker, then asks it to enqueue the track (the broker half is
+`MusicResultsLoop.enqueue_download` in `loop_logic/music_results.py`; the cog only wakes
+the player afterwards):
 
 ```
 broker_client.register_download(media_download)

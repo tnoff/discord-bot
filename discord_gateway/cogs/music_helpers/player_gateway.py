@@ -37,6 +37,11 @@ class CogPlayerGateway:
             text_channel_id=player.text_channel.id,
         )
 
+    async def has_live_player(self, guild_id: int) -> bool:
+        '''Whether the guild has a player that is not shutting down.'''
+        player = self.cog.players.get(guild_id)
+        return player is not None and not player.shutdown_called
+
     async def ensure(self, guild_id: int, voice_channel_id: int, text_channel_id: int) -> EnsureResult:
         '''Create the guild's player if needed and join the voice channel.'''
         voice_channel = await self._channel(voice_channel_id)
