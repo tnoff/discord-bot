@@ -180,7 +180,7 @@ async def test_cleanup_bot_shutdown_keeps_bundle(mocker, fake_context):  # pylin
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
-    bundle_uuid = await cog.create_bundle(fake_context['guild'].id, fake_context['channel'].id)
+    bundle_uuid = await cog.broker_client.create_bundle(fake_context['guild'].id, fake_context['channel'].id)
 
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
 
@@ -219,7 +219,7 @@ async def test_cleanup_skips_bundle_different_guild(mocker, fake_context):  # py
 
     # Register a broker bundle for a DIFFERENT guild
     other_guild = FakeGuild()
-    bundle_uuid = await cog.create_bundle(other_guild.id, fake_context['channel'].id)
+    bundle_uuid = await cog.broker_client.create_bundle(other_guild.id, fake_context['channel'].id)
 
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
 
@@ -240,7 +240,7 @@ async def test_cleanup_skips_bundle_with_active_playlist_add(mocker, fake_contex
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
     # Create a broker bundle for THIS guild with an active PlaylistAddRequest
-    bundle_uuid = await cog.create_bundle(
+    bundle_uuid = await cog.broker_client.create_bundle(
         fake_context['guild'].id, fake_context['channel'].id,
         input_string='https://example.com/playlist', has_search_banner=True,
     )

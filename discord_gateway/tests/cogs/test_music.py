@@ -1253,7 +1253,7 @@ async def test_add_source_to_player_registers_before_enqueue(fake_context, mocke
     cog.broker_client = mocker.Mock()
     cog.broker_client.register_download = mocker.AsyncMock(side_effect=lambda *_a, **_k: order.append('register'))
     cog.broker_client.enqueue_track = mocker.AsyncMock(side_effect=lambda *_a, **_k: order.append('enqueue') or 'ok')
-    cog._push_state = mocker.AsyncMock()  #pylint:disable=protected-access
+    cog.broker_client.update_request_status = mocker.AsyncMock()
     player = mocker.Mock()
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context) as media_download:
@@ -1576,7 +1576,7 @@ async def test_voice_client_cleanup_player_not_exist_with_bundles(fake_context, 
     fake_context['guild'].voice_client = mock_voice_client
 
     # Create a real broker-owned bundle for this guild
-    bundle_uuid = await cog.create_bundle(
+    bundle_uuid = await cog.broker_client.create_bundle(
         fake_context['guild'].id, fake_context['channel'].id,
         input_string='test playlist', has_search_banner=True,
     )
@@ -2098,11 +2098,11 @@ async def test_cleanup_ha_skips_preserved_bundles(fake_context, mocker):  #pylin
     cog.broker_client = Mock()
     cog.broker_client.list_bundles_for_guild = AsyncMock(return_value=['keep-bundle', 'drop-bundle'])
     cog.broker_client.close_guild = AsyncMock(return_value=0)
-    cog.delete_bundle = AsyncMock()
+    cog.broker_client.delete_bundle = AsyncMock()
     cog.players = {}
     await cog.cleanup(guild, reason=CleanupReason.QUEUE_TIMEOUT)
     # keep-bundle preserved by the downloader → skipped; drop-bundle deleted.
-    cog.delete_bundle.assert_awaited_once_with(4242, 'drop-bundle')
+    cog.broker_client.delete_bundle.assert_awaited_once_with('drop-bundle')
 
 
 @pytest.mark.asyncio

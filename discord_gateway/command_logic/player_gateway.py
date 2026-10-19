@@ -41,6 +41,9 @@ class PlayerGateway(Protocol):
     async def status(self, guild_id: int) -> PlayerStatus:
         '''Snapshot the player. Read-only: never creates one.'''
 
+    async def has_live_player(self, guild_id: int) -> bool:
+        '''Whether the guild has a player that is not shutting down. Cheaper than ``status``.'''
+
     async def ensure(self, guild_id: int, voice_channel_id: int, text_channel_id: int) -> EnsureResult:
         '''Create the player if needed and join the voice channel.'''
 

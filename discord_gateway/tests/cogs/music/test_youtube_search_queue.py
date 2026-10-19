@@ -77,7 +77,7 @@ async def make_broker_bundle(cog, test_context, request=None, all_added=False,
     constructing a MultiMediaRequestBundle, attaching it to the cog, and adding
     a request — now routed through the broker so the cog owns nothing.
     '''
-    bundle_uuid = await cog.create_bundle(
+    bundle_uuid = await cog.broker_client.create_bundle(
         test_context['guild'].id, test_context['channel'].id,
         has_search_banner=has_search_banner,
     )
@@ -559,7 +559,7 @@ async def test_youtube_search_queue_integration_with_enqueue_media_requests(mock
     attach_in_process_search(cog)
 
     # Create a broker bundle
-    bundle_uuid = await cog.create_bundle(
+    bundle_uuid = await cog.broker_client.create_bundle(
         fake_context['guild'].id, fake_context['channel'].id, has_search_banner=True,
     )
     bundle = BrokerBundleProxy(cog.broker_client.local_broker, bundle_uuid)
@@ -683,7 +683,7 @@ async def test_mixed_search_types_routing(mocker, fake_context):  #pylint:disabl
     attach_in_process_search(cog)
 
     # Create a broker bundle
-    bundle_uuid = await cog.create_bundle(
+    bundle_uuid = await cog.broker_client.create_bundle(
         fake_context['guild'].id, fake_context['channel'].id, has_search_banner=True,
     )
 
@@ -756,7 +756,7 @@ async def test_search_queue_priority_handling(mocker, fake_context):  #pylint:di
     cog.server_queue_priority[fake_context['guild'].id] = test_priority
 
     # Create a broker bundle and media request
-    bundle_uuid = await cog.create_bundle(
+    bundle_uuid = await cog.broker_client.create_bundle(
         fake_context['guild'].id, fake_context['channel'].id, has_search_banner=True,
     )
     media_request = create_test_media_request(fake_context, 'test search')
@@ -808,7 +808,7 @@ async def test_bundle_expiration_during_search_processing(mocker, fake_context):
     mocker.patch.object(cog.broker_client, 'check_cache', new=AsyncMock(return_value=None))
 
     # Remove bundle from the broker to simulate expiration
-    await cog.delete_bundle(fake_context['guild'].id, bundle.uuid)
+    await cog.broker_client.delete_bundle(bundle.uuid)
 
     # Should handle missing bundle gracefully
     await search_driver.run_once(cog.bot_shutdown_event)
@@ -839,7 +839,7 @@ async def test_search_queue_resource_limits(mocker, fake_context):  #pylint:disa
     attach_in_process_search(cog)
 
     # Create enough items to fill beyond download queue size but within search queue size
-    bundle_uuid = await cog.create_bundle(
+    bundle_uuid = await cog.broker_client.create_bundle(
         fake_context['guild'].id, fake_context['channel'].id, has_search_banner=True,
     )
 
@@ -1228,7 +1228,7 @@ async def test_enqueue_media_requests_download_queue_blocked_deletes_bundle(mock
     mocker.patch.object(MusicPlayer, 'start_tasks')
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
-    bundle_uuid = await cog.create_bundle(
+    bundle_uuid = await cog.broker_client.create_bundle(
         fake_context['guild'].id, fake_context['channel'].id, has_search_banner=True,
     )
     direct = create_test_media_request(fake_context, 'https://direct.url', search_type=SearchType.DIRECT)
@@ -1249,7 +1249,7 @@ async def test_enqueue_media_requests_download_queue_full_discards_request(mocke
     mocker.patch.object(MusicPlayer, 'start_tasks')
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
-    bundle_uuid = await cog.create_bundle(
+    bundle_uuid = await cog.broker_client.create_bundle(
         fake_context['guild'].id, fake_context['channel'].id, has_search_banner=True,
     )
     direct = create_test_media_request(fake_context, 'https://direct.url', search_type=SearchType.DIRECT)
@@ -1272,7 +1272,7 @@ async def test_enqueue_media_requests_search_queue_blocked_deletes_bundle(mocker
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     attach_in_process_search(cog)
-    bundle_uuid = await cog.create_bundle(
+    bundle_uuid = await cog.broker_client.create_bundle(
         fake_context['guild'].id, fake_context['channel'].id, has_search_banner=True,
     )
     search_request = create_test_media_request(fake_context, 'search term', search_type=SearchType.SEARCH)

@@ -131,3 +131,15 @@ async def test_add_cached_without_a_player_does_nothing():
     cog.add_source_to_player = AsyncMock()
     assert await gateway.add_cached(11, SimpleNamespace(media_request='request')) is False
     cog.add_source_to_player.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_has_live_player():
+    shutting_down = make_player()
+    shutting_down.shutdown_called = True
+    live = make_player()
+    live.shutdown_called = False
+    gateway, _ = make_gateway({11: live, 12: shutting_down})
+    assert await gateway.has_live_player(11) is True
+    assert await gateway.has_live_player(12) is False
+    assert await gateway.has_live_player(13) is False

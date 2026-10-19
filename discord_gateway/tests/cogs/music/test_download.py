@@ -369,25 +369,6 @@ async def test_download_files_runs_cache_cleanup(mocker, fake_context, fake_stor
 
 
 @pytest.mark.asyncio()
-async def test_ensure_video_download_result_none_pushes_failed(mocker, fake_context):  # pylint: disable=redefined-outer-name
-    """__ensure_video_download_result pushes FAILED to the broker when the
-    MediaDownload is None (download produced nothing)."""
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    media_request = fake_source_dict(fake_context)
-    await cog.broker_client.register_request(media_request)
-
-    result = await cog._Music__ensure_video_download_result(media_request, None)  # pylint: disable=protected-access
-
-    from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage  # pylint: disable=import-outside-toplevel
-    assert result is False
-    assert media_request.lifecycle_stage == MediaRequestLifecycleStage.FAILED
-    assert media_request.failure_reason is not None
-
-
-@pytest.mark.asyncio()
 async def test_run_idle_empty_queue_backs_off(mocker):
     """run() sleeps the idle backoff (not every iteration) when both input queues
     are empty and no backoff is active — cutting idle busy-loop churn."""
