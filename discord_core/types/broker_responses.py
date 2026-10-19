@@ -313,3 +313,40 @@ class OpenGuildResponse(_Ok):
     always None from a broker that predates recovery).
     '''
     recovered: str | None = None
+
+
+class IntentBody(BaseModel):
+    '''One gateway intent on the wire.'''
+    id: str
+    guild_id: int
+    kind: Literal['join', 'stop', 'move_messages', 'wake']
+    params: dict = {}
+
+
+class SubmitIntentResponse(BaseModel):
+    '''
+    The intent accepted.  A `wake` for a guild that already has one pending is not stored twice:
+    the id of the pending one comes back.
+    '''
+    intent_id: str
+
+
+class ClaimIntentsResponse(BaseModel):
+    '''
+    Intents leased to the claiming gateway, in the order they were submitted.
+
+    Answered 204 with no body when there are none, so an idle poll is an empty response.
+    '''
+    intents: list[IntentBody]
+
+
+class CompleteIntentResponse(BaseModel):
+    '''False when the intent is gone (it expired while the gateway worked on it).'''
+    recorded: bool
+
+
+class IntentResultResponse(BaseModel):
+    '''`done` is False until the gateway completes the intent; ok and error follow it.'''
+    done: bool
+    ok: bool | None = None
+    error: str | None = None
