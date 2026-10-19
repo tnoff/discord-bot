@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.23] - 2026-10-19
+
+### Changed
+
+- The search-result and download-result handling now lives in `discord_gateway/loop_logic/music_results.py` (#1030, Phase 1), discord-free like the other loop logic; the cog keeps the loops, the broker pop and the idle sleep, and `add_source_to_player` keeps only waking the player. `PlayerGateway` gains `has_live_player` (a player exists and is not shutting down), which replaces the `get_player` / `shutdown_called` check on a finished download. The cog's duplicate `_push_state`, `create_bundle` and `delete_bundle` are gone (callers use the broker directly). Two small differences: the dead "download produced nothing" branch is removed (a `MediaDownload` is always built from a result), and a player that disappears between the liveness check and the enqueue now leaves the request as it was instead of DISCARDED.
+
 ## [3.2.22] - 2026-10-16
 
 ### Changed
