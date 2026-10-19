@@ -18,7 +18,7 @@ persistence route, but `clients/http_player_session.py` is a MIXIN into
 broker seam, and filing it by name rather than by peer is a mistake that has
 already been made once while scoping this work.
 '''
-from discord_core.routes import guild_queue
+from discord_core.routes import gateway_intents, guild_queue
 from discord_core.routes.route import Route, collect
 
 # Request lifecycle.
@@ -57,5 +57,6 @@ LIST_SESSIONS = Route('GET', '/sessions')
 SAVE_SESSION = Route('PUT', '/sessions/{guild_id}')
 DELETE_SESSION = Route('DELETE', '/sessions/{guild_id}')
 
-# The guild-queue routes are part of this seam but defined in routes/guild_queue.py; see there.
-ALL = collect(globals()) + guild_queue.ALL
+# The guild-queue and gateway-intent routes are part of this seam but defined in
+# routes/guild_queue.py and routes/gateway_intents.py; see there.
+ALL = collect(globals()) + guild_queue.ALL + gateway_intents.ALL
