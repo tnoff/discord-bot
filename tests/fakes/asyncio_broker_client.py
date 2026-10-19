@@ -25,6 +25,7 @@ from discord_core.types.download import DownloadResult, LifecycleStatusUpdate
 from discord_core.types.media_download import MediaDownload
 from discord_core.types.search_resolution import SearchResolution
 
+from discord_core.types.gateway_intents import GatewayIntent, IntentKind, IntentResult
 from discord_core.types.guild_queue import ClaimedDownload, GuildQueueSnapshot, PlayingSnapshot
 from discord_core.types.player_session import PlayerSession
 
@@ -56,7 +57,7 @@ class AsyncioBrokerClient: #pylint:disable=too-many-public-methods
     def __init__(self, broker: MediaBrokerBase,
                  result_queue: DownloadResultQueue | None = None,
                  search_result_queue: SearchResultQueue | None = None,
-                 guild_queue=None):
+                 guild_queue=None, gateway_intents=None):
         '''
         guild_queue : a GuildQueueBroker over the same engine as `broker`.  Without one the
                       guild-queue methods raise, so a test that did not ask for a queue cannot
@@ -64,6 +65,7 @@ class AsyncioBrokerClient: #pylint:disable=too-many-public-methods
         '''
         self._broker = broker
         self._guild_queue = guild_queue
+        self._gateway_intents = gateway_intents
         self._result_queue: DownloadResultQueue = (
             result_queue if result_queue is not None else AsyncioDownloadResultQueue()
         )
@@ -283,3 +285,26 @@ class AsyncioBrokerClient: #pylint:disable=too-many-public-methods
     async def open_guild(self, guild_id: int, text_channel_id: int) -> str | None:
         '''Delegate to GuildQueueBroker.open.'''
         return await self._queue().open(guild_id, text_channel_id)
+
+    def _intents(self):
+        if self._gateway_intents is None:
+            raise RuntimeError('this AsyncioBrokerClient was built without a gateway-intent registry')
+        return self._gateway_intents
+
+    async def submit_intent(self, guild_id: int, kind: IntentKind, params: dict | None = None) -> str:
+        '''Delegate to GatewayIntentRegistry.submit.'''
+        return await self._intents().submit(guild_id, IntentKind(kind).value, params or {})
+
+    async def claim_intents(self, gateway_id: str) -> list[GatewayIntent]:
+        '''Delegate to GatewayIntentRegistry.claim.'''
+        return [GatewayIntent(id=item['id'], guild_id=item['guild_id'], kind=IntentKind(item['kind']),
+                              params=item['params'])
+                for item in await self._intents().claim(gateway_id)]
+
+    async def complete_intent(self, intent_id: str, ok: bool, error: str | None = None) -> bool:
+        '''Delegate to GatewayIntentRegistry.complete.'''
+        return await self._intents().complete(intent_id, ok, error)
+
+    async def get_intent_result(self, intent_id: str) -> IntentResult:
+        '''Delegate to GatewayIntentRegistry.result.'''
+        return IntentResult(**await self._intents().result(intent_id))

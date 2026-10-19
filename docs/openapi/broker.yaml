@@ -73,6 +73,18 @@ paths:
       responses:
         default:
           description: See the handler; the seam contract covers the route, not the body.
+  /gateways/{gateway_id}/intents/claim:
+    post:
+      operationId: post-gateways-by-gateway_id-intents-claim
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: gateway_id
+        in: path
+        required: true
+        schema:
+          type: string
   /guilds/{guild_id}/claim:
     post:
       operationId: post-guilds-by-guild_id-claim
@@ -112,6 +124,18 @@ paths:
   /guilds/{guild_id}/history:
     get:
       operationId: get-guilds-by-guild_id-history
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /guilds/{guild_id}/intents:
+    post:
+      operationId: post-guilds-by-guild_id-intents
       responses:
         default:
           description: See the handler; the seam contract covers the route, not the body.
@@ -236,6 +260,29 @@ paths:
           description: See the handler; the seam contract covers the route, not the body.
       parameters:
       - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string
+  /intents/{intent_id}/result:
+    get:
+      operationId: get-intents-by-intent_id-result
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: intent_id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: post-intents-by-intent_id-result
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: intent_id
         in: path
         required: true
         schema:

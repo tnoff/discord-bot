@@ -26,6 +26,7 @@ from discord_core.clients import http_broker_client, http_guild_queue, http_play
 from discord_core.clients.http_broker_client import HttpBrokerClient
 
 from discord_core.routes import broker as broker_routes
+from discord_core.routes import gateway_intents as gateway_intent_routes
 from discord_core.routes import guild_queue as guild_queue_routes
 
 from discord_broker.servers.broker_server import BrokerHttpServer
@@ -57,7 +58,14 @@ def _served(app: web.Application) -> set[tuple[str, str]]:
 
 
 def _declared() -> set[tuple[str, str]]:
-    return {(route.method, route.template) for route in broker_routes.ALL}
+    '''The broker seam: its own registry plus the gateway-intent registry its pod also serves.
+
+    The gateway-intent routes are declared in their own module (see routes/gateway_intents.py for
+    why) and join routes/broker.py at the next discord_core release, which also adds them to the
+    client's ROUTES_CALLED.  Until then the seam is the union.
+    '''
+    return {(route.method, route.template)
+            for route in broker_routes.ALL + gateway_intent_routes.ALL}
 
 
 def test_router_and_registry_agree_exactly():
@@ -80,7 +88,7 @@ def test_every_registry_route_has_a_handler():
     is silently never registered — the failure this catches would otherwise
     only appear as a 404 at runtime.
     '''
-    assert set(_server().route_handlers()) == set(broker_routes.ALL)
+    assert set(_server().route_handlers()) == set(broker_routes.ALL) | set(gateway_intent_routes.ALL)
 
 
 def test_a_route_dropped_server_side_is_caught():

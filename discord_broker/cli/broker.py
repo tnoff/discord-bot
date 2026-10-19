@@ -56,6 +56,7 @@ from discord_broker.servers.broker_health_server import BrokerHealthServer
 from discord_broker.servers.broker_server import BrokerHttpServer
 from discord_broker.workers.broker_metrics import BrokerMetrics
 from discord_broker.workers.broker_registry import RedisBrokerRegistry
+from discord_broker.workers.gateway_intents import GatewayIntentRegistry
 from discord_broker.workers.guild_queue import GuildQueueBroker
 from discord_broker.workers.guild_queue_registry import GuildQueueRegistry
 from discord_broker.workers.history_worker import HistoryWorker
@@ -252,6 +253,7 @@ def run(settings: dict, general_config: GeneralConfig):
         result_queue=result_queue,
         search_result_queue=search_result_queue,
         guild_queue=guild_queue,
+        gateway_intents=GatewayIntentRegistry(redis_manager),
     )
 
     health_server = None
