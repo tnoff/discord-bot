@@ -20,9 +20,10 @@ Outcomes a caller is expected to handle (a result that is not ready yet, an inte
 come back as a 200 with the answer in the body, never as an error status, for the reason given in
 routes/guild_queue.py.
 
-DEFINED here as their own module, and not yet in routes/broker.py's ALL, for the deploy-order
-reason routes/guild_queue.py records: the broker image pins a released discord_core, so the
-symbols ship first and the change that serves them folds this registry into the broker seam.
+DEFINED here as their own module and part of the broker seam: routes/broker.py's ALL includes this
+registry, so HttpBrokerClient.ROUTES_CALLED does and the peer route check covers them.  They shipped
+as a separate module first, for the deploy-order reason routes/guild_queue.py records: the broker
+image pins a released discord_core, so the symbols ship before the change that serves them.
 '''
 from discord_core.routes.route import Route, collect
 

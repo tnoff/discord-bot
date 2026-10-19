@@ -176,6 +176,8 @@ EXPECTED_WIRE_PATHS = {
         'POST /guilds/{guild_id}/playing/heartbeat', 'POST /guilds/{guild_id}/skip',
         'POST /guilds/{guild_id}/finish', 'GET /guilds/{guild_id}/history',
         'POST /guilds/{guild_id}/close', 'POST /guilds/{guild_id}/open',
+        'POST /guilds/{guild_id}/intents', 'POST /gateways/{gateway_id}/intents/claim',
+        'POST /intents/{intent_id}/result', 'GET /intents/{intent_id}/result',
     },
     'dispatch': {
         'POST /dispatch/send', 'POST /dispatch/delete',

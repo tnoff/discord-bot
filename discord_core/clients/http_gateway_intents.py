@@ -5,10 +5,8 @@ Same shape and reasoning as http_guild_queue: gateway coordination the broker po
 gets its own mixin rather than widening HttpBrokerClient further.  Mixed into HttpBrokerClient,
 which supplies _call_route, _route_url, _validate, _trace_headers and _get_session.
 
-Its routes are declared in routes/gateway_intents.py.  They are not in routes/broker.py's ALL
-yet, so not in HttpBrokerClient.ROUTES_CALLED and not covered by the peer route check: this
-module ships first, and the change that serves the routes folds the registry in (the deploy order
-routes/gateway_intents.py records).
+Its routes are declared in routes/gateway_intents.py and are part of the broker seam: they are in
+routes/broker.py's ALL, so in HttpBrokerClient.ROUTES_CALLED, and the peer route check covers them.
 
 Like the guild-queue mixin, a 404 is NOT swallowed.  An intent that cannot be submitted means a
 command silently does nothing, so a broker that predates these routes should fail loudly.
