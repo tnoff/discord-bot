@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.24] - 2026-10-19
+
+### Changed
+
+- Tests only (#1030, Phase 1): the 39 playlist tests that exercise only store-backed playlist logic now call `PlaylistCommands` directly from `tests/command_logic/test_playlist.py`; the 58 that need the cog, the player or the download pipeline stay in `tests/cogs/music/test_playlist.py`, and a new parametrized test checks that the seven moved commands' stubs forward the envelope and arguments. No source change.
+
 ## [3.2.23] - 2026-10-19
 
 ### Changed
