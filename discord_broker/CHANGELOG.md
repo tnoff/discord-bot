@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.4.4] - 2026-10-19
+
+### Changed
+
+- Serve the gateway-intent routes (#1030, Phase 2) and bump the discord_core pin from core-v3.4.3 to core-v3.5.0, which declares them. A gateway holds the voice connection, so another pod (the commands pod) cannot make it join, stop or wake a player; it writes an intent to the broker and the gateway claims it with a short poll. `workers/gateway_intents.py` is the Redis side: intents are ordered by a sequence number, a claim leases them to one gateway for 10s (so a slow join is not handed out twice and a gateway that dies mid-claim is covered), they expire unclaimed after 30s, and a second `wake` for a guild that has one pending is not stored. `servers/gateway_intent_handlers.py` is the mixin on `BrokerHttpServer`; the empty claim answers 204 and opens no span. The routes stay in core's `routes/gateway_intents.py` for now, so the broker seam tests expect the union of both registries; folding them into `routes/broker.py` is a later core release.
+
 ## [3.4.3] - 2026-10-13
 
 ### Changed
