@@ -15,6 +15,7 @@ from discord_core.interfaces.result_queue import DownloadResultQueue, SearchResu
 
 from discord_broker.servers.broker_server import BrokerHttpServer
 from discord_broker.workers.broker_registry import RedisBrokerRegistry
+from discord_broker.workers.gateway_intents import GatewayIntentRegistry
 from discord_broker.workers.guild_queue import GuildQueueBroker
 from discord_broker.workers.guild_queue_registry import GuildQueueRegistry
 from discord_broker.workers.redis_broker import RedisBroker
@@ -153,7 +154,19 @@ def make_broker_http_server(broker, **kwargs):
     kwargs.setdefault('search_result_queue', AsyncioSearchResultQueue())
     if 'guild_queue' not in kwargs:
         kwargs['guild_queue'] = make_guild_queue_broker()
+    if 'gateway_intents' not in kwargs:
+        kwargs['gateway_intents'] = make_gateway_intents()
     return BrokerHttpServer(broker, **kwargs)
+
+
+def make_gateway_intents():
+    '''A GatewayIntentRegistry on a fresh fakeredis.
+
+    Like the guild queue there is no asyncio stand-in: its behavior is Lua scripts, which only a
+    Redis (or fakeredis) runs, so a double would test a different implementation.
+    '''
+    return GatewayIntentRegistry(
+        RedisManager.from_client(fakeredis.aioredis.FakeRedis(decode_responses=True)))
 
 
 def make_guild_queue_for(broker, dispatcher=None):

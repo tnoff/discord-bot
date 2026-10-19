@@ -25,7 +25,9 @@ from discord_core.types.player_session import PlayerSession
 from discord_broker.interfaces.broker_protocols import (DownloadResultQueue, SearchResultQueue,
                                                      MediaBrokerBase)
 from discord_broker.workers.broker_metrics import BrokerMetricNaming
+from discord_broker.servers.gateway_intent_handlers import GatewayIntentHandlersMixin
 from discord_broker.servers.guild_queue_handlers import GuildQueueHandlersMixin
+from discord_broker.workers.gateway_intents import GatewayIntentRegistry
 from discord_broker.workers.guild_queue import GuildQueueBroker
 
 logger = logging.getLogger(__name__)
@@ -40,7 +42,7 @@ _RESULT_FETCH_COUNTER = METER_PROVIDER.create_counter(
 )
 
 
-class BrokerHttpServer(GuildQueueHandlersMixin, AiohttpServerBase):
+class BrokerHttpServer(GuildQueueHandlersMixin, GatewayIntentHandlersMixin, AiohttpServerBase):
     '''
     aiohttp HTTP server wrapping a MediaBroker instance.  Exposes the full
     BrokerClient surface so a remote bot pod (HttpBrokerClient) can drive the
@@ -75,11 +77,14 @@ class BrokerHttpServer(GuildQueueHandlersMixin, AiohttpServerBase):
     def __init__(self, broker: MediaBrokerBase, host: str = '0.0.0.0', port: int = 8081,  # nosec B104
                  *, result_queue: DownloadResultQueue,
                  search_result_queue: SearchResultQueue,
-                 guild_queue: GuildQueueBroker | None = None):
+                 guild_queue: GuildQueueBroker | None = None,
+                 gateway_intents: GatewayIntentRegistry | None = None):
         super().__init__()
         self._broker = broker
         # The per-guild player queue. Its routes are served only when one is configured.
         self._guild_queue = guild_queue
+        # Requests for a gateway to act (join, stop, ...). Its routes are served only when one is configured.
+        self._gateway_intents = gateway_intents
         self._host = host
         self._port = port
         # The broker pod passes Redis-backed queues so multiple broker pods
@@ -133,6 +138,7 @@ class BrokerHttpServer(GuildQueueHandlersMixin, AiohttpServerBase):
             broker_routes.SAVE_SESSION: self._handle_save_player_session,
             broker_routes.DELETE_SESSION: self._handle_delete_player_session,
             **self.guild_queue_handlers(),
+            **self.gateway_intent_handlers(),
         }
 
     def build_app(self) -> web.Application:
