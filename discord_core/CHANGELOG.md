@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.1] - 2026-10-19
+
+### Changed
+
+- Fold the gateway-intent routes into the broker seam (#1030, Phase 2): `routes/broker.py`'s `ALL` now includes `routes/gateway_intents.py`, so `HttpBrokerClient.ROUTES_CALLED` and the peer route check cover them. The broker has served them since #1098.
+
 ## [3.5.0] - 2026-10-19
 
 ### Changed
