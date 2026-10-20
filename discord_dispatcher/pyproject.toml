@@ -9,7 +9,7 @@ description = "discord-bot: sends and edits real Discord messages on the other f
 authors = [
     {name = "Tyler D. North", email = "me@tyler-north.com"},
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 # discord.py is here on its own merits, not by accident: workers/message_dispatcher
 # imports Message, Bot and NotFound at runtime. No voice -- the dispatcher
 # never joins a voice channel, which is why it does not also carry PyNaCl/davey.

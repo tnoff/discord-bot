@@ -9,7 +9,7 @@ description = "discord-bot: downloads media with yt-dlp and uploads the result"
 authors = [
     {name = "Tyler D. North", email = "me@tyler-north.com"},
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 # No boto3 here either -- the upload after a download reaches S3 through
 # discord_core the same way the broker's checkout does.
 dependencies = [

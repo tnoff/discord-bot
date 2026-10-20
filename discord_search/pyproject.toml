@@ -9,7 +9,7 @@ description = "discord-bot: thin HTTP clients plus the metadata provider and You
 authors = [
     {name = "Tyler D. North", email = "me@tyler-north.com"},
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     # discord_core, pinned to a real released tag rather than the local
     # checkout path -- criterion 8 step 7. All six pods pin the IDENTICAL tag
