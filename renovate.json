@@ -7,6 +7,13 @@
   "enabledManagers": ["github-actions", "pep621", "dockerfile", "custom.regex"],
   "packageRules": [
     {
+      "description": "Hold the gateway image on python 3.14. davey (voice, gateway only) 0.1.7 ships cp315 wheels for x86_64 but not aarch64, the builder has no Rust toolchain, and CI builds amd64 only, so a 3.15 bump would pass CI and then fail to build for the OKE Ampere nodes. Remove this rule, and move docker/Dockerfile.gateway to 3.15, once davey publishes a cp315 aarch64 wheel.",
+      "matchManagers": ["dockerfile"],
+      "matchFileNames": ["docker/Dockerfile.gateway"],
+      "matchPackageNames": ["python", "docker.io/library/python"],
+      "enabled": false
+    },
+    {
       "description": "dappertable is a runtime dependency, so it must cut a release. The shared python preset only puts pep621 and dockerfile updates under the dev- prefix, and this pin is tracked by the custom.regex manager below, so without this rule it lands on renovate/tnoff-dappertable-1.x and ci.yml's bump-version job (gated on renovate/dev-*) is skipped.",
       "matchManagers": ["custom.regex"],
       "matchPackageNames": ["tnoff/dappertable"],
