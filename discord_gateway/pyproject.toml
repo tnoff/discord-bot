@@ -33,7 +33,7 @@ dependencies = [
     "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.5.1.tar.gz#subdirectory=discord_core",
     "discord.py==2.7.1",
     "PyNaCl==1.6.2",
-    "davey==0.1.6",
+    "davey==0.1.7",
     "async-timeout==5.0.1",
     "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.10.tar.gz",
     "beautifulsoup4==4.15.0",
