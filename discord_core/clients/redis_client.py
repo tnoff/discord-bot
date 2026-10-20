@@ -70,8 +70,8 @@ class RedisManager:
             await self._client.aclose()
             self._client = None
         if self._sentinel is not None:
-            for sentinel in self._sentinel.sentinels:
-                await sentinel.aclose()
+            for sentinel_conn in self._sentinel.sentinels:
+                await sentinel_conn.aclose()
             self._sentinel = None
 
     @classmethod
@@ -92,7 +92,7 @@ class RedisManager:
         ``general_config.redis_sentinel`` (a RedisSentinelConfig) is duck-typed
         here to avoid a config import cycle.
         '''
-        sentinel = general_config.redis_sentinel
-        if sentinel is not None:
-            return cls(sentinels=sentinel.sentinel_addrs(), service_name=sentinel.service_name)
+        sentinel_config = general_config.redis_sentinel
+        if sentinel_config is not None:
+            return cls(sentinels=sentinel_config.sentinel_addrs(), service_name=sentinel_config.service_name)
         return cls(general_config.redis_url)
