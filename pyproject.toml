@@ -83,16 +83,6 @@ filterwarnings = [
     # music.py uses TemporaryDirectory().name to get a path, immediately discarding the object
     # (intentional pattern, see pylint:disable=consider-using-with comments); stdlib cleans them up
     "ignore:Implicitly cleaning up <TemporaryDirectory:ResourceWarning:tempfile",
-    # pytest-asyncio leaks an unclosed event loop between tests in Python 3.11; the two AF_UNIX
-    # sockets below are the event loop's internal self-pipe wakeup mechanism and disappear with it;
-    # this does not reproduce on Python 3.12+ where event loop creation semantics changed
-    "ignore:unclosed event loop:ResourceWarning",
-    "ignore:unclosed <socket.socket:ResourceWarning",
-    # opentelemetry 1.42.0 dropped the importlib_metadata backport in favor of stdlib
-    # importlib.metadata; on Python 3.11 entry_points() returns a SelectableGroups mapping
-    # whose .values() is deprecated. The class is removed in Python 3.12+, so this only
-    # affects py311.
-    "ignore:SelectableGroups dict interface is deprecated:DeprecationWarning",
 ]
 
 [tool.coverage.run]

@@ -25,7 +25,8 @@ from discord_gateway.clients.http_media_search_client import HttpMediaSearchClie
 from discord_gateway.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_gateway.cogs import music as music_module
 from discord_gateway.cogs.music import (Music, LOOP_CLEANUP_PLAYERS,
-                                    LOOP_PROCESS_DOWNLOAD_RESULTS, LOOP_PROCESS_SEARCH_RESULTS)
+                                    LOOP_PROCESS_DOWNLOAD_RESULTS, LOOP_PROCESS_GATEWAY_INTENTS,
+                                    LOOP_PROCESS_SEARCH_RESULTS)
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
 from discord_gateway.command_logic.player_gateway import EnsureResult
@@ -931,6 +932,16 @@ def test_music_init_music_not_enabled(fake_context):  #pylint:disable=redefined-
 
     with pytest.raises(CogMissingRequiredArg, match='Music not enabled'):
         Music(fake_context['bot'], config, fake_context['dispatcher'])
+
+def test_every_loop_the_cog_registers_has_a_heartbeat_gauge(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """A loop that registers with LoopHealth but has no gauge is probed yet invisible in metrics (#1107)."""
+    gauge = mocker.patch('discord_gateway.cogs.music.create_observable_gauge')
+    Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    described = {call.args[2].args[0] for call in gauge.call_args_list
+                 if call.args[1] == 'heartbeat'}
+    assert described == {LOOP_CLEANUP_PLAYERS, LOOP_PROCESS_DOWNLOAD_RESULTS,
+                         LOOP_PROCESS_SEARCH_RESULTS, LOOP_PROCESS_GATEWAY_INTENTS}
+
 
 def test_music_heartbeat_callbacks_report_loop_health(fake_context):  #pylint:disable=redefined-outer-name
     """Heartbeats follow LoopHealth (successful iterations), not task liveness."""
