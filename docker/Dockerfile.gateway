@@ -1,13 +1,10 @@
 # ---------- builder: compiles deps + installs Deno; none of this ships ----------
-# Stays on 3.14: davey 0.1.7 (the first release with cp315 wheels, which tox on
-# 3.15 needs) ships no cp315 aarch64 wheel, and this builder has no Rust
-# toolchain to compile it. Move to 3.15 once davey publishes one.
-FROM python:3.14-slim-bookworm AS builder
+FROM python:3.15-slim-bookworm AS builder
 
 # Build-time only:
 #   git             -> the `dappertable @ git+https://...` VCS dependency
 #   curl, unzip     -> the Deno installer
-#   build-essential -> fallback for any dep without an aarch64 wheel (none today)
+#   build-essential -> fallback for any dep without an aarch64 wheel (davey, below)
 # None of these reach the final image (that was the point of the old
 # `apt-get remove` line, which didn't actually shrink anything — the tools
 # stayed baked into the earlier layer).
@@ -25,6 +22,15 @@ ENV APPDIR="/opt/packages/discord-bot"
 # Kept ABOVE every source COPY: it depends on nothing in this repo, so anything
 # below a COPY would re-fetch it on each code change.
 RUN curl -fsSL https://deno.land/install.sh | sh && mv /root/.deno /opt/deno
+
+# Rust toolchain, builder only. davey (voice) is a Rust/PyO3 extension and its
+# 0.1.7 release publishes cp315 wheels for x86_64 but NOT aarch64, so on the
+# OKE Ampere nodes pip compiles it from the sdist (maturin). On amd64 the wheel
+# is used and rustc sits idle. Drop this step once davey ships a cp315 aarch64
+# wheel. Above every source COPY, like Deno, so it stays cached.
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+    sh -s -- -y --profile minimal --default-toolchain stable
 
 # ---- dependency layer: keyed on pyproject.toml alone ----
 # Installs the third-party dependency set (the expensive, network-bound step)
@@ -96,7 +102,7 @@ RUN pip install --no-cache-dir --no-deps --prefix=/install-app \
 
 
 # ---------- final: runtime only ----------
-FROM python:3.14-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 # Runtime packages only.
 # ffmpeg            -> audio processing

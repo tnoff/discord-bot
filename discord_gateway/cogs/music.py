@@ -399,6 +399,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 (LOOP_CLEANUP_PLAYERS, 'Cleanup player loop heartbeat'),
                 (LOOP_PROCESS_DOWNLOAD_RESULTS, 'Download result processing loop heartbeat'),
                 (LOOP_PROCESS_SEARCH_RESULTS, 'Search result processing loop heartbeat'),
+                (LOOP_PROCESS_GATEWAY_INTENTS, 'Gateway intent processing loop heartbeat'),
         ):
             create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
                                     partial(loop_heartbeat_observations, job_name), description)
