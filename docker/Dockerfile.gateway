@@ -2,7 +2,7 @@
 # Stays on 3.14: davey 0.1.7 (the first release with cp315 wheels, which tox on
 # 3.15 needs) ships no cp315 aarch64 wheel, and this builder has no Rust
 # toolchain to compile it. Move to 3.15 once davey publishes one.
-FROM python:3.14-slim-bookworm AS builder
+FROM python:3.15-slim-bookworm AS builder
 
 # Build-time only:
 #   git             -> the `dappertable @ git+https://...` VCS dependency
@@ -96,7 +96,7 @@ RUN pip install --no-cache-dir --no-deps --prefix=/install-app \
 
 
 # ---------- final: runtime only ----------
-FROM python:3.14-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 # Runtime packages only.
 # ffmpeg            -> audio processing
