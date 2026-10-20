@@ -64,7 +64,7 @@ gap in the resolver: see `tests/cli/_otel_resolve.py`.
 | Source | Why | Expression |
 |---|---|---|
 | `discord_core/cli/_lib/worker_pod.py:132` | description not statically determinable | `f'{pod_label} consumer loop heartbeat'` |
-| `discord_gateway/cogs/music.py:403` | description not statically determinable | `description` |
+| `discord_gateway/cogs/music.py:404` | description not statically determinable | `description` |
 
 <!-- END GENERATED(metric-exempt-appendix) -->
 
