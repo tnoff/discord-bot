@@ -161,6 +161,35 @@ async def test_process_search_results_empty_idles(mocker, fake_context):  #pylin
 
 
 @pytest.mark.asyncio()
+async def test_process_gateway_intents_idles_when_nothing_is_claimed(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """process_gateway_intents sleeps the short poll interval when the broker has no intents."""
+    mock_sleep = mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.intents_logic.poll = AsyncMock(return_value=0)
+    await cog.process_gateway_intents()
+    mock_sleep.assert_awaited_once_with(0.25)
+
+
+@pytest.mark.asyncio()
+async def test_process_gateway_intents_polls_again_at_once_after_work(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """A poll that took intents does not sleep: more may already be waiting."""
+    mock_sleep = mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.intents_logic.poll = AsyncMock(return_value=2)
+    await cog.process_gateway_intents()
+    mock_sleep.assert_not_called()
+
+
+@pytest.mark.asyncio()
+async def test_process_gateway_intents_bot_shutdown(fake_context):  #pylint:disable=redefined-outer-name
+    """process_gateway_intents exits early once the bot is shutting down."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.bot_shutdown_event.set()
+    with pytest.raises(ExitEarlyException):
+        await cog.process_gateway_intents()
+
+
+@pytest.mark.asyncio()
 async def test_process_search_results_bot_shutdown(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """process_search_results exits early once the bot is shutting down."""
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)

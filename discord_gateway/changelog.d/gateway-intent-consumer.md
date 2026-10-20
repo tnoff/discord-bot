@@ -1,0 +1,1 @@
+Consume the gateway-intent inbox: a `process_gateway_intents` loop polls the broker every 0.25s and carries out `join`, `stop`, `move_messages` and `wake` for the commands pod through `PlayerGateway` (new `wake`), one task per guild so each guild's intents run in order (#1030)

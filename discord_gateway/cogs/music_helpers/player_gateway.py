@@ -67,9 +67,17 @@ class CogPlayerGateway:
 
     async def move_messages(self, guild_id: int, text_channel_id: int) -> None:
         '''Point the player, and its saved session, at a new text channel.'''
-        player = self.cog.players[guild_id]
+        player = self.cog.players.get(guild_id)
+        if player is None:
+            return
         player.text_channel = await self._channel(text_channel_id)
         await self.cog._save_player_session(player.guild, player)  # pylint: disable=protected-access
+
+    async def wake(self, guild_id: int) -> None:
+        '''Have the guild's player claim a freshly queued track now, if it has a player.'''
+        player = self.cog.players.get(guild_id)
+        if player is not None:
+            player.notify_enqueued()
 
     async def add_cached(self, guild_id: int, media_download: MediaDownload) -> bool:
         '''Queue a cache hit on the guild's player, if it has one.'''

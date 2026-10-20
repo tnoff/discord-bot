@@ -1891,9 +1891,9 @@ async def test_cog_load_starts_poller_in_ha(fake_context):  #pylint:disable=rede
     cog.dispatcher = Mock()
     await cog.cog_load()
     cog.download_client.start.assert_awaited_once()
-    # peer wait + cleanup + init + result + search_result only — the download and
+    # peer wait + cleanup + init + result + search_result + intents only — the download and
     # search loops both live in their own pods now, and no broker server is configured.
-    assert mock_loop.create_task.call_count == 5
+    assert mock_loop.create_task.call_count == 6
 
 
 @pytest.mark.asyncio
@@ -2056,9 +2056,9 @@ async def test_cog_load_starts_the_search_poller_in_ha(fake_context):  #pylint:d
     cog.dispatcher = Mock()
     await cog.cog_load()
     cog.youtube_music_search_client.start.assert_awaited_once()
-    # peer wait + cleanup + init + result + search_result = 5. Neither the download nor the
+    # peer wait + cleanup + init + result + search_result + intents = 6. Neither the download nor the
     # search loop is among them; the cog has neither to spawn.
-    assert mock_loop.create_task.call_count == 5
+    assert mock_loop.create_task.call_count == 6
 
 
 @pytest.mark.asyncio

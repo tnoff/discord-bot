@@ -462,6 +462,7 @@
         "discord_gateway.command_logic.urban",
         "discord_gateway.loop_logic",
         "discord_gateway.loop_logic.delete_messages",
+        "discord_gateway.loop_logic.gateway_intents",
         "discord_gateway.loop_logic.markov",
         "discord_gateway.loop_logic.music_results",
         "discord_gateway.servers",

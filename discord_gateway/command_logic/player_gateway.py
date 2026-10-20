@@ -53,6 +53,9 @@ class PlayerGateway(Protocol):
     async def move_messages(self, guild_id: int, text_channel_id: int) -> None:
         '''Point the player, and the session a restart would rejoin from, at a new text channel.'''
 
+    async def wake(self, guild_id: int) -> None:
+        '''A track was queued for the guild: have its player claim it now. A guild with no player is a no-op.'''
+
     async def add_cached(self, guild_id: int, media_download: MediaDownload) -> bool:
         '''
         Queue a track that is already downloaded (a cache hit) on the guild's player. False when
