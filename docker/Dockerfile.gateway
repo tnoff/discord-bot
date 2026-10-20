@@ -1,5 +1,5 @@
 # ---------- builder: compiles deps + installs Deno; none of this ships ----------
-FROM python:3.14-slim-bookworm AS builder
+FROM python:3.15-slim-bookworm AS builder
 
 # Build-time only:
 #   git             -> the `dappertable @ git+https://...` VCS dependency
@@ -93,7 +93,7 @@ RUN pip install --no-cache-dir --no-deps --prefix=/install-app \
 
 
 # ---------- final: runtime only ----------
-FROM python:3.14-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 # Runtime packages only.
 # ffmpeg            -> audio processing

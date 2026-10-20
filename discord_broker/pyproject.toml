@@ -9,7 +9,7 @@ description = "discord-bot: the request/result broker between the gateway and th
 authors = [
     {name = "Tyler D. North", email = "me@tyler-north.com"},
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 # No boto3 here: the S3 checkout this pod used to declare storage for now lives
 # in discord_core/utils/integrations/s3.py, reached transitively. dappertable
 # is real -- workers/media_bundle.py renders bundles with it.

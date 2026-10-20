@@ -1,4 +1,4 @@
-FROM python:3.14-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 # Standalone search pod — the search TIER, not a ytmusic-only image.  Runs the
 # redis-backed search queue consumer + YoutubeMusicSearchHttpServer; no gateway

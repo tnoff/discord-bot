@@ -1,4 +1,4 @@
-FROM python:3.14-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 # Standalone persistence pod — the discord-db tier.  Serves the store routes
 # over HTTP so the bot and the broker can drop the `database` extra; runs no

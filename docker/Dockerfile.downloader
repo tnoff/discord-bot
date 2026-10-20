@@ -1,4 +1,4 @@
-FROM python:3.14-slim-bookworm
+FROM python:3.15-slim-bookworm
 
 # Standalone downloader pod — yt-dlp + ffmpeg + deno + S3 upload.
 # Runs the redis-backed download queue consumer + DownloadHttpServer; no gateway
