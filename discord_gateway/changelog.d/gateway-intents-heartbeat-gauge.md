@@ -1,0 +1,1 @@
+Emit the `process_gateway_intents` heartbeat gauge: #1107 registered the loop with the health registry but left it out of the list of heartbeat gauges, so the loop was probed but its series never appeared (#1030)
