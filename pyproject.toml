@@ -9,7 +9,7 @@ description = "discord-bot: shared test tooling and cross-package checks"
 authors = [
     {name = "Tyler D. North", email = "me@tyler-north.com"},
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 # This project installs NO production code of its own any more. Criterion 8
 # step 5 gave each of the seven packages (discord_core plus the six pods) its
 # own pyproject.toml with its own real `dependencies` list, replacing the

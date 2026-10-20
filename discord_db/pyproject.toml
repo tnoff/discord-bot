@@ -9,7 +9,7 @@ description = "discord-bot: owns the database schema and the engine (postgres or
 authors = [
     {name = "Tyler D. North", email = "me@tyler-north.com"},
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 # dappertable is not a leak from the broker: PlaylistClient calls
 # shorten_string when it builds playlist entries, so the pod serving those
 # routes imports it for real. No boto3 -- VideoCacheClient is a pure catalog.

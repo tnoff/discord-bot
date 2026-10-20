@@ -1,4 +1,7 @@
 # ---------- builder: compiles deps + installs Deno; none of this ships ----------
+# Stays on 3.14: davey 0.1.7 (the first release with cp315 wheels, which tox on
+# 3.15 needs) ships no cp315 aarch64 wheel, and this builder has no Rust
+# toolchain to compile it. Move to 3.15 once davey publishes one.
 FROM python:3.14-slim-bookworm AS builder
 
 # Build-time only:

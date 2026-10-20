@@ -9,7 +9,7 @@ description = "discord-bot: shared code every pod installs"
 authors = [
     {name = "Tyler D. North", email = "me@tyler-north.com"},
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 # THE SHARED SET. Every one of the six pods installs discord_core, so
 # everything here reaches every image -- there is no per-pod tier below this
 # one any more. Two kinds of package end up here for two different reasons:

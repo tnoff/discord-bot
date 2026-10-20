@@ -134,7 +134,7 @@ now lives *inside* it, so a plain scan would otherwise lint test code under
 the production rcfile too.
 
 Target score is 10.00/10. Tox runs both pylint invocations, bandit, and
-pytest across py311–py314:
+pytest across py313–py315:
 
 ```bash
 tox
