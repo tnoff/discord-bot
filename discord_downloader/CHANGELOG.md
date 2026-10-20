@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.0.9] - 2026-10-20
+
+### Changed
+
+- Bump the discord_core pin to 3.5.1 (#1030)
+
 ## [3.0.8] - 2026-10-19
 
 ### Changed

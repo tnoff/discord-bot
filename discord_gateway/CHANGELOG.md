@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.2.26] - 2026-10-20
+
+### Changed
+
+- Bump the discord_core pin to 3.5.1 (#1030)
+- Consume the gateway-intent inbox: a `process_gateway_intents` loop polls the broker every 0.25s and carries out `join`, `stop`, `move_messages` and `wake` for the commands pod through `PlayerGateway` (new `wake`), one task per guild so each guild's intents run in order (#1030)
+
 ## [3.2.25] - 2026-10-19
 
 ### Changed
