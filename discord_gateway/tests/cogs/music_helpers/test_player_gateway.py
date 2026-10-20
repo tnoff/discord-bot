@@ -116,6 +116,28 @@ async def test_move_messages_saves_the_session():
 
 
 @pytest.mark.asyncio
+async def test_move_messages_without_a_player_does_nothing():
+    gateway, cog = make_gateway()
+    await gateway.move_messages(11, 33)
+    cog._save_player_session.assert_not_called()  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_wake_notifies_the_guilds_player():
+    player = make_player()
+    player.notify_enqueued = MagicMock()
+    gateway, _ = make_gateway({11: player})
+    await gateway.wake(11)
+    player.notify_enqueued.assert_called_once_with()
+
+
+@pytest.mark.asyncio
+async def test_wake_without_a_player_does_nothing():
+    gateway, _ = make_gateway()
+    await gateway.wake(11)
+
+
+@pytest.mark.asyncio
 async def test_add_cached_queues_on_the_guilds_player():
     player = make_player()
     gateway, cog = make_gateway({11: player})

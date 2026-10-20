@@ -35,6 +35,9 @@ class FakePlayerGateway:
     async def move_messages(self, guild_id, text_channel_id):
         self.calls.append(('move_messages', guild_id, text_channel_id))
 
+    async def wake(self, guild_id):
+        self.calls.append(('wake', guild_id))
+
     async def add_cached(self, guild_id, media_download):
         self.calls.append(('add_cached', guild_id, media_download))
         return True

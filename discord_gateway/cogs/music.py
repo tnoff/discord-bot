@@ -46,6 +46,7 @@ from discord_gateway.cogs.common import CogHelperBase, envelope_from_ctx
 from discord_gateway.command_logic.enqueue import MediaEnqueuer
 from discord_gateway.command_logic.music import MusicCommands
 from discord_gateway.command_logic.playlist import PlaylistCommands
+from discord_gateway.loop_logic.gateway_intents import GatewayIntentsLoop
 from discord_gateway.loop_logic.music_results import MusicResultsLoop
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
@@ -214,6 +215,9 @@ _BROKER_POLL_INTERVAL_SECONDS = 1.0
 # the empty path (not every iteration) keeps busy work back-to-back while cutting idle
 # allocation churn (OOM fix).
 _IDLE_POLL_BACKOFF_SECONDS = 0.25
+# How often the gateway asks the broker for work other pods want done (join, stop, wake). Short, because
+# a join waits on it and a wake is only as prompt as this; an empty answer is a cheap 204.
+_INTENT_POLL_INTERVAL_SECONDS = 0.25
 # How long a restarted gateway waits for the previous one's now-playing record to lapse before
 # taking over a guild anyway. The broker expires the record 15s after the last heartbeat.
 FOREIGN_PLAYER_WAIT_SECONDS = 20.0
@@ -224,6 +228,7 @@ FOREIGN_PLAYER_WAIT_SECONDS = 20.0
 LOOP_CLEANUP_PLAYERS = 'cleanup_players'
 LOOP_PROCESS_DOWNLOAD_RESULTS = 'process_download_results'
 LOOP_PROCESS_SEARCH_RESULTS = 'process_search_results'
+LOOP_PROCESS_GATEWAY_INTENTS = 'process_gateway_intents'
 
 #
 def _tagged(observation: Observation, tracked_by: str) -> Observation:
@@ -268,6 +273,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         self._cleanup_task = None
         self._result_task = None
         self._search_result_task = None
+        self._intent_task = None
         self._init_task = None
         self._peers_ready_task = None
         # Names this process in the broker's now-playing record, so a restarted gateway can tell
@@ -333,6 +339,9 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         self.broker_client: BrokerClient = HttpBrokerClient(
             self.config.broker_client.url, bucket_name=storage_bucket_name,
             seam_contract=seam_contract_config)
+        # Unlike the other logic classes this one holds state (a task per guild), so it is built once.
+        self.intents_logic = GatewayIntentsLoop(
+            self.logger, self.broker_client, CogPlayerGateway(self), self.gateway_id)
 
         # Source expansion runs in the search pod: the cog posts a Spotify or
         # YouTube-playlist id over HTTP and gets a CatalogResponse back, and never
@@ -524,6 +533,11 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 self.process_search_results, self.bot, self.logger,
                 health=LOOP_HEALTH.register(LOOP_PROCESS_SEARCH_RESULTS)))
         )
+        self._intent_task = self.bot.loop.create_task(
+            self._after_peers_ready(return_loop_runner(
+                self.process_gateway_intents, self.bot, self.logger,
+                health=LOOP_HEALTH.register(LOOP_PROCESS_GATEWAY_INTENTS)))
+        )
         # The search loop lives in the search pod, so the cog starts only the
         # client's status poller. The bot registers no youtube_music_search loop
         # and emits no heartbeat for one — the search pod publishes that series
@@ -559,7 +573,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             # these stopped here: a cancelled loop is a deliberate shutdown, not
             # a wedge, and must not fail the liveness probe while the pod drains.
             LOOP_HEALTH.mark_stopped(LOOP_CLEANUP_PLAYERS, LOOP_PROCESS_DOWNLOAD_RESULTS,
-                                     LOOP_PROCESS_SEARCH_RESULTS)
+                                     LOOP_PROCESS_SEARCH_RESULTS, LOOP_PROCESS_GATEWAY_INTENTS)
             if self._peers_ready_task:
                 self._peers_ready_task.cancel()
             if self._init_task:
@@ -575,6 +589,9 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 self._result_task.cancel()
             if self._search_result_task:
                 self._search_result_task.cancel()
+            if self._intent_task:
+                self._intent_task.cancel()
+            await self.intents_logic.close()
 
             self.logger.info('Cog unload: Removing directories')
             # Remove contents of download dir by default
@@ -669,6 +686,17 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             await sleep(_BROKER_POLL_INTERVAL_SECONDS)
             return
         await self.results_logic.process_search_result(resolution)
+
+    async def process_gateway_intents(self):
+        '''
+        Intent consumer: claims what other pods asked this gateway to do and hands it to
+        intents_logic. One poll covers every guild.
+        '''
+        if self.bot_shutdown_event.is_set():
+            raise ExitEarlyException('Bot shutdown called, exiting early')
+
+        if await self.intents_logic.poll() == 0:
+            await sleep(_INTENT_POLL_INTERVAL_SECONDS)
 
     async def process_download_results(self):
         '''

@@ -887,6 +887,24 @@ async def test_cog_unload_cancels_search_result_task(mocker, fake_context):  #py
 
 
 @pytest.mark.asyncio()
+async def test_cog_unload_cancels_the_intent_task_and_closes_its_logic(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """cog_unload cancels the process_gateway_intents task and stops the per-guild intent workers."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog._cleanup_task = None  # pylint: disable=protected-access
+    intent_task = mocker.Mock()
+    cog._intent_task = intent_task  # pylint: disable=protected-access
+    cog.intents_logic.close = AsyncMock()
+
+    mocker.patch('pathlib.Path.exists', return_value=False)
+    mocker.patch('discord_gateway.cogs.music.rm_tree')
+
+    await cog.cog_unload()
+
+    intent_task.cancel.assert_called_once()
+    cog.intents_logic.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio()
 async def test_cog_unload_cancels_the_peer_wait(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """cog_unload cancels the startup peer wait so a pod stopped mid-wait exits promptly."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
@@ -1891,9 +1909,9 @@ async def test_cog_load_starts_poller_in_ha(fake_context):  #pylint:disable=rede
     cog.dispatcher = Mock()
     await cog.cog_load()
     cog.download_client.start.assert_awaited_once()
-    # peer wait + cleanup + init + result + search_result only — the download and
+    # peer wait + cleanup + init + result + search_result + intents only — the download and
     # search loops both live in their own pods now, and no broker server is configured.
-    assert mock_loop.create_task.call_count == 5
+    assert mock_loop.create_task.call_count == 6
 
 
 @pytest.mark.asyncio
@@ -2056,9 +2074,9 @@ async def test_cog_load_starts_the_search_poller_in_ha(fake_context):  #pylint:d
     cog.dispatcher = Mock()
     await cog.cog_load()
     cog.youtube_music_search_client.start.assert_awaited_once()
-    # peer wait + cleanup + init + result + search_result = 5. Neither the download nor the
+    # peer wait + cleanup + init + result + search_result + intents = 6. Neither the download nor the
     # search loop is among them; the cog has neither to spawn.
-    assert mock_loop.create_task.call_count == 5
+    assert mock_loop.create_task.call_count == 6
 
 
 @pytest.mark.asyncio

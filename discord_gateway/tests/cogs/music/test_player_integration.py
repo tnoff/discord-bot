@@ -244,8 +244,8 @@ async def test_cog_load_starts_the_resume_task(fake_context, fake_stores):  # py
 
     await cog.cog_load()
 
-    # peer wait, cleanup, resume, download results, search results: no loop records plays any more
-    assert loop_mock.create_task.call_count == 5
+    # peer wait, cleanup, resume, download results, search results, gateway intents: no loop records plays any more
+    assert loop_mock.create_task.call_count == 6
     assert cog._init_task is loop_mock.create_task.return_value  # pylint: disable=protected-access
 
 
