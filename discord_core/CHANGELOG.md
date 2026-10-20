@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.6.0] - 2026-10-20
+
+### Changed
+
+- Changed the supported Python floor to 3.13 (3.11 and 3.12 dropped): tox now runs py313-py315 with pylint and bandit on 3.15, and requires-python is >=3.13 (tox and Dockerfiles are repo-wide); renamed locals called `sentinel` in discord_core.clients.redis_client, which shadow the sentinel builtin new in Python 3.15
+
 ## [3.5.1] - 2026-10-19
 
 ### Changed
