@@ -887,6 +887,24 @@ async def test_cog_unload_cancels_search_result_task(mocker, fake_context):  #py
 
 
 @pytest.mark.asyncio()
+async def test_cog_unload_cancels_the_intent_task_and_closes_its_logic(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """cog_unload cancels the process_gateway_intents task and stops the per-guild intent workers."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog._cleanup_task = None  # pylint: disable=protected-access
+    intent_task = mocker.Mock()
+    cog._intent_task = intent_task  # pylint: disable=protected-access
+    cog.intents_logic.close = AsyncMock()
+
+    mocker.patch('pathlib.Path.exists', return_value=False)
+    mocker.patch('discord_gateway.cogs.music.rm_tree')
+
+    await cog.cog_unload()
+
+    intent_task.cancel.assert_called_once()
+    cog.intents_logic.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio()
 async def test_cog_unload_cancels_the_peer_wait(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """cog_unload cancels the startup peer wait so a pod stopped mid-wait exits promptly."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
