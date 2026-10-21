@@ -7,8 +7,9 @@ from functools import cached_property, partial
 from typing import Callable, List
 import uuid
 
+from aiohttp.client_exceptions import ServerDisconnectedError
 from discord import Message
-from discord.errors import NotFound
+from discord.errors import HTTPException, NotFound
 from discord.ext.commands import Bot
 
 from opentelemetry import trace
@@ -29,6 +30,7 @@ from discord_core.types.results import (
 )
 
 from discord_dispatcher.utils.discord_retry import async_retry_discord_message_command
+from discord_dispatcher.workers.delete_schedule import DeleteSchedule, PendingDelete
 
 
 _DRAIN_TIMEOUT_SECONDS = 30
@@ -41,6 +43,15 @@ _ENQUEUE_DRAIN_TIMEOUT_SECONDS = 5
 # Backoff after a transient worker-loop error (e.g. a Redis/Valkey blip) before
 # retrying, so a persistent failure does not hot-spin the loop.
 _WORKER_ERROR_BACKOFF_SECONDS = 1.0
+
+# Delayed deletes (``delete_after``) are owned by the dispatcher, not discord.py: each one
+# is recorded in the DeleteSchedule and swept here, so it survives a pod restart.
+_DELETE_SWEEP_INTERVAL_SECONDS = 5.0
+_DELETE_SWEEP_BATCH = 50
+# A claimed delete is leased this long; a pod that dies mid-delete has it retried after.
+_DELETE_LEASE_SECONDS = 60.0
+# Claims (successful or not) before a delete that keeps failing is dropped and logged.
+_DELETE_MAX_ATTEMPTS = 5
 
 # LoopHealth registry key / heartbeat background_job value for the worker pool
 LOOP_MESSAGE_DISPATCHER = 'message_dispatcher'
@@ -163,7 +174,13 @@ class MessageMutableBundle:
                              get_channel: Callable,
                              clear_existing: bool = False,
                              delete_after: int = None) -> List[Callable]:
-        '''Return list of callables to sync Discord messages with new content.'''
+        '''
+        Return list of callables to sync Discord messages with new content.
+
+        *delete_after* is only recorded on the contexts (and used to decide whether an
+        existing message needs re-editing); it is never sent to Discord. The caller
+        schedules the delete itself, see MessageDispatcher._schedule_bundle_deletes.
+        '''
         dispatch_functions = []
 
         if clear_existing and self.message_contexts:
@@ -175,7 +192,7 @@ class MessageMutableBundle:
         if not self.message_contexts:
             for content in message_content:
                 mc = MessageContext(self.guild_id, self.channel_id, message_content=content, delete_after=delete_after)
-                send_func = partial(send_function, content=content, delete_after=delete_after)
+                send_func = partial(send_function, content=content)
                 self.message_contexts.append(mc)
                 dispatch_functions.append(send_func)
             return dispatch_functions
@@ -196,7 +213,7 @@ class MessageMutableBundle:
                     dispatch_functions.append(partial(item.delete_message, get_channel))
                     delete_count += 1
                     continue
-                edit_func = partial(item.edit_message, get_channel, content=message_content[index], delete_after=delete_after)
+                edit_func = partial(item.edit_message, get_channel, content=message_content[index])
                 item.delete_after = delete_after
                 item.message_content = message_content[index]
                 dispatch_functions.append(edit_func)
@@ -210,7 +227,7 @@ class MessageMutableBundle:
             if existing_mapping.get(index, None) == index:
                 new_contexts.append(item)
                 continue
-            edit_func = partial(item.edit_message, get_channel, content=message_content[index], delete_after=delete_after)
+            edit_func = partial(item.edit_message, get_channel, content=message_content[index])
             item.delete_after = delete_after
             item.message_content = message_content[index]
             dispatch_functions.append(edit_func)
@@ -221,7 +238,7 @@ class MessageMutableBundle:
             for i in range(existing_count, new_count):
                 content = message_content[i]
                 mc = MessageContext(self.guild_id, self.channel_id, message_content=content, delete_after=delete_after)
-                send_func = partial(send_function, content=content, delete_after=delete_after)
+                send_func = partial(send_function, content=content)
                 self.message_contexts.append(mc)
                 dispatch_functions.append(send_func)
 
@@ -267,13 +284,14 @@ class MessageDispatcher(DispatchClientBase):
     Owns a configurable number of worker tasks that dequeue items from work_queue
     and execute them.  Bundle state is persisted to bundle_store.
 
-    Both work_queue and bundle_store are required; production passes the Redis
-    ones, tests pass AsyncioWorkQueue / AsyncioBundleStore.
+    work_queue, bundle_store and delete_schedule are required; production passes the
+    Redis ones, tests pass AsyncioWorkQueue / AsyncioBundleStore / AsyncioDeleteSchedule.
     '''
 
     def __init__(self, bot: Bot, settings: dict,
                  bundle_store: BundleStore,
-                 work_queue: WorkQueue):
+                 work_queue: WorkQueue,
+                 delete_schedule: DeleteSchedule):
         if not settings.get('general', {}).get('include', {}).get('message_dispatcher', True):
             raise CogMissingRequiredArg('MessageDispatcher not enabled')
 
@@ -282,6 +300,7 @@ class MessageDispatcher(DispatchClientBase):
         self.logger = logging.getLogger('discord_bot.cogs.messagedispatcher')
         self._bundle_store = bundle_store
         self._work_queue = work_queue
+        self._delete_schedule = delete_schedule
 
         # DispatchClientBase: per-cog result delivery queues
         self._cog_queues: dict[str, asyncio.Queue] = {}
@@ -290,6 +309,7 @@ class MessageDispatcher(DispatchClientBase):
 
         self._shutdown: asyncio.Event = asyncio.Event()
         self._worker_tasks: list[asyncio.Task] = []
+        self._delete_sweeper_task: asyncio.Task | None = None
         # The fire-and-forget entry points (send/delete/mutable) are sync methods
         # that schedule their enqueue as a detached task, so HTTP callers get a
         # 202 without awaiting Redis. Hold a strong reference until each finishes:
@@ -323,6 +343,7 @@ class MessageDispatcher(DispatchClientBase):
         self._worker_health = LOOP_HEALTH.register(LOOP_MESSAGE_DISPATCHER)
         for _ in range(self._num_workers):
             self._worker_tasks.append(asyncio.create_task(self._worker_loop()))
+        self._delete_sweeper_task = asyncio.create_task(self._delete_sweeper_loop())
 
     def _spawn_enqueue(self, coro) -> None:
         '''Schedule a fire-and-forget enqueue, tracked so stop() can flush it.'''
@@ -369,6 +390,13 @@ class MessageDispatcher(DispatchClientBase):
                 with contextlib.suppress(asyncio.CancelledError):
                     await asyncio.gather(*self._worker_tasks, return_exceptions=True)
             self._worker_tasks.clear()
+        if self._delete_sweeper_task:
+            # Nothing to drain: a claimed delete is leased, so one cut off here is
+            # picked up by the next pod when the lease runs out.
+            self._delete_sweeper_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._delete_sweeper_task
+            self._delete_sweeper_task = None
         self.logger.info('MessageDispatcher :: shutdown complete')
 
     @cached_property
@@ -444,7 +472,7 @@ class MessageDispatcher(DispatchClientBase):
             return self.remove_mutable(key)
         request_uuid = uuid.uuid4()
         trace.get_current_span().set_attribute(DispatchNaming.REQUEST_ID.value, str(request_uuid))
-        self.logger.debug('update_mutable: key=%s dispatch.request_id=%s', key, request_uuid)
+        self.logger.debug('update_mutable: key=%s dispatch.request_id=%s delete_after=%s', key, request_uuid, delete_after)
         self._spawn_enqueue(self._work_queue.enqueue_unique(
             f'{_MEMBER_MUTABLE}{key}',
             {'key': key, 'guild_id': guild_id, 'content': content,
@@ -466,6 +494,7 @@ class MessageDispatcher(DispatchClientBase):
                      delete_after: int | None = None, allow_404: bool = False,
                      span_context: dict | None = None):
         '''Enqueue a text message send at NORMAL priority.'''
+        self.logger.debug('send_message: guild=%s channel=%s delete_after=%s', guild_id, channel_id, delete_after)
         self._spawn_enqueue(self._work_queue.enqueue(
             f'{_MEMBER_SEND}{uuid.uuid4()}',
             {'guild_id': guild_id, 'channel_id': channel_id, 'content': content,
@@ -669,6 +698,7 @@ class MessageDispatcher(DispatchClientBase):
                         contexts_needing_refs[i].set_message(message)
 
                 if delete_after is not None:
+                    await self._schedule_bundle_deletes(bundle, delete_after)
                     await self._delete_bundle_from_store(key)
                 else:
                     await self._save_bundle_to_store(key, bundle)
@@ -727,10 +757,13 @@ class MessageDispatcher(DispatchClientBase):
                                            attributes={'discord.channel': payload['channel_id'],
                                                        'discord.guild': payload['guild_id']},
                                            links=span_links_from_context(payload.get('span_context'))):
-            await async_retry_discord_message_command(
-                partial(channel.send, content=payload['content'], delete_after=payload.get('delete_after')),
+            message = await async_retry_discord_message_command(
+                partial(channel.send, content=payload['content']),
                 allow_404=payload.get('allow_404', False),
             )
+            delete_after = payload.get('delete_after')
+            if delete_after is not None and hasattr(message, 'id'):
+                await self._schedule_delete(payload['guild_id'], payload['channel_id'], message.id, delete_after)
 
     async def _process_delete(self, payload: dict):
         '''Execute a delete_message from queue payload.'''
@@ -744,6 +777,8 @@ class MessageDispatcher(DispatchClientBase):
                 await msg.delete()
             except NotFound:
                 pass
+            # Deleted (or already gone): a still-pending delete_after has nothing left to do.
+            await self._cancel_scheduled_delete(payload['guild_id'], payload['channel_id'], payload['message_id'])
 
     async def _process_update_channel(self, key: str, payload: dict):
         '''Move a bundle to a new channel and save updated state to the store.'''
@@ -891,6 +926,86 @@ class MessageDispatcher(DispatchClientBase):
             del self._tombstones[key]
             return False
         return True
+
+    # ------------------------------------------------------------------
+    # Delayed deletes (delete_after)
+    # ------------------------------------------------------------------
+
+    async def _schedule_delete(self, guild_id: int, channel_id: int, message_id: int, delay: int) -> None:
+        '''Record a delayed delete; logs and swallows any error (the message is already sent).'''
+        try:
+            await self._delete_schedule.schedule(guild_id, channel_id, message_id, delay)
+        except Exception as exc:
+            self.logger.error('MessageDispatcher :: failed to schedule delete of message %s in channel %s: %s',
+                              message_id, channel_id, exc)
+
+    async def _cancel_scheduled_delete(self, guild_id: int, channel_id: int, message_id: int) -> None:
+        '''Forget a pending delete; logs and swallows any error (a stale entry just 404s later).'''
+        try:
+            await self._delete_schedule.cancel(guild_id, channel_id, message_id)
+        except Exception as exc:
+            self.logger.error('MessageDispatcher :: failed to cancel delete of message %s in channel %s: %s',
+                              message_id, channel_id, exc)
+
+    async def _schedule_bundle_deletes(self, bundle: MessageMutableBundle, delay: int) -> None:
+        '''Schedule every message the bundle now holds; each was just sent or edited.'''
+        for context in bundle.message_contexts:
+            if context.message_id is not None:
+                await self._schedule_delete(context.guild_id, context.channel_id, context.message_id, delay)
+
+    async def _delete_sweeper_loop(self):
+        '''Delete scheduled messages as they fall due, until shutdown.
+
+        Runs in every dispatcher pod; claims are atomic in the schedule, so a delete
+        is performed by one pod. Errors are logged and backed off like _worker_loop so
+        a Redis blip cannot kill the task.
+        '''
+        while not self._shutdown.is_set():
+            try:
+                await self._sweep_due_deletes()
+                wait = _DELETE_SWEEP_INTERVAL_SECONDS
+            except Exception as exc:
+                self.logger.error('MessageDispatcher :: delete sweeper error, backing off: %s', exc, exc_info=True)
+                wait = _WORKER_ERROR_BACKOFF_SECONDS
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self._shutdown.wait(), timeout=wait)
+
+    async def _sweep_due_deletes(self) -> None:
+        '''Claim and perform every currently-due delete.'''
+        claimed = await self._delete_schedule.claim_due(_DELETE_SWEEP_BATCH, _DELETE_LEASE_SECONDS)
+        for entry in claimed:
+            await self._perform_scheduled_delete(entry)
+
+    async def _perform_scheduled_delete(self, entry: PendingDelete) -> None:
+        '''
+        Delete one claimed message.
+
+        Success and 404 (already gone) complete the entry. A failure that survives the
+        retry helper leaves it leased, so it is retried after the lease; once it has been
+        claimed _DELETE_MAX_ATTEMPTS times it is dropped and logged instead of looping.
+        '''
+        if entry.attempts > _DELETE_MAX_ATTEMPTS:
+            # Only reachable when claimers keep dying mid-delete, so no failure was seen.
+            self.logger.error('MessageDispatcher :: giving up on scheduled delete of message %s in channel %s '
+                              'after %d claims', entry.message_id, entry.channel_id, entry.attempts - 1)
+            await self._delete_schedule.complete(entry)
+            return
+        channel = self.bot.get_partial_messageable(entry.channel_id)
+        try:
+            await async_retry_discord_message_command(
+                channel.get_partial_message(entry.message_id).delete, allow_404=True,
+            )
+        except (HTTPException, TimeoutError, ServerDisconnectedError) as exc:
+            if entry.attempts >= _DELETE_MAX_ATTEMPTS:
+                self.logger.error('MessageDispatcher :: giving up on scheduled delete of message %s in channel %s '
+                                  'after %d attempts: %s', entry.message_id, entry.channel_id, entry.attempts, exc)
+                await self._delete_schedule.complete(entry)
+            else:
+                self.logger.warning('MessageDispatcher :: scheduled delete of message %s in channel %s failed '
+                                    '(attempt %d/%d), will retry: %s', entry.message_id, entry.channel_id,
+                                    entry.attempts, _DELETE_MAX_ATTEMPTS, exc)
+            return
+        await self._delete_schedule.complete(entry)
 
     async def _save_bundle_to_store(self, key: str, bundle: MessageMutableBundle) -> None:
         '''Persist *bundle* to the bundle store; logs and swallows any error.'''

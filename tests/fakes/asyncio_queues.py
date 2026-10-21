@@ -6,12 +6,15 @@ does nothing.
 '''
 import asyncio
 import itertools
+import time
 
 import fakeredis.aioredis
 
 from discord_core.clients.redis_client import RedisManager
 from discord_core.interfaces.dispatch_protocols import BundleStore, WorkQueue
 from discord_core.interfaces.result_queue import DownloadResultQueue, SearchResultQueue
+
+from discord_dispatcher.workers.delete_schedule import DeleteSchedule, PendingDelete, delete_member
 
 from discord_broker.servers.broker_server import BrokerHttpServer
 from discord_broker.workers.broker_registry import RedisBrokerRegistry
@@ -104,6 +107,50 @@ class AsyncioWorkQueue(WorkQueue):
 
     async def get_result(self, request_id: str) -> dict | None:
         return self._results.get(request_id)
+
+
+class AsyncioDeleteSchedule(DeleteSchedule):
+    '''
+    Dict-backed DeleteSchedule with the same claim/lease/attempt semantics as the Redis one.
+
+    ``clock`` is injectable so a test can move "now" past a due time without sleeping.
+    Not shared across processes; the cross-pod behaviour is tested against the Redis
+    implementation on fakeredis instead.
+    '''
+
+    def __init__(self, clock=time.time):
+        self._clock = clock
+        self._due: dict[str, float] = {}
+        self._attempts: dict[str, int] = {}
+
+    async def schedule(self, guild_id: int, channel_id: int, message_id: int, delay_seconds: float) -> None:
+        member = delete_member(guild_id, channel_id, message_id)
+        self._due[member] = self._clock() + delay_seconds
+        self._attempts.pop(member, None)
+
+    async def cancel(self, guild_id: int, channel_id: int, message_id: int) -> None:
+        member = delete_member(guild_id, channel_id, message_id)
+        self._due.pop(member, None)
+        self._attempts.pop(member, None)
+
+    async def claim_due(self, limit: int, lease_seconds: float) -> list[PendingDelete]:
+        now = self._clock()
+        claimed = []
+        for member, due in sorted(self._due.items(), key=lambda item: item[1]):
+            if due > now or len(claimed) >= limit:
+                break
+            self._due[member] = now + lease_seconds
+            self._attempts[member] = self._attempts.get(member, 0) + 1
+            guild_id, channel_id, message_id = (int(part) for part in member.split(':'))
+            claimed.append(PendingDelete(guild_id, channel_id, message_id, self._attempts[member]))
+        return claimed
+
+    async def complete(self, entry: PendingDelete) -> None:
+        await self.cancel(entry.guild_id, entry.channel_id, entry.message_id)
+
+    def pending(self) -> set[str]:
+        '''Members still scheduled, for assertions.'''
+        return set(self._due)
 
 
 class _AsyncioResultQueue:

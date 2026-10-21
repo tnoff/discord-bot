@@ -1,0 +1,1 @@
+Delayed message deletes (`delete_after`) now survive a dispatcher restart: the dispatcher records each one in Redis and every pod sweeps due deletes, instead of leaving them to discord.py's in-memory timer, which lost the delete when the pod was replaced during the delay (#1115)
