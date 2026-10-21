@@ -2,7 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from discord_core.types.command_args import COMMAND_ARGS, MarkovSpeakArgs, NoArgs, PlaylistItemAddArgs
-from discord_core.types.command_envelope import CommandEnvelope, CommandEnvelopeBody
+from discord_core.types.command_envelope import CommandEnvelope
 from discord_core.types.command_wire import (
     CommandAcceptedResponse, CommandRequestBody, UnknownCommand, parse_args,
 )
@@ -14,15 +14,20 @@ FULL = CommandEnvelope(
 
 
 def test_an_envelope_survives_the_wire():
-    '''Dataclass to body to JSON and back is the same envelope, tuple of roles included.'''
-    body = CommandEnvelopeBody.model_validate_json(FULL.to_body().model_dump_json())
-    assert body.author_role_ids == [7, 8]
-    assert body.to_envelope() == FULL
+    '''To JSON and back is the same envelope: the role ids are a list on the wire, a tuple here.'''
+    wire = FULL.model_dump_json()
+    assert '"author_role_ids":[7,8]' in wire
+    assert CommandEnvelope.model_validate_json(wire) == FULL
+    assert CommandEnvelope.model_validate_json(wire).author_role_ids == (7, 8)
+
+
+def test_an_envelope_is_immutable():
+    with pytest.raises(ValidationError):
+        FULL.guild_id = 99
 
 
 def test_an_envelope_with_only_the_required_fields_gets_the_defaults():
-    envelope = CommandEnvelopeBody(guild_id=1, channel_id=2, author_id=3,
-                                   author_display_name='tyler').to_envelope()
+    envelope = CommandEnvelope(guild_id=1, channel_id=2, author_id=3, author_display_name='tyler')
     assert not envelope.author_role_ids
     assert envelope.author_voice_channel_id is None
 
@@ -78,7 +83,7 @@ def test_parse_args_rejects_an_unknown_command():
 def test_a_request_body_needs_an_envelope_and_a_request_id():
     with pytest.raises(ValidationError):
         CommandRequestBody(args={})  # pylint: disable=missing-kwoa
-    body = CommandRequestBody(envelope=FULL.to_body(), request_id='r-1')
+    body = CommandRequestBody(envelope=FULL, request_id='r-1')
     assert not body.args and body.span_context is None
 
 

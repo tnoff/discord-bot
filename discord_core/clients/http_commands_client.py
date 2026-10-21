@@ -63,8 +63,8 @@ class HttpCommandsClient(HttpClientMixin):
         # Parsed here as well as on the server: a typo in a stub fails in the gateway's tests and
         # never reaches the wire. It is also what fills in the defaults the model declares.
         body = CommandRequestBody(
-            envelope=envelope.to_body(), args=parse_args(command, args or {}).model_dump(),
-            request_id=request_id or uuid4().hex, span_context=span_context).model_dump()
+            envelope=envelope, args=parse_args(command, args or {}).model_dump(),
+            request_id=request_id or uuid4().hex, span_context=span_context).model_dump(mode='json')
         url = self._route_url(command_routes.FORWARD_COMMAND, command=command)
         session = self._get_session()
 

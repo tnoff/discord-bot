@@ -14,7 +14,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from discord_core.types.command_args import COMMAND_ARGS
-from discord_core.types.command_envelope import CommandEnvelopeBody
+from discord_core.types.command_envelope import CommandEnvelope
 
 
 class UnknownCommand(ValueError):
@@ -23,7 +23,7 @@ class UnknownCommand(ValueError):
 
 class CommandRequestBody(BaseModel):
     '''POST /commands/{command}'''
-    envelope: CommandEnvelopeBody
+    envelope: CommandEnvelope
     args: dict = {}
     request_id: str
     span_context: dict | None = None
