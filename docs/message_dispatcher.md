@@ -69,7 +69,9 @@ a time.
 - `sticky` — if `True`, messages are re-sent at the bottom of the channel when
   other messages appear below them
 - `delete_after` — seconds after which messages are deleted; bundle is also
-  removed from the dispatcher after a single dispatch (ephemeral bundle)
+  removed from the dispatcher after a single dispatch (ephemeral bundle). The
+  delete is scheduled by the dispatcher itself, see
+  [Delayed deletes](#delayed-deletes-delete_after)
 
 ### `remove_mutable(key)`
 
@@ -120,6 +122,33 @@ On each flush the dispatcher:
 
 Bundles are created lazily on the first `update_mutable` call for a key and live
 until `remove_mutable` is called (or the bundle has `delete_after` set).
+
+## Delayed deletes (`delete_after`)
+
+`delete_after` is never passed to discord.py. discord.py implements it as an
+in-memory `sleep` + delete task, so a dispatcher restart inside the delay window
+lost the delete and the message stayed in the channel (#1115). The dispatcher
+owns the schedule instead (`discord_dispatcher/workers/delete_schedule.py`):
+
+1. After a send or edit with `delete_after`, the dispatcher records the message
+   in a Redis sorted set (`discord_bot:delete_after:due`, member
+   `guild:channel:message`, scored by due time). Sending or editing the same
+   message again with a new `delete_after` replaces its entry. An ephemeral
+   bundle is still dropped from the bundle store right away; the schedule holds
+   the message ids from then on.
+2. Every dispatcher pod runs a sweeper (every 5 seconds) that claims due entries
+   and deletes them. The claim is one Lua script using Redis's clock: it returns
+   due entries and pushes each one 60 seconds into the future (a lease), so two
+   pods never both claim an entry and a pod that dies mid-delete has the entry
+   retried after the lease.
+3. A delete that succeeds, or returns 404 (already gone), removes the entry. One
+   that fails (403, or 5xx beyond the retry helper's own retries) stays leased and
+   is retried after the lease, up to 5 claims, then dropped with an error log.
+   An explicit `delete_message` for the same message cancels its entry.
+
+Deletes land within about one sweep interval of their due time, not on the exact
+second. The only window that can still lose a delete is a crash between Discord
+returning the new message id and the schedule write.
 
 ## Using the dispatcher from a cog
 

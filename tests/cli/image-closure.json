@@ -237,6 +237,7 @@
         "discord_dispatcher.utils",
         "discord_dispatcher.utils.discord_retry",
         "discord_dispatcher.workers",
+        "discord_dispatcher.workers.delete_schedule",
         "discord_dispatcher.workers.message_dispatcher"
       ]
     },

@@ -32,6 +32,7 @@ from discord_core.utils.common import GeneralConfig
 
 from discord_core.workers.redis_queues import RedisBundleStore, RedisWorkQueue
 
+from discord_dispatcher.workers.delete_schedule import RedisDeleteSchedule
 from discord_dispatcher.servers.dispatch_health_server import DispatchHealthServer
 from discord_dispatcher.servers.dispatch_server import DispatchHttpServer
 from discord_dispatcher.workers.message_dispatcher import MessageDispatcher
@@ -98,7 +99,9 @@ def run(settings: dict, general_config: GeneralConfig):
     work_queue = RedisWorkQueue(redis_manager, shard_id, process_id)
 
     bot = build_bot(general_config)
-    dispatcher = MessageDispatcher(bot, settings, bundle_store=bundle_store, work_queue=work_queue)
+    delete_schedule = RedisDeleteSchedule(redis_manager)
+    dispatcher = MessageDispatcher(bot, settings, bundle_store=bundle_store, work_queue=work_queue,
+                                   delete_schedule=delete_schedule)
 
     cfg = settings.get('general', {}).get('dispatch_server', {})
     # bandit B104: '0.0.0.0' default is intentional — bot pods reach the dispatcher across the docker/k8s network; override via dispatch_server.host config

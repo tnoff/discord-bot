@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import redis
 
-from discord.errors import NotFound
+from discord.errors import DiscordServerError, Forbidden, NotFound
 
 from discord_core.exceptions import CogMissingRequiredArg
 from discord_core.utils.loop_health import LOOP_HEALTH
@@ -18,22 +18,24 @@ from discord_core.types.dispatch_request import (
 from discord_core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 from discord_core.types.fetched_message import FetchedMessage
 
+from discord_dispatcher.workers.delete_schedule import PendingDelete, delete_member
 from discord_dispatcher.workers.message_dispatcher import (
     MessageDispatcher, MessageMutableBundle, MessageContext, DispatchPriority,
     LOOP_MESSAGE_DISPATCHER,
 )
 
-from tests.fakes.asyncio_queues import AsyncioBundleStore, AsyncioWorkQueue
+from tests.fakes.asyncio_queues import AsyncioBundleStore, AsyncioDeleteSchedule, AsyncioWorkQueue
 from tests.helpers import (
     fake_bot_yielder, FakeChannel, FakeGuild, FakeMessage, FakeResponse,
     generate_fake_context,
 )
 
 
-def make_dispatcher(channels=None, settings=None):
-    '''Return a fresh MessageDispatcher backed by AsyncioBundleStore + AsyncioWorkQueue.'''
+def make_dispatcher(channels=None, settings=None, delete_schedule=None):
+    '''Return a fresh MessageDispatcher backed by the Asyncio bundle store, work queue and delete schedule.'''
     bot = fake_bot_yielder(channels=channels or [])()
-    return MessageDispatcher(bot, settings or {}, AsyncioBundleStore(), AsyncioWorkQueue())
+    return MessageDispatcher(bot, settings or {}, AsyncioBundleStore(), AsyncioWorkQueue(),
+                             delete_schedule or AsyncioDeleteSchedule())
 
 
 async def drain_dispatcher(dispatcher, timeout=5.0):
@@ -73,6 +75,7 @@ def test_message_dispatcher_raises_when_disabled():
             {'general': {'include': {'message_dispatcher': False}}},
             AsyncioBundleStore(),
             AsyncioWorkQueue(),
+            AsyncioDeleteSchedule(),
         )
 
 
@@ -1730,3 +1733,309 @@ async def test_remove_mutable_logs_outcome(fake_context, caplog):  # pylint: dis
     assert 'found_bundle=True' in outcome[0]
     assert 'had_message_id=True' in outcome[0]
     assert 'tombstoned=True' in outcome[0]
+
+
+# ---------------------------------------------------------------------------
+# Delayed deletes (delete_after) are owned by the dispatcher, not discord.py
+# ---------------------------------------------------------------------------
+
+class FakeClock:
+    '''Movable "now" for AsyncioDeleteSchedule so a test can pass the due time without sleeping.'''
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+def make_scheduled_dispatcher(channel, clock=None, schedule=None):
+    '''A dispatcher on a movable clock; several can share one `schedule` to act as separate pods.'''
+    clock = clock or FakeClock()
+    schedule = schedule or AsyncioDeleteSchedule(clock=clock)
+    return make_dispatcher(channels=[channel], delete_schedule=schedule), schedule, clock
+
+
+@pytest.mark.asyncio
+async def test_send_with_delete_after_is_scheduled_not_handed_to_discord(fake_context, mocker):  # pylint: disable=redefined-outer-name
+    '''A plain send keeps discord.py out of the delete: no delete_after kwarg, a schedule entry instead.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    send = mocker.spy(channel, 'send')
+    dispatcher, schedule, _clock = make_scheduled_dispatcher(channel)
+
+    await dispatcher.start()
+    dispatcher.send_message(guild_id, channel.id, 'bye', delete_after=300)
+    await drain_dispatcher(dispatcher)
+    await dispatcher.stop()
+
+    assert 'delete_after' not in send.call_args.kwargs
+    assert schedule.pending() == {delete_member(guild_id, channel.id, channel.messages[0].id)}
+
+
+@pytest.mark.asyncio
+async def test_send_without_delete_after_schedules_nothing(fake_context):  # pylint: disable=redefined-outer-name
+    '''A send with no delete_after leaves the schedule empty.'''
+    channel = fake_context['channel']
+    dispatcher, schedule, _clock = make_scheduled_dispatcher(channel)
+
+    await dispatcher.start()
+    dispatcher.send_message(fake_context['guild'].id, channel.id, 'stays')
+    await drain_dispatcher(dispatcher)
+    await dispatcher.stop()
+
+    assert schedule.pending() == set()
+
+
+@pytest.mark.asyncio
+async def test_send_swallowed_404_schedules_nothing(fake_context):  # pylint: disable=redefined-outer-name
+    '''allow_404 sends that come back False (no message) have nothing to schedule.'''
+    channel = fake_context['channel']
+    dispatcher, schedule, _clock = make_scheduled_dispatcher(channel)
+    channel.send = AsyncMock(side_effect=NotFound(FakeResponse(), 'gone'))
+
+    await dispatcher._process_send({  # pylint: disable=protected-access
+        'guild_id': fake_context['guild'].id, 'channel_id': channel.id, 'content': 'x',
+        'delete_after': 5, 'allow_404': True,
+    })
+
+    assert schedule.pending() == set()
+
+
+@pytest.mark.asyncio
+async def test_ephemeral_bundle_messages_are_scheduled(fake_context, mocker):  # pylint: disable=redefined-outer-name
+    '''A bundle sent with delete_after has every message scheduled, even though the bundle itself is dropped.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    send = mocker.spy(channel, 'send')
+    dispatcher, schedule, _clock = make_scheduled_dispatcher(channel)
+
+    await dispatcher.start()
+    dispatcher.update_mutable(f'ephemeral-{guild_id}', guild_id, ['one', 'two'], channel.id,
+                              sticky=False, delete_after=300)
+    await drain_dispatcher(dispatcher)
+    await dispatcher.stop()
+
+    assert all('delete_after' not in call.kwargs for call in send.call_args_list)
+    assert schedule.pending() == {delete_member(guild_id, channel.id, m.id) for m in channel.messages}
+    assert len(schedule.pending()) == 2
+
+
+@pytest.mark.asyncio
+async def test_edit_with_delete_after_is_scheduled_not_handed_to_discord(fake_context):  # pylint: disable=redefined-outer-name
+    '''The final "Completed" edit of a live bundle schedules the delete instead of passing delete_after.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    key = f'bundle-{guild_id}'
+    dispatcher, schedule, _clock = make_scheduled_dispatcher(channel)
+
+    await dispatcher.start()
+    dispatcher.update_mutable(key, guild_id, ['working'], channel.id, sticky=False)
+    await drain_dispatcher(dispatcher)
+    message = channel.messages[0]
+    assert schedule.pending() == set()
+
+    message.edit = AsyncMock(wraps=message.edit)
+    dispatcher.update_mutable(key, guild_id, ['done'], channel.id, sticky=False, delete_after=300)
+    await drain_dispatcher(dispatcher)
+    await dispatcher.stop()
+
+    message.edit.assert_awaited_once_with(content='done')
+    assert schedule.pending() == {delete_member(guild_id, channel.id, message.id)}
+
+
+@pytest.mark.asyncio
+async def test_pending_delete_survives_dispatcher_replacement(fake_context):  # pylint: disable=redefined-outer-name
+    '''The #1115 scenario: the pod that posted is gone before the due time, another pod still deletes it.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    old_pod, schedule, clock = make_scheduled_dispatcher(channel)
+
+    await old_pod.start()
+    old_pod.send_message(guild_id, channel.id, 'Completed 20/20', delete_after=300)
+    await drain_dispatcher(old_pod)
+    await old_pod.stop()
+    message = channel.messages[0]
+
+    new_pod, _schedule, _clock = make_scheduled_dispatcher(channel, clock=clock, schedule=schedule)
+    clock.now += 299
+    await new_pod._sweep_due_deletes()  # pylint: disable=protected-access
+    assert message.deleted is False
+
+    clock.now += 2
+    await new_pod._sweep_due_deletes()  # pylint: disable=protected-access
+    assert message.deleted is True
+    assert schedule.pending() == set()
+
+
+@pytest.mark.asyncio
+async def test_two_pods_sweeping_delete_a_due_message_once(fake_context):  # pylint: disable=redefined-outer-name
+    '''Two dispatcher pods sweeping the same due entry perform one delete between them.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    message = FakeMessage(channel=channel)
+    channel.messages = [message]
+    pod_a, schedule, clock = make_scheduled_dispatcher(channel)
+    pod_b, _schedule, _clock = make_scheduled_dispatcher(channel, clock=clock, schedule=schedule)
+    await schedule.schedule(guild_id, channel.id, message.id, 10)
+    clock.now += 11
+    message.delete = AsyncMock()
+
+    await asyncio.gather(pod_a._sweep_due_deletes(), pod_b._sweep_due_deletes())  # pylint: disable=protected-access
+
+    message.delete.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_already_deleted_message_counts_as_success(fake_context):  # pylint: disable=redefined-outer-name
+    '''A 404 on the scheduled delete completes the entry; it is not retried.'''
+    channel = fake_context['channel']
+    dispatcher, schedule, clock = make_scheduled_dispatcher(channel)
+    channel.get_partial_message = MagicMock(
+        return_value=MagicMock(delete=AsyncMock(side_effect=NotFound(FakeResponse(), 'unknown message'))))
+    await schedule.schedule(1, channel.id, 3, 0)
+    clock.now += 1
+
+    await dispatcher._sweep_due_deletes()  # pylint: disable=protected-access
+
+    assert schedule.pending() == set()
+
+
+@pytest.mark.asyncio
+async def test_failed_delete_is_retried_after_lease_then_given_up(fake_context, caplog):  # pylint: disable=redefined-outer-name
+    '''A delete that keeps failing (403) is left leased for retry, then dropped and logged at the cap.'''
+    channel = fake_context['channel']
+    dispatcher, schedule, clock = make_scheduled_dispatcher(channel)
+    channel.get_partial_message = MagicMock(
+        return_value=MagicMock(delete=AsyncMock(side_effect=Forbidden(FakeResponse(), 'missing perms'))))
+    await schedule.schedule(1, channel.id, 3, 0)
+
+    for _attempt in range(4):
+        clock.now += 1000
+        await dispatcher._sweep_due_deletes()  # pylint: disable=protected-access
+        assert schedule.pending() == {delete_member(1, channel.id, 3)}
+
+    clock.now += 1000
+    with caplog.at_level('ERROR'):
+        await dispatcher._sweep_due_deletes()  # pylint: disable=protected-access
+
+    assert schedule.pending() == set()
+    assert 'giving up on scheduled delete of message 3' in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_server_error_survives_retry_helper_and_stays_scheduled(fake_context, mocker):  # pylint: disable=redefined-outer-name
+    '''A 5xx that outlasts the retry helper's own retries leaves the entry for the next claim.'''
+    channel = fake_context['channel']
+    dispatcher, schedule, clock = make_scheduled_dispatcher(channel)
+    mocker.patch('discord_core.utils.retry.async_sleep', new=AsyncMock())
+    channel.get_partial_message = MagicMock(
+        return_value=MagicMock(delete=AsyncMock(side_effect=DiscordServerError(FakeResponse(), 'boom'))))
+    await schedule.schedule(1, channel.id, 3, 0)
+    clock.now += 1
+
+    await dispatcher._sweep_due_deletes()  # pylint: disable=protected-access
+
+    assert schedule.pending() == {delete_member(1, channel.id, 3)}
+
+
+@pytest.mark.asyncio
+async def test_entry_claimed_past_the_cap_is_dropped_without_a_delete(fake_context, caplog):  # pylint: disable=redefined-outer-name
+    '''Claimers that keep dying mid-delete cannot loop an entry forever.'''
+    channel = fake_context['channel']
+    dispatcher, schedule, _clock = make_scheduled_dispatcher(channel)
+    channel.get_partial_message = MagicMock()
+    await schedule.schedule(1, channel.id, 3, 0)
+
+    with caplog.at_level('ERROR'):
+        await dispatcher._perform_scheduled_delete(  # pylint: disable=protected-access
+            PendingDelete(1, channel.id, 3, attempts=6))
+
+    channel.get_partial_message.assert_not_called()
+    assert schedule.pending() == set()
+    assert 'after 5 claims' in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_explicit_delete_cancels_the_pending_delete(fake_context):  # pylint: disable=redefined-outer-name
+    '''Deleting a message by hand drops its scheduled delete so it is not retried later.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    message = FakeMessage(channel=channel)
+    channel.messages = [message]
+    dispatcher, schedule, _clock = make_scheduled_dispatcher(channel)
+    await schedule.schedule(guild_id, channel.id, message.id, 300)
+
+    await dispatcher.start()
+    dispatcher.delete_message(guild_id, channel.id, message.id)
+    await drain_dispatcher(dispatcher)
+    await dispatcher.stop()
+
+    assert message.deleted is True
+    assert schedule.pending() == set()
+
+
+@pytest.mark.asyncio
+async def test_schedule_and_cancel_errors_are_swallowed(mocker):
+    '''A Redis error recording or cancelling a delete is logged, not raised into the worker.'''
+    dispatcher = make_dispatcher()
+    mocker.patch.object(dispatcher._delete_schedule, 'schedule', side_effect=Exception('redis down'))  # pylint: disable=protected-access
+    mocker.patch.object(dispatcher._delete_schedule, 'cancel', side_effect=Exception('redis down'))  # pylint: disable=protected-access
+    await dispatcher._schedule_delete(1, 2, 3, 10)  # pylint: disable=protected-access
+    await dispatcher._cancel_scheduled_delete(1, 2, 3)  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_sweeper_loop_runs_deletes_and_stops_with_dispatcher(fake_context, mocker):  # pylint: disable=redefined-outer-name
+    '''start() launches the sweeper, which deletes due messages on its own; stop() ends it.'''
+    channel = fake_context['channel']
+    message = FakeMessage(channel=channel)
+    channel.messages = [message]
+    mocker.patch('discord_dispatcher.workers.message_dispatcher._DELETE_SWEEP_INTERVAL_SECONDS', 0.01)
+    dispatcher, schedule, clock = make_scheduled_dispatcher(channel)
+    await schedule.schedule(fake_context['guild'].id, channel.id, message.id, 5)
+
+    await dispatcher.start()
+    await asyncio.sleep(0.05)
+    assert message.deleted is False
+    clock.now += 6
+    await asyncio.sleep(0.05)
+    assert message.deleted is True
+
+    sweeper = dispatcher._delete_sweeper_task  # pylint: disable=protected-access
+    await dispatcher.stop()
+    assert sweeper.done()
+    assert dispatcher._delete_sweeper_task is None  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_sweeper_loop_backs_off_and_continues_after_an_error(mocker, caplog):
+    '''A transient failure (e.g. Redis blip) is logged and the sweeper keeps going.'''
+    mocker.patch('discord_dispatcher.workers.message_dispatcher._WORKER_ERROR_BACKOFF_SECONDS', 0.01)
+    dispatcher = make_dispatcher()
+    sweep = mocker.patch.object(dispatcher, '_sweep_due_deletes',
+                                side_effect=[Exception('redis down'), None, None])
+
+    with caplog.at_level('ERROR'):
+        await dispatcher.start()
+        await asyncio.sleep(0.05)
+        await dispatcher.stop()
+
+    assert sweep.await_count >= 2
+    assert 'delete sweeper error' in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_delete_after_is_logged_on_enqueue(fake_context, caplog):  # pylint: disable=redefined-outer-name
+    '''The enqueue debug lines carry delete_after so a missed delete is provable from logs.'''
+    channel = fake_context['channel']
+    guild_id = fake_context['guild'].id
+    dispatcher, _schedule, _clock = make_scheduled_dispatcher(channel)
+
+    with caplog.at_level('DEBUG'):
+        dispatcher.update_mutable('k', guild_id, ['x'], channel.id, delete_after=42)
+        dispatcher.send_message(guild_id, channel.id, 'x', delete_after=43)
+        await asyncio.sleep(0)
+
+    assert 'delete_after=42' in caplog.text
+    assert 'delete_after=43' in caplog.text
