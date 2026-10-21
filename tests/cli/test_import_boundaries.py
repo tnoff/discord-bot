@@ -46,7 +46,7 @@ import re
 import pytest
 
 from tests.cli._image_deps import (
-    ALL_SIX, CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, IMAGE_NAMES, NOT_YET_SPLIT,
+    ALL_IMAGES, CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, IMAGE_NAMES, NOT_YET_SPLIT,
     REPO_ROOT, PACKAGE, VOCABULARY,
     codeless_inits, declared_home, declared_scripts, dockerfile_copy_roots, layout_violations,
     measure, measured_owners, render_closure,
@@ -159,7 +159,7 @@ def test_every_module_lives_where_its_closure_says():
     where the client Protocol was meant.
     """
     owners = measured_owners()
-    exempt = codeless_inits(owners)
+    exempt = codeless_inits(owners) | SHIPS_AHEAD_OF_CONSUMER
 
     # Both populations are asserted before the rule runs, because this check is
     # two filters deep and either one swallowing everything would leave it
@@ -191,13 +191,13 @@ def test_a_misplaced_module_is_actually_caught():
     against the live tree can only be observed passing.
     """
     images = sorted(short for short in (n.replace('discord-', '') for n in IMAGE_NAMES.values()))
-    assert len(images) == 6, f'expected six images, found {images}'
+    assert len(images) == 7, f'expected seven images, found {images}'
     all_six = set(images)
 
     # A core module reached by ONE image. Five-of-six used to be the violation
     # here; it is deliberately legal now -- core means shared, not all-six, and
-    # ALL_SIX is what guards the fanout instead. See
-    # test_the_all_six_set_is_exactly_declared.
+    # ALL_IMAGES is what guards the fanout instead. See
+    # test_the_all_images_set_is_exactly_declared.
     cases = {
         f'{PACKAGE}.core.thing': {'bot'},
         f'{PACKAGE}.services.bot.thing': {'bot', 'downloader'},
@@ -407,24 +407,26 @@ def test_image_closure_is_current():
     )
 
 
-def test_ships_ahead_modules_are_still_unconsumed():
+def test_ships_ahead_modules_are_not_yet_shared():
     '''
-    Every module exempted as "ships ahead of its consumer" exists and is still reached by no image.
+    Every module exempted as "ships ahead of its consumers" exists and is still reached by fewer than two images.
 
-    The exemption is for the window between a core contract merging and the first pod importing it.
-    Once an entrypoint reaches the module the ordinary check covers it, and leaving it listed would
-    keep a stale exemption that hides a future orphan, so this fails and the entry comes out.
+    The exemption is for a core contract between merging and its second consumer: reached by no image
+    (the gateway has not imported it yet) or by one (the commands pod serves it, the gateway has not
+    imported it yet). Both break a rule that is right for everything else, the orphan check and "a core
+    module one image reaches belongs in that pod". Once two images reach it the ordinary rules cover it,
+    and leaving it listed would keep a stale exemption that hides a future violation, so this fails and
+    the entry comes out.
     '''
     closure = json.loads(CLOSURE_DOC.read_text(encoding='utf-8'))
-    claimed = set().union(*(set(image['modules']) for image in closure['images']))
     on_disk = {str(path.relative_to(REPO_ROOT).with_suffix('')).replace('/', '.')
                for path in source_files(REPO_ROOT)}
     assert SHIPS_AHEAD_OF_CONSUMER <= on_disk, (
         f'listed but not on disk, remove from SHIPS_AHEAD_OF_CONSUMER: '
         f'{sorted(SHIPS_AHEAD_OF_CONSUMER - on_disk)}')
-    consumed = SHIPS_AHEAD_OF_CONSUMER & claimed
-    assert not consumed, (
-        f'now reached by an entrypoint, remove from SHIPS_AHEAD_OF_CONSUMER: {sorted(consumed)}')
+    shared = sorted(module for module in SHIPS_AHEAD_OF_CONSUMER
+                    if sum(module in image['modules'] for image in closure['images']) >= 2)
+    assert not shared, f'now reached by two or more images, remove from SHIPS_AHEAD_OF_CONSUMER: {shared}'
 
 
 def test_every_module_is_claimed_by_some_image():
@@ -453,7 +455,7 @@ def test_every_module_is_claimed_by_some_image():
     )
 
 
-def test_the_all_six_set_is_exactly_declared():
+def test_the_all_images_set_is_exactly_declared():
     '''
     The fanout guard that replaced `core means all six`.
 
@@ -476,12 +478,12 @@ def test_the_all_six_set_is_exactly_declared():
     measured = {canonical(m) for m, images in owners.items()
                 if len(images) == len(IMAGE_NAMES) and m not in exempt}
     assert measured, 'nothing is reached by all six -- the measurement is broken, not the tree'
-    assert measured == set(ALL_SIX), (
+    assert measured == set(ALL_IMAGES), (
         'the all-six set moved:\n'
-        f'  arrived: {sorted(measured - set(ALL_SIX))}\n'
-        f'  left:    {sorted(set(ALL_SIX) - measured)}\n'
+        f'  arrived: {sorted(measured - set(ALL_IMAGES))}\n'
+        f'  left:    {sorted(set(ALL_IMAGES) - measured)}\n'
         'Every module here rebuilds all six images on every change. Update '
-        'ALL_SIX deliberately, not to make this pass.'
+        'ALL_IMAGES deliberately, not to make this pass.'
     )
 
 
@@ -531,7 +533,7 @@ def test_home_of_reads_both_spellings(module, home):
 def test_canonical_maps_every_measured_module_onto_a_criterion_8_root():
     '''Canonicalisation is total over the real tree, and stable.
 
-    Total, because `ALL_SIX` is written in the criterion 8 spelling and compared
+    Total, because `ALL_IMAGES` is written in the criterion 8 spelling and compared
     against canonicalised measurements -- a module that failed to map would be
     silently absent from that comparison rather than loudly wrong. Stable,
     because half the tree will already be in the target spelling partway through

@@ -1,0 +1,72 @@
+FROM python:3.15-slim-bookworm
+
+
+# Setup venv
+ENV APPDIR="/opt/packages/discord-bot"
+ENV WORKDIR="/opt/discord"
+ENV VENVDIR="/opt/discord-venv"
+ENV LOGFILE="/var/log/discord"
+
+# Setup installs and create directory structure
+RUN mkdir -p "${APPDIR}" "${WORKDIR}" "${LOGFILE}" \
+    "${WORKDIR}/cnf" "${WORKDIR}/downloads" "${WORKDIR}/db"
+
+# Create non-root user and group
+# Using UID/GID 1000 which is common for first user on many systems
+# Home directory is /opt/discord (the working directory)
+RUN groupadd -g 1000 discord && \
+    useradd -r -u 1000 -g discord -s /bin/bash -d /opt/discord discord
+
+# No alembic/ or alembic.ini: this image runs no migration, and shipping the files would let
+# `import alembic` succeed with the library absent (see Dockerfile.dispatcher).
+#
+# ---- dependency layer: keyed on pyproject.toml alone ----
+# VERSION is deliberately NOT copied here: it is bumped by essentially every change (the
+# changelog.d workflow), so including it would bust this layer and re-run the install for a
+# version string. setuptools will not build without a VERSION file in the package's own directory,
+# so a STUB package plus a placeholder VERSION satisfies it; the real one arrives in the source
+# layer below. Installing the stub pulls discord_core in from the pinned release tag named in
+# discord_commands' own pyproject.toml, not from this checkout.
+COPY discord_commands/pyproject.toml "${APPDIR}/discord_commands/pyproject.toml"
+
+# No git needed: the pod's dependencies have no `git+https` VCS dep yet. The command logic's
+# (dappertable, beautifulsoup4) arrive with the logic and will change this layer then.
+RUN mkdir -p "${APPDIR}/discord_commands" && \
+    : > "${APPDIR}/discord_commands/__init__.py" && \
+    echo "0.0.0" > "${APPDIR}/discord_commands/VERSION" && \
+    pip install "${APPDIR}/discord_commands" && \
+    pip uninstall -y discord-commands
+
+# ---- source layer: the actual package ----
+# --no-deps because the layer above already resolved every third-party requirement, discord_core
+# included. The stub is UNINSTALLED up there rather than overwritten here: leaving it produced both
+# a 0.0.0 dist-info and the real one, and importlib.metadata.version() resolved to the 0.0.0.
+COPY discord_commands/ "${APPDIR}/discord_commands/"
+RUN pip install --no-deps "${APPDIR}/discord_commands"
+
+# Set ownership of directories that need to be writable by the discord user
+# Must be done BEFORE switching to discord user
+RUN chown -R discord:discord "${WORKDIR}" "${LOGFILE}"
+
+# Route through the shared entrypoint. DISCORD_BOT_CMD selects the discord-commands console script.
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+ENV DISCORD_BOT_CMD=discord-commands
+
+EXPOSE 8080 8086
+
+WORKDIR "/opt/discord"
+
+# Switch to non-root user for runtime
+USER discord
+
+# Make sure cache dir exists
+RUN mkdir -p /opt/discord/.cache
+
+# Probe the commands HTTP server (port 8086), the API the gateway calls. The /health endpoint on
+# port 8080 only reports that the process is up, and starts listening before the server does.
+HEALTHCHECK --interval=60s --timeout=10s --start-period=30s --retries=3 \
+  CMD python3 -c "import socket; socket.create_connection(('localhost', 8086), timeout=5).close()"
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["/opt/discord/cnf/discord.cnf"]

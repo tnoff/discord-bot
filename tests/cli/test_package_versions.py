@@ -161,7 +161,7 @@ def test_list_all_names_every_package_without_a_diff(capsys):
     assert main(['--list-all']) == 0
     listed = capsys.readouterr().out.splitlines()
     assert listed == sorted(f'{root}/VERSION' for root in package_versions.PACKAGE_ROOTS.values())
-    assert len(listed) == 7
+    assert len(listed) == 8
     assert 'discord_core/VERSION' in listed
 
 

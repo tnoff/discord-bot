@@ -44,6 +44,9 @@ BUILT_CLIENTS = {
     # is a claim worth stating, and an absent key would read as an oversight.
     'discord-db': set(),
     'discord-dispatcher': set(),
+    # Serves the commands seam and calls nothing yet; its outbound clients (dispatcher, broker)
+    # arrive with the command logic.
+    'discord-commands': set(),
 }
 
 
@@ -99,6 +102,7 @@ def test_every_seam_resolves_to_a_serving_pod():
     '''
     assert serving_images() == {
         'broker': {'discord-broker': ''},
+        'commands': {'discord-commands': ''},
         'database': {'discord-db': ''},
         'dispatch': {'discord-dispatcher': ''},
         'media_search': {'discord-search': ''},

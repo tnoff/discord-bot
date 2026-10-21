@@ -149,7 +149,7 @@ composite app.
 
 #### Images that call no seam
 
-`discord-db`, `discord-dispatcher`.
+`discord-commands`, `discord-db`, `discord-dispatcher`.
 
 Serve-only pods. An image appearing here that should be calling something is the failure this doc makes visible.
 

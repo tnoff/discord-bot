@@ -176,6 +176,14 @@ Configure with:
                                        for a group with no store.
 ```
 
+### discord-commands
+
+```
+Configure with:
+    general.commands_server  — {host, port} for the HTTP server (default 0.0.0.0:8086)
+    general.monitoring       — optional OTLP / health-server config
+```
+
 <!-- END GENERATED(config-reference) -->
 
 ## Health Check
