@@ -241,3 +241,26 @@ def module_prefixes_for(kind: str, name: str | None = None) -> tuple:
         roots = [lookup[name]] if name in lookup else []
     legacy = f'{LEGACY_ROOT}.{kind}' + (f'.{name}' if name else '')
     return tuple(sorted(roots + [legacy]))
+
+
+# discord_core modules that ship BEFORE the code that imports them (#1030 Phase 2).
+#
+# Pods install discord_core from a released tag, so a pod cannot import a core module until that
+# module has been released, and the release has to be merged first. The commands contract is the
+# case: the gateway forwards through it and the commands pod serves it, and neither can import it
+# in the same change that adds it. Until the consumer lands the module is reachable from no
+# entrypoint, which `test_every_module_is_claimed_by_some_image` and `_affected_images` both treat
+# as a hard error (and rightly, for anything else).
+#
+# A listed module is exempt from both, and a change to one rebuilds every image, because it is core.
+# test_ships_ahead_modules_are_still_unconsumed fails as soon as an entrypoint reaches a listed
+# module, which is the signal to delete it from this set: it is a queue of contracts waiting for a
+# consumer, not a place for anything to live.
+SHIPS_AHEAD_OF_CONSUMER = frozenset({
+    'discord_core.clients.http_commands_client',
+    'discord_core.interfaces.commands_client',
+    'discord_core.routes.commands',
+    'discord_core.types.command_args',
+    'discord_core.types.command_envelope',
+    'discord_core.types.command_wire',
+})

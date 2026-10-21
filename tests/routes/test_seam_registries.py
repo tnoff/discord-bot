@@ -18,6 +18,7 @@ from discord_core.routes import database as database_routes
 from discord_core.routes import broker as broker_routes
 from discord_core.routes import queue_worker as queue_worker_routes
 from discord_core.routes import dispatch as dispatch_routes
+from discord_core.routes import commands as command_routes
 from discord_core.routes import gateway_intents as gateway_intent_routes
 from discord_core.routes import guild_queue as guild_queue_routes
 
@@ -75,7 +76,7 @@ def test_the_two_queue_worker_pods_do_not_overlap():
         queue_worker_routes.YTMUSIC.all
 
 @pytest.mark.parametrize('registry', [
-    broker_routes, database_routes, dispatch_routes, gateway_intent_routes, guild_queue_routes,
+    broker_routes, command_routes, database_routes, dispatch_routes, gateway_intent_routes, guild_queue_routes,
     media_search_routes, queue_worker_routes,
 ], ids=lambda r: r.__name__.rsplit('.', 1)[-1])
 def test_a_registry_declares_no_route_twice(registry):
@@ -203,6 +204,11 @@ def test_wire_paths_are_unchanged(seam, registry):
     '''A rename here is a cross-pod protocol change, not a refactor.'''
     actual = {f'{r.method} {r.template}' for r in registry.ALL}
     assert actual == EXPECTED_WIRE_PATHS[seam]
+
+
+def test_the_commands_route_is_one_parameterised_post():
+    '''One route for every command, so a new command is not a seam change (routes/commands.py).'''
+    assert [f'{r.method} {r.template}' for r in command_routes.ALL] == ['POST /commands/{command}']
 
 
 def test_database_wire_paths_are_unchanged():

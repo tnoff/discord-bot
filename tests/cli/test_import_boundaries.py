@@ -52,7 +52,7 @@ from tests.cli._image_deps import (
     measure, measured_owners, render_closure,
 )
 from tests.cli._roots import (
-    CORE_ROOT, LEGACY_ROOT, ROOTS, SERVICE_ROOTS,
+    CORE_ROOT, LEGACY_ROOT, ROOTS, SERVICE_ROOTS, SHIPS_AHEAD_OF_CONSUMER,
     canonical, home_of, source_files,
 )
 
@@ -407,6 +407,26 @@ def test_image_closure_is_current():
     )
 
 
+def test_ships_ahead_modules_are_still_unconsumed():
+    '''
+    Every module exempted as "ships ahead of its consumer" exists and is still reached by no image.
+
+    The exemption is for the window between a core contract merging and the first pod importing it.
+    Once an entrypoint reaches the module the ordinary check covers it, and leaving it listed would
+    keep a stale exemption that hides a future orphan, so this fails and the entry comes out.
+    '''
+    closure = json.loads(CLOSURE_DOC.read_text(encoding='utf-8'))
+    claimed = set().union(*(set(image['modules']) for image in closure['images']))
+    on_disk = {str(path.relative_to(REPO_ROOT).with_suffix('')).replace('/', '.')
+               for path in source_files(REPO_ROOT)}
+    assert SHIPS_AHEAD_OF_CONSUMER <= on_disk, (
+        f'listed but not on disk, remove from SHIPS_AHEAD_OF_CONSUMER: '
+        f'{sorted(SHIPS_AHEAD_OF_CONSUMER - on_disk)}')
+    consumed = SHIPS_AHEAD_OF_CONSUMER & claimed
+    assert not consumed, (
+        f'now reached by an entrypoint, remove from SHIPS_AHEAD_OF_CONSUMER: {sorted(consumed)}')
+
+
 def test_every_module_is_claimed_by_some_image():
     '''
     No first-party module is reachable from no entrypoint.
@@ -424,7 +444,7 @@ def test_every_module_is_claimed_by_some_image():
         module = str(path.relative_to(REPO_ROOT).with_suffix('')).replace('/', '.')
         if module.endswith('.__init__'):
             module = module[: -len('.__init__')]
-        if module not in claimed:
+        if module not in claimed and module not in SHIPS_AHEAD_OF_CONSUMER:
             orphans.append(module)
     assert not orphans, (
         f'modules no entrypoint reaches: {orphans}. They ship in every image and no '
