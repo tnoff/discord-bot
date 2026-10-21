@@ -251,6 +251,30 @@ jobs:
       oidc_exchange_client_secret: ${{ secrets.OIDC_EXCHANGE_CLIENT_SECRET }}
       oci_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
 
+  push-commands:
+    name: Push commands image
+    needs: changes
+    if: >-
+      ${{ contains(fromJSON(needs.changes.outputs.images), 'commands')
+          && !startsWith(github.event.head_commit.message, 'docs: assemble changelog') }}
+    # Logs in to OCIR with a short-lived token from this job's GitHub OIDC identity, not a stored
+    # credential (tnoff/terraform#180). OCI maps this repo's push to main to a user that may push
+    # only this repo's OCIR repositories (terraform-admin ocir-pushers.tf).
+    permissions:
+      contents: read
+      id-token: write
+    uses: tnoff/github-workflows/.github/workflows/docker-push-oidc.yml@5a6f80dffddfa833301b438ec9b2052d7f2c24f2  # docker-push-oidc-v1.0.0
+    with:
+      oidc_exchange_domain_url: ${{ vars.OIDC_EXCHANGE_DOMAIN_URL }}
+      oidc_exchange_client_id: ${{ vars.OIDC_EXCHANGE_CLIENT_ID }}
+      registry: ${{ vars.OCI_REGISTRY }}
+      namespace: ${{ vars.OCI_NAMESPACE }}
+      repo_name: ${{ vars.OCI_REPO_NAME_COMMANDS }}
+      dockerfile: docker/Dockerfile.commands
+    secrets:
+      oidc_exchange_client_secret: ${{ secrets.OIDC_EXCHANGE_CLIENT_SECRET }}
+      oci_tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
+
   push-broker:
     name: Push broker image
     needs: changes
@@ -380,6 +404,18 @@ jobs:
       bump_source: discord-dispatcher
       image: ${{ needs.push-dispatcher.outputs.image }}
       image_tag: ${{ needs.push-dispatcher.outputs.secondary_tag }}
+    secrets:
+      app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
+      app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+
+  trigger-bump-commands:
+    name: Trigger docker-apps bump (commands)
+    needs: push-commands
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@c804443f159eee3ebaece0dc57174cfc3387f4b3  # trigger-bump-dispatch-v1.0.1
+    with:
+      bump_source: discord-commands
+      image: ${{ needs.push-commands.outputs.image }}
+      image_tag: ${{ needs.push-commands.outputs.secondary_tag }}
     secrets:
       app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
       app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}

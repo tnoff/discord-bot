@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "discord-commands"
+dynamic = ["version"]
+description = "discord-bot: runs the logic behind the gateway's commands (#1030)"
+authors = [
+    {name = "Tyler D. North", email = "me@tyler-north.com"},
+]
+requires-python = ">=3.13"
+# No discord.py: the pod never connects to Discord. It replies through the dispatcher pod, over
+# HTTP, like every other pod that is not the gateway. Dependencies the command logic needs
+# (dappertable, beautifulsoup4 for urban) arrive with the logic, one command group at a time.
+dependencies = [
+    # discord_core, pinned to a real released tag. All seven pods pin the IDENTICAL tag string;
+    # tests/cli/test_package_pins.py enforces that they never drift apart.
+    "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.7.0.tar.gz#subdirectory=discord_core",
+]
+
+[project.scripts]
+discord-commands = "discord_commands.cli.commands:main"
+
+[tool.setuptools.dynamic]
+version = {file = "VERSION"}
+
+[tool.setuptools.packages.find]
+where = [".."]
+include = ["discord_commands", "discord_commands.*"]
+# Excluded, not just left unmentioned: discord_commands/tests/ is a real, discoverable package (it
+# has __init__.py throughout, the same convention as the other pods), so the include globs above
+# would otherwise sweep it into this distribution.
+exclude = ["discord_commands.tests", "discord_commands.tests.*"]

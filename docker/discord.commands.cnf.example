@@ -1,0 +1,13 @@
+# Commands pod config — for docker/docker-compose.multiprocess.yml (commands service).
+# Entrypoint: discord-commands (cli.commands). No gateway connection and no Discord token;
+# only the CommandsHttpServer on :8086.
+general:
+  commands_server:
+    host: 0.0.0.0
+    port: 8086
+  monitoring:
+    otlp:
+      enabled: false
+    health_server:
+      enabled: true
+      port: 8080

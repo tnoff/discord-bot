@@ -84,6 +84,9 @@ IMAGE_IMPORTS = {
     # this image installs it and only this image ships the revisions, so this is
     # the one declaration that may name it.
     'discord_db.cli.database': frozenset({'sqlalchemy', 'alembic', 'dappertable'}),
+    # No third-party vocabulary package yet. The command logic's (dappertable, bs4) arrive with it,
+    # one command group at a time, and the declaration grows with them.
+    'discord_commands.cli.commands': frozenset(),
 }
 
 IMAGE_NAMES = {
@@ -93,6 +96,7 @@ IMAGE_NAMES = {
     'discord_downloader.cli.downloader': 'discord-downloader',
     'discord_search.cli.search': 'discord-search',
     'discord_db.cli.database': 'discord-db',
+    'discord_commands.cli.commands': 'discord-commands',
 }
 
 # The Dockerfile that builds each image. Declared here rather than in the CI
@@ -110,6 +114,7 @@ IMAGE_DOCKERFILES = {
     'discord_downloader.cli.downloader': 'docker/Dockerfile.downloader',
     'discord_search.cli.search': 'docker/Dockerfile.search',
     'discord_db.cli.database': 'docker/Dockerfile.db',
+    'discord_commands.cli.commands': 'docker/Dockerfile.commands',
 }
 
 
@@ -365,7 +370,9 @@ def _is_scaffolding(module: str) -> bool:
 NOT_YET_SPLIT = frozenset()
 
 
-#: Every module reached by ALL SIX images, excluding codeless package inits.
+#: Every module reached by EVERY image (all seven, since the commands pod), excluding codeless package inits.
+#: Four modules left it when that pod arrived because it does not reach them: cogs.music_helpers.common,
+#: types.media_request, types.search and utils.discord_utils. Leaving is the good direction.
 #:
 #: This is the guard that used to be implicit in "core means all six". Homing
 #: the last 25 modules on 2026-09-22 relaxed core to mean SHARED, which is the
@@ -385,18 +392,14 @@ NOT_YET_SPLIT = frozenset()
 #: new all-six dependency and should be argued for. One LEAVING is usually good
 #: news -- but drifting in unnoticed is exactly how `utils/otel.py` became a
 #: six-image rebuild trigger, and it took criterion 5 to get it back out.
-ALL_SIX = frozenset({
+ALL_IMAGES = frozenset({
     'discord_core.cli._lib.common',
-    'discord_core.cogs.music_helpers.common',
     'discord_core.cogs.schema',
     'discord_core.exceptions',
     'discord_core.routes.contract',
     'discord_core.routes.route',
     'discord_core.servers.health_server_base',
-    'discord_core.types.media_request',
-    'discord_core.types.search',
     'discord_core.utils.common',
-    'discord_core.utils.discord_utils',
     'discord_core.utils.gc_census',
     'discord_core.utils.loop_health',
     'discord_core.utils.memory_profiler',
@@ -458,7 +461,7 @@ def layout_violations(owners, exempt=()) -> list:
                 f'{module} is in {folder_of(module)}/ but only {sorted(images)} '
                 f'reaches it. The core is SHARED code -- a module exactly one image '
                 f'reaches is that pod\'s private code and belongs in its service '
-                f'folder. Note core no longer means all six: ALL_SIX is what guards '
+                f'folder. Note core no longer means all six: ALL_IMAGES is what guards '
                 f'the fanout this rule used to.'
             )
         elif kind == SERVICES_DIR and images != {name}:

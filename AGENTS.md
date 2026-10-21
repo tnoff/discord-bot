@@ -10,10 +10,10 @@ internals, etc.
 
 ## Where things live
 
-This repo is seven Python packages, not one. `discord_core` is the shared
-package every pod installs; the other six are the deployable pods
+This repo is eight Python packages, not one. `discord_core` is the shared
+package every pod installs; the other seven are the deployable pods
 (`discord_gateway`, `discord_dispatcher`, `discord_broker`, `discord_db`,
-`discord_downloader`, `discord_search`), each with its own `pyproject.toml`
+`discord_downloader`, `discord_search`, `discord_commands`), each with its own `pyproject.toml`
 and its own `dependencies`. There is no `discord_bot` import root any more —
 if you see one in an older doc, comment, or your own training data's
 assumptions about this repo, it's stale; check the current tree instead.
@@ -43,19 +43,19 @@ through the project venv. Same goes for pylint.
 
 ### Tests are per-package now — do not pass `tests/` to pytest
 
-Each of the seven packages has its own `tests/` tree
+Each of the eight packages has its own `tests/` tree
 (`discord_core/tests/`, `discord_gateway/tests/`, …), mirroring that
 package's own layout. Only genuinely cross-package tests (a real HTTP
 client in one package tested against a real server in another, the
 import-boundary/CI-build-filter checks) stay in the central `tests/` at
 repo root. Run pytest with **no path argument** — bare `pytest --cov ...`
 from repo root, exactly as `tox.ini` does. Passing `tests/` explicitly
-collects only the central tree and silently skips the other six; this
+collects only the central tree and silently skips the other seven; this
 already broke CI once (PR #1005) before the invocation was fixed.
 Similarly, `pip install -e .` alone only installs the root project's `test`
 extra — you also need each package you're touching installed, e.g.
 `pip install -e ./discord_core -e ./discord_gateway ...` (see
-`tox.ini`'s `deps =` for the full list, or install all seven if unsure).
+`tox.ini`'s `deps =` for the full list, or install all eight if unsure).
 
 ### `MessageDispatcher` is a separate pod, not a cog
 
@@ -142,7 +142,7 @@ task is live and `0` when it's done. New metric names go into
 
 ## Project layout
 
-Seven top-level packages, each with its own `pyproject.toml` and its own
+Eight top-level packages, each with its own `pyproject.toml` and its own
 `tests/` (mirroring that package's own layout — see "Tests are per-package
 now" below). No single tree to walk any more; a per-package summary, not a
 full file listing (that goes stale the moment a file moves — check the real
@@ -183,8 +183,13 @@ hand-maintained list here):
 - **`discord_search/`** — the `discord-search` pod: media-search + YouTube
   Music search. `clients/media_search_client.py`,
   `workers/youtube_music_search_driver.py`.
+- **`discord_commands/`** — the `discord-commands` pod (#1030 Phase 2): runs
+  the logic behind the gateway's commands. `servers/commands_server.py` serves
+  `POST /commands/{command}`; `workers/command_executor.py` is the per-guild
+  FIFO with `request_id` dedup; `handlers.py` is the command registry (empty
+  until the logic moves in, one command group at a time).
 
-Central `tests/`, `docs/`, `alembic/`, `docker/` sit alongside the seven
+Central `tests/`, `docs/`, `alembic/`, `docker/` sit alongside the eight
 packages at the repo root, shared across all of them.
 
 ## Things to keep doing

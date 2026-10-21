@@ -30,7 +30,7 @@ both can read has to cost nothing to import.
 NORMALISE TOWARD THE TARGET, NOT AWAY FROM IT
 ---------------------------------------------
 `canonical()` maps either spelling onto the criterion 8 one, so declared
-constants like `ALL_SIX` are written in their FINAL form now and the tree is
+constants like `ALL_IMAGES` are written in their FINAL form now and the tree is
 what moves to meet them. The other direction would work equally well today and
 leave a rewrite plus a direction flip to do at the end. Here the end state is
 already written, and finishing the migration means deleting `LEGACY_ROOT` and
@@ -74,12 +74,13 @@ SERVICE_ROOTS = {
     'dispatcher': 'discord_dispatcher',
     'downloader': 'discord_downloader',
     'search': 'discord_search',
+    'commands': 'discord_commands',
 }
 
 #: Every legal top-level import root, both spellings at once.
 #:
 #: Checked for EQUALITY against the packages actually on disk, the same idiom as
-#: ALL_SIX and IMAGE_IMPORTS. That equality is what keeps the silent under-build
+#: ALL_IMAGES and IMAGE_IMPORTS. That equality is what keeps the silent under-build
 #: shut: a root that appears in the tree without being declared here is not
 #: recognised by `module_for`, so files under it would contribute no images --
 #: and the test fails instead.
@@ -243,19 +244,19 @@ def module_prefixes_for(kind: str, name: str | None = None) -> tuple:
     return tuple(sorted(roots + [legacy]))
 
 
-# discord_core modules that ship BEFORE the code that imports them (#1030 Phase 2).
+# discord_core modules that ship ahead of their consumers (#1030 Phase 2): reached by fewer than two images.
 #
 # Pods install discord_core from a released tag, so a pod cannot import a core module until that
 # module has been released, and the release has to be merged first. The commands contract is the
-# case: the gateway forwards through it and the commands pod serves it, and neither can import it
-# in the same change that adds it. Until the consumer lands the module is reachable from no
-# entrypoint, which `test_every_module_is_claimed_by_some_image` and `_affected_images` both treat
-# as a hard error (and rightly, for anything else).
+# case: the commands pod serves it and the gateway forwards through it, and neither can import it in
+# the change that adds it. Until the second consumer lands the module is reached by no image or by
+# one, which `test_every_module_is_claimed_by_some_image`, `_affected_images` and the core-is-shared
+# layout rule all treat as a violation (and rightly, for anything else).
 #
-# A listed module is exempt from both, and a change to one rebuilds every image, because it is core.
-# test_ships_ahead_modules_are_still_unconsumed fails as soon as an entrypoint reaches a listed
+# A listed module is exempt from all three, and a change to one rebuilds every image, because it is
+# core. test_ships_ahead_modules_are_not_yet_shared fails as soon as two images reach a listed
 # module, which is the signal to delete it from this set: it is a queue of contracts waiting for a
-# consumer, not a place for anything to live.
+# second consumer, not a place for anything to live.
 SHIPS_AHEAD_OF_CONSUMER = frozenset({
     'discord_core.clients.http_commands_client',
     'discord_core.interfaces.commands_client',

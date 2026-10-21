@@ -19,16 +19,16 @@ brew install ffmpeg
 
 ## Installation
 
-This repo is seven Python packages — `discord_core` (shared by every pod)
+This repo is eight Python packages — `discord_core` (shared by every pod)
 plus one per pod (`discord_gateway`, `discord_dispatcher`, `discord_broker`,
-`discord_db`, `discord_downloader`, `discord_search`), each with its own
+`discord_db`, `discord_downloader`, `discord_search`, `discord_commands`), each with its own
 `pyproject.toml` and its own real `dependencies`. There is no single-package
 `.[bot,search,test]`-style extra any more; the root `pyproject.toml` only
 holds the `test` extra and installs no production code of its own
 (`packages = []`).
 
 Use a virtualenv. Editable install every package you need, plus the root's
-`test` extra — if in doubt, install all seven (this is what `tox.ini`'s
+`test` extra — if in doubt, install all eight (this is what `tox.ini`'s
 `deps =` does, and what the full test suite needs regardless of which pod
 you're actually changing):
 
@@ -37,7 +37,7 @@ virtualenv venv
 source venv/bin/activate
 pip install -e ./discord_core -e ./discord_gateway -e ./discord_broker \
             -e ./discord_db -e ./discord_dispatcher -e ./discord_downloader \
-            -e ./discord_search -e ".[test]"
+            -e ./discord_search -e ./discord_commands -e ".[test]"
 ```
 
 Each package's own `pyproject.toml` documents what it depends on and why
@@ -48,7 +48,7 @@ OTel stack, boto3, etc.).
 
 ### Per-package versions
 
-Each of the seven packages has its own `VERSION` file
+Each of the eight packages has its own `VERSION` file
 (`discord_core/VERSION`, `discord_gateway/VERSION`, …) and its own
 `CHANGELOG.md`. There is no repo-wide `VERSION`, `vX.Y.Z` tag or release: a
 package is released by its own `<short>-vX.Y.Z` tag (`core-v…`, `gateway-v…`),
@@ -85,7 +85,7 @@ database server and nothing to start before running it.
 discord-gateway /path/to/config.yml
 ```
 
-`discord-gateway` (`discord_gateway.cli.bot`) is one of six pods and will not
+`discord-gateway` (`discord_gateway.cli.bot`) is one of seven pods and will not
 start on its own — it hard-requires `general.dispatch_http_url` and
 `general.database_http_url` pointing at running `discord-dispatcher` and
 `discord-db` instances (see [docs/configuration.md](docs/configuration.md#database)
@@ -106,7 +106,7 @@ cross-package tests (a real HTTP client in one package tested against a real
 server in another, the CI import-boundary/build-filter checks) live in the
 central `tests/` at repo root. **Run pytest with no path argument** — passing
 `tests/` explicitly collects only the central tree and silently skips the
-other six (this broke CI once, PR #1005, before the invocation was fixed):
+other seven (this broke CI once, PR #1005, before the invocation was fixed):
 
 ```bash
 venv/bin/pytest -q                                   # full suite, every package

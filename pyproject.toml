@@ -121,6 +121,7 @@ omit = [
     "discord_dispatcher/tests/*",
     "discord_downloader/tests/*",
     "discord_search/tests/*",
+    "discord_commands/tests/*",
     "alembic/*",
     ".tox/*",
     ".venv/*",
