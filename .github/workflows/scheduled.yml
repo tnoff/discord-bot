@@ -14,7 +14,7 @@ permissions:
 jobs:
   renovate:
     name: Renovate
-    uses: tnoff/github-workflows/.github/workflows/renovate.yml@13951335d647f8695798ed44c8c756f0d6558bad  # renovate-v1.1.2
+    uses: tnoff/github-workflows/.github/workflows/renovate.yml@e56cf84573df481eed0ffb0dcfa9768fa867470b  # renovate-v1.1.4
     secrets:
       app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
       app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}

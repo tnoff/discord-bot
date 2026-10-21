@@ -108,7 +108,7 @@ jobs:
     name: Assemble changelog
     permissions:
       contents: write
-    uses: tnoff/github-workflows/.github/workflows/assemble-changelog.yml@93f9034849dfd1d98ed72629241a503d29842205  # assemble-changelog-v1.1.0
+    uses: tnoff/github-workflows/.github/workflows/assemble-changelog.yml@c804443f159eee3ebaece0dc57174cfc3387f4b3  # assemble-changelog-v1.1.1
     with:
       version_files_command: python3 -m tests.cli._package_versions --list-all
     secrets:
@@ -163,7 +163,7 @@ jobs:
 
       - name: Mint app token
         id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
         with:
           client-id: ${{ secrets.CI_APP_CLIENT_ID }}
           private-key: ${{ secrets.CI_APP_PRIVATE_KEY }}
@@ -363,7 +363,7 @@ jobs:
   trigger-bump-gateway:
     name: Trigger docker-apps bump (gateway)
     needs: push-gateway
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # trigger-bump-dispatch-v1.0.0
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@c804443f159eee3ebaece0dc57174cfc3387f4b3  # trigger-bump-dispatch-v1.0.1
     with:
       bump_source: discord-gateway
       image: ${{ needs.push-gateway.outputs.image }}
@@ -375,7 +375,7 @@ jobs:
   trigger-bump-dispatcher:
     name: Trigger docker-apps bump (dispatcher)
     needs: push-dispatcher
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # trigger-bump-dispatch-v1.0.0
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@c804443f159eee3ebaece0dc57174cfc3387f4b3  # trigger-bump-dispatch-v1.0.1
     with:
       bump_source: discord-dispatcher
       image: ${{ needs.push-dispatcher.outputs.image }}
@@ -387,7 +387,7 @@ jobs:
   trigger-bump-broker:
     name: Trigger docker-apps bump (broker)
     needs: push-broker
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # trigger-bump-dispatch-v1.0.0
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@c804443f159eee3ebaece0dc57174cfc3387f4b3  # trigger-bump-dispatch-v1.0.1
     with:
       bump_source: discord-broker
       image: ${{ needs.push-broker.outputs.image }}
@@ -399,7 +399,7 @@ jobs:
   trigger-bump-downloader:
     name: Trigger docker-apps bump (downloader)
     needs: push-downloader
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # trigger-bump-dispatch-v1.0.0
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@c804443f159eee3ebaece0dc57174cfc3387f4b3  # trigger-bump-dispatch-v1.0.1
     with:
       bump_source: discord-downloader
       image: ${{ needs.push-downloader.outputs.image }}
@@ -411,7 +411,7 @@ jobs:
   trigger-bump-search:
     name: Trigger docker-apps bump (search)
     needs: push-search
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # trigger-bump-dispatch-v1.0.0
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@c804443f159eee3ebaece0dc57174cfc3387f4b3  # trigger-bump-dispatch-v1.0.1
     with:
       bump_source: discord-search
       image: ${{ needs.push-search.outputs.image }}
@@ -432,7 +432,7 @@ jobs:
   trigger-bump-db:
     name: Trigger docker-apps bump (db)
     needs: push-db
-    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@adea087c43d56fd13d5b1abf2d5f2ba3e695784d  # trigger-bump-dispatch-v1.0.0
+    uses: tnoff/github-workflows/.github/workflows/trigger-bump-dispatch.yml@c804443f159eee3ebaece0dc57174cfc3387f4b3  # trigger-bump-dispatch-v1.0.1
     with:
       bump_source: discord-db
       image: ${{ needs.push-db.outputs.image }}
