@@ -8,6 +8,8 @@ names off it. Plain data, so it crosses the gateway-to-commands-pod boundary unc
 ``CommandEnvelopeBody`` is its wire form. The two are separate because the dataclass is immutable
 and holds ``author_role_ids`` as a tuple, which JSON cannot express.
 '''
+# pylint: disable=duplicate-code
+# (discord_gateway/command_logic/envelope.py is the same dataclass until the gateway imports this one.)
 from dataclasses import dataclass
 
 from pydantic import BaseModel
