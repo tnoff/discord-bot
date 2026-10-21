@@ -36,7 +36,7 @@ import subprocess  # nosec B404 - fixed argv, no shell, reads git metadata only
 import sys
 from pathlib import Path
 
-from tests.cli._roots import TESTS_DIR, root_of
+from tests.cli._roots import SHIPS_AHEAD_OF_CONSUMER, TESTS_DIR, root_of
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLOSURE_PATH = 'tests/cli/image-closure.json'
@@ -154,6 +154,10 @@ def affected(changed_files, deleted_files, head_closure, base_closure):
             owners = {image for image, mods in claims.items() if module in mods}
             if owners:
                 images |= owners
+            elif module in SHIPS_AHEAD_OF_CONSUMER:
+                # A core contract waiting for its consumer: no entrypoint reaches it yet, and it is
+                # core, so every image is affected. See _roots.SHIPS_AHEAD_OF_CONSUMER.
+                images |= every
             elif path in deleted:
                 # Deleted here: the images that carried it are the ones that changed.
                 # Falling back to every image when the base closure is unavailable

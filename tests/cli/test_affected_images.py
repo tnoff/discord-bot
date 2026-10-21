@@ -18,7 +18,7 @@ from tests.cli._affected_images import (
     affected, images_for_pyproject, module_for,
 )
 from tests.cli._image_deps import CLOSURE_DOC, REPO_ROOT
-from tests.cli._roots import LEGACY_ROOT, ROOTS
+from tests.cli._roots import LEGACY_ROOT, ROOTS, SHIPS_AHEAD_OF_CONSUMER
 
 
 CLOSURE = {'images': [
@@ -151,6 +151,17 @@ def test_unclaimed_module_is_an_orphan_not_an_empty_answer():
     images, orphans = _affected(['discord_bot/nowhere.py'])
     assert orphans == ['discord_bot/nowhere.py']
     assert images == set()
+
+
+def test_a_core_contract_waiting_for_its_consumer_builds_every_image_and_is_no_orphan():
+    '''
+    A module on the ships-ahead list is reached by no image yet, so it would be an orphan; it is
+    core, so the answer is every image instead of a failed build (_roots.SHIPS_AHEAD_OF_CONSUMER).
+    '''
+    module = sorted(SHIPS_AHEAD_OF_CONSUMER)[0]
+    images, orphans = _affected([module.replace('.', '/') + '.py'])
+    assert not orphans
+    assert images == {'bot', 'db'}
 
 
 def test_a_deleted_module_is_attributed_to_its_old_owners():
