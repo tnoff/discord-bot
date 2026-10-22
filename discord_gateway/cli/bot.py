@@ -138,21 +138,11 @@ def run(settings: dict, general_config: GeneralConfig):
     cog_list += load_cogs(bot, POSSIBLE_COGS, settings, stores, http_dispatcher)
 
     register_on_ready(bot, general_config, logger)
-    # The peers the music cog calls on every loop tick. Read from its config section so
-    # readiness probes exactly the URLs the clients use; a missing key just skips that probe.
-    music_settings = settings.get('music', {})
     # No client list: the dispatch client, the three stores and the music cog's
     # four all enrolled themselves at construction. See SeamClientRegistry.
     register_seam_checks(bot)
     run_bot(general_config, bot, cog_list,
-            health_server=setup_health_server(
-                bot, general_config,
-                dispatch_http_url=dispatch_http_url,
-                database_http_url=database_http_url,
-                broker_http_url=(music_settings.get('broker_client') or {}).get('url'),
-                download_http_url=(music_settings.get('download_client') or {}).get('url'),
-                search_http_url=(music_settings.get('youtube_music_search_client') or {}).get('url'),
-            ))
+            health_server=setup_health_server(bot, general_config))
 
 
 if __name__ == '__main__':  # pragma: no cover

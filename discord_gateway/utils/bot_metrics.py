@@ -16,9 +16,6 @@ from enum import Enum
 
 class BotMetricNaming(Enum):
     '''Metric names emitted by the bot process.'''
-    # The bot's probe of its peers. Not a pod reporting its own health -- that is
-    # pod_ready_check, which every pod emits and which therefore stays shared.
-    PEER_READY_CHECK = 'peer_ready_check'
     # One metric, two ways of counting the same thing, separated by `tracked_by`:
     # `player` counts MusicPlayer objects the cog holds, `voice_client` counts
     # discord.py's raw sockets. A socket with no player behind it is a stranded
