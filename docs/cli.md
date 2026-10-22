@@ -14,15 +14,16 @@ discord-gateway /path/to/config.yml
 
 The configuration file should be in YAML format. `discord_token` alone is not
 enough to start: `discord_gateway/cli/bot.py::run()` also hard-requires
-`dispatch_http_url` and `database_http_url` (pointing at the
-`discord-dispatcher` and `discord-db` pods) and raises `DiscordBotException`
-at startup if either is missing — there is no standalone mode.
+`dispatch_http_url`, `database_http_url` and `commands_http_url` (pointing at
+the `discord-dispatcher`, `discord-db` and `discord-commands` pods) and raises
+`DiscordBotException` at startup if any is missing — there is no standalone mode.
 
 ```yaml
 general:
   discord_token: YOUR_TOKEN_HERE
   dispatch_http_url: "http://dispatcher:8082"
   database_http_url: "http://db:8085"
+  commands_http_url: "http://commands:8086"
 ```
 
 See individual cog documentation for additional configuration options, and

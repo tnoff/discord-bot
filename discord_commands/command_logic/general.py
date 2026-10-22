@@ -1,15 +1,16 @@
 from random import randint
 from re import match
 
-from discord_gateway.command_logic.envelope import CommandEnvelope
-from discord_gateway.command_logic.reply import Reply
+from discord_core.types.command_envelope import CommandEnvelope
+
+from discord_commands.command_logic.reply import Reply
 
 ROLL_REGEX = r'^(?P<rolls>\d+)?([dD])?(?P<sides>\d+)'
 
 
 class GeneralCommands:
     '''
-    General use commands. Discord-free: see ``command_logic.envelope``.
+    General use commands. Discord-free: see ``discord_core.types.command_envelope``.
     '''
 
     def __init__(self, reply: Reply):

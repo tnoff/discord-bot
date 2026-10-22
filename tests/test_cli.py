@@ -69,6 +69,7 @@ async def test_run_config_only_token(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'commands_http_url': 'http://localhost:8086',
                 'database_http_url': 'http://localhost:8085',
             },
         }
@@ -92,6 +93,7 @@ async def test_run_config_reject_list(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'commands_http_url': 'http://localhost:8086',
                 'database_http_url': 'http://localhost:8085',
                 'rejectlist_guilds': [
                     fake_guild.id,
@@ -117,6 +119,7 @@ async def test_run_config_no_reject_list(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'commands_http_url': 'http://localhost:8086',
                 'database_http_url': 'http://localhost:8085',
             }
         }
@@ -139,6 +142,7 @@ async def test_run_config_with_intents(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'commands_http_url': 'http://localhost:8086',
                 'database_http_url': 'http://localhost:8085',
                 'intents': [
                     'members',
@@ -592,6 +596,7 @@ def test_main_runner_no_event_loop(mocker):
     '''main_runner falls through to asyncio.run (lines 318-319, 325-326) when no loop is running'''
     with NamedTemporaryFile(suffix='.yml') as temp_config:
         config_data = {'general': {'discord_token': 'foo', 'dispatch_http_url': 'http://localhost:8082',
+                                   'commands_http_url': 'http://localhost:8086',
                                       'database_http_url': 'http://localhost:8085'}}
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
@@ -633,6 +638,7 @@ async def test_main_with_otlp_enabled(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'commands_http_url': 'http://localhost:8086',
                 'database_http_url': 'http://localhost:8085',
                 'monitoring': {'otlp': {'enabled': True}},
             }
@@ -660,6 +666,7 @@ async def test_main_with_otlp_retired_filter_keys_ignored(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'commands_http_url': 'http://localhost:8086',
                 'database_http_url': 'http://localhost:8085',
                 'monitoring': {
                     'otlp': {
@@ -696,6 +703,7 @@ async def test_main_with_tracing_block(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'commands_http_url': 'http://localhost:8086',
                 'database_http_url': 'http://localhost:8085',
                 'monitoring': {
                     'otlp': {'enabled': True},
@@ -726,6 +734,7 @@ async def test_main_with_memory_profiling(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'commands_http_url': 'http://localhost:8086',
                 'database_http_url': 'http://localhost:8085',
                 'monitoring': {
                     'otlp': {'enabled': False},
@@ -751,6 +760,7 @@ async def test_main_with_process_metrics(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'commands_http_url': 'http://localhost:8086',
                 'database_http_url': 'http://localhost:8085',
                 'monitoring': {
                     'otlp': {'enabled': False},
@@ -777,6 +787,7 @@ async def test_main_with_health_server_monitoring(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'commands_http_url': 'http://localhost:8086',
                 'database_http_url': 'http://localhost:8085',
                 'monitoring': {
                     'otlp': {'enabled': False},
@@ -804,6 +815,7 @@ async def test_main_probes_the_music_peers_in_readiness(mocker):
             'general': {
                 'discord_token': 'foo',
                 'dispatch_http_url': 'http://localhost:8082',
+                'commands_http_url': 'http://localhost:8086',
                 'database_http_url': 'http://localhost:8085',
                 'monitoring': {
                     'otlp': {'enabled': False},
@@ -931,6 +943,23 @@ def test_bot_run_raises_when_database_http_url_missing():
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         assert 'database_http_url required' in str(result.exception)
+
+
+def test_bot_run_raises_when_commands_http_url_missing():
+    '''cli/bot.py run() refuses to start without the commands pod's URL.
+
+    The command stubs only forward, so a bot with nowhere to forward to would come up and answer
+    every command with "unavailable"; better to fail at startup.
+    '''
+    with NamedTemporaryFile(suffix='.yml') as temp_config:
+        config_data = {'general': {'discord_token': 'foo',
+                                   'dispatch_http_url': 'http://localhost:8082',
+                                   'database_http_url': 'http://localhost:8083'}}
+        with open(temp_config.name, 'w', encoding='utf-8') as writer:
+            dump(config_data, writer)
+        runner = CliRunner()
+        result = runner.invoke(main, [temp_config.name])
+        assert 'commands_http_url required' in str(result.exception)
 
 
 def test_dispatcher_run_raises_when_redis_url_missing():

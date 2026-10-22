@@ -25,14 +25,14 @@ MEASURED = measure_all()
 
 
 def test_a_document_exists_for_every_served_surface():
-    '''Six documents for five seams.
+    '''Seven documents for six seams.
 
     queue_worker is a route shape rather than a pod -- served at /downloads by the
     downloader and /search/ytmusic by the search pod, with disjoint route sets --
     so a per-SEAM file would describe two pods as one and leave neither accurate.
     '''
     assert set(MEASURED) == {document_name(surface) for surface, *_rest in SEAMS}
-    assert len(MEASURED) == 6
+    assert len(MEASURED) == 7
 
 
 @pytest.mark.parametrize('name', sorted(MEASURED))

@@ -30,7 +30,7 @@ from tests.cli._seam_topology import (
 # Adding a client to a pod means adding it here in the same commit.
 BUILT_CLIENTS = {
     'discord-gateway': {
-        'HttpBrokerClient', 'HttpDispatchClient', 'HttpDownloadClient',
+        'HttpBrokerClient', 'HttpCommandsClient', 'HttpDispatchClient', 'HttpDownloadClient',
         'HttpGuildAnalyticsStore', 'HttpMarkovStore', 'HttpMediaSearchClient',
         'HttpPlaylistStore', 'HttpYoutubeMusicSearchClient',
     },
@@ -44,9 +44,9 @@ BUILT_CLIENTS = {
     # is a claim worth stating, and an absent key would read as an oversight.
     'discord-db': set(),
     'discord-dispatcher': set(),
-    # Serves the commands seam and calls nothing yet; its outbound clients (dispatcher, broker)
-    # arrive with the command logic.
-    'discord-commands': set(),
+    # Serves the commands seam and replies through the dispatcher. The broker client arrives with
+    # the music commands.
+    'discord-commands': {'HttpDispatchClient'},
 }
 
 
@@ -72,7 +72,7 @@ def test_every_seam_declared_has_a_caller():
     seams = {client['seam']
              for clients in measure_all().values()
              for client in clients.values()}
-    assert seams == {'broker', 'database', 'dispatch', 'media_search', 'queue_worker'}
+    assert seams == {'broker', 'commands', 'database', 'dispatch', 'media_search', 'queue_worker'}
 
 
 def test_queue_worker_is_called_at_two_prefixes():

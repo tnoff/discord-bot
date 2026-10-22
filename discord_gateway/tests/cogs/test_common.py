@@ -4,12 +4,16 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import BaseModel
 
-from discord_core.exceptions import CogMissingRequiredArg
+from discord_core.clients.http_commands_client import HttpCommandsClient
+from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException
+from discord_core.interfaces.commands_client import CommandsUnavailable
 
 from discord_core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 
 from discord_gateway.clients.database_stores import DatabaseStores
-from discord_gateway.cogs.common import CogHelperBase, envelope_from_ctx
+from discord_gateway.cogs.common import (
+    COMMANDS_UNAVAILABLE_MESSAGE, CogHelperBase, build_commands_client, envelope_from_ctx,
+)
 
 from tests.helpers import fake_context  #pylint:disable=unused-import
 from tests.helpers import FakeMessage, FakeMessageDispatcher
@@ -244,3 +248,52 @@ def test_envelope_from_ctx_in_voice(fake_context):  #pylint:disable=redefined-ou
     assert env.author_voice_channel_id == 77
     assert env.author_voice_channel_name == 'music'
     assert env.author_voice_guild_id == 88
+
+
+# ---------------------------------------------------------------------------
+# build_commands_client / forward_command: hand a command to the commands pod
+# ---------------------------------------------------------------------------
+
+def test_build_commands_client_reads_the_url():
+    client = build_commands_client({'general': {'commands_http_url': 'http://commands:8086/'}})
+    assert isinstance(client, HttpCommandsClient)
+    assert client._base_url == 'http://commands:8086'  #pylint:disable=protected-access
+
+
+def test_build_commands_client_requires_the_url():
+    with pytest.raises(DiscordBotException, match='commands_http_url'):
+        build_commands_client({'general': {}})
+
+
+@pytest.mark.asyncio
+async def test_forward_command_sends_envelope_and_args(fake_context):  #pylint:disable=redefined-outer-name
+    cog = CogHelperBase(fake_context['bot'], {}, FakeMessageDispatcher(fake_context['bot']))
+    cog.commands_client = AsyncMock()
+    ctx = fake_context['context']
+    await cog.forward_command(ctx, 'roll', input_value='2d6')
+    cog.commands_client.forward.assert_awaited_once()
+    command, envelope, args = cog.commands_client.forward.await_args.args
+    assert (command, args) == ('roll', {'input_value': '2d6'})
+    assert envelope == envelope_from_ctx(ctx)
+    assert 'span_context' in cog.commands_client.forward.await_args.kwargs
+    assert not fake_context['channel'].messages_sent
+
+
+@pytest.mark.asyncio
+async def test_forward_command_tells_the_user_when_the_pod_is_unavailable(fake_context):  #pylint:disable=redefined-outer-name
+    cog = CogHelperBase(fake_context['bot'], {}, FakeMessageDispatcher(fake_context['bot']))
+    cog.commands_client = AsyncMock()
+    cog.commands_client.forward.side_effect = CommandsUnavailable('breaker is open')
+    await cog.forward_command(fake_context['context'], 'hello')
+    assert fake_context['channel'].messages_sent == [COMMANDS_UNAVAILABLE_MESSAGE]
+    cog.commands_client.forward.assert_awaited_once()  # not retried
+
+
+@pytest.mark.asyncio
+async def test_forward_command_lets_a_rejected_command_propagate(fake_context):  #pylint:disable=redefined-outer-name
+    cog = CogHelperBase(fake_context['bot'], {}, FakeMessageDispatcher(fake_context['bot']))
+    cog.commands_client = AsyncMock()
+    cog.commands_client.forward.side_effect = ValueError('bad args')
+    with pytest.raises(ValueError):
+        await cog.forward_command(fake_context['context'], 'hello')
+    assert not fake_context['channel'].messages_sent

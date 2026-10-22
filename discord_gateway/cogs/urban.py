@@ -4,8 +4,7 @@ from discord_core.exceptions import CogMissingRequiredArg
 
 from discord_core.clients.dispatch_client_base import DispatchClientBase
 
-from discord_gateway.cogs.common import CogHelperBase, envelope_from_ctx
-from discord_gateway.command_logic.urban import UrbanCommands
+from discord_gateway.cogs.common import CogHelperBase, build_commands_client
 from discord_gateway.utils.otel_command import command_wrapper
 
 
@@ -19,7 +18,7 @@ class UrbanDictionary(CogHelperBase):
         if not settings.get('general', {}).get('include', {}).get('urban', False):
             raise CogMissingRequiredArg('Urban not enabled')
         super().__init__(bot, settings, dispatcher, None, redis_manager=redis_manager)
-        self.logic = UrbanCommands(self.dispatch_message, self.logger)
+        self.commands_client = build_commands_client(settings)
 
     @command(name='urban')
     @command_wrapper
@@ -30,4 +29,4 @@ class UrbanDictionary(CogHelperBase):
         search: str [Required]
             The word or phrase to search in urban dictionary
         '''
-        return await self.logic.word_lookup(envelope_from_ctx(ctx), word)
+        await self.forward_command(ctx, 'urban', word=word)

@@ -1,11 +1,11 @@
 '''
-The six served surfaces of the five seams, and how to build each one.
+The seven served surfaces of the six seams, and how to build each one.
 
 Extracted so the registry/router drift test and the OpenAPI generator read ONE
 table. They ask the same question -- what does this server actually serve -- and
 two copies of the answer is the shape this whole project exists to remove.
 
-**Six entries for five seams.** `queue_worker` is a route shape rather than a
+**Seven entries for six seams.** `queue_worker` is a route shape rather than a
 pod: it is subclassed at `/downloads` on the downloader and `/search/ytmusic` on
 the search pod, with disjoint route sets. A table that walked the seam once would
 leave whichever pod it skipped entirely unchecked -- the gap the project spec's
@@ -23,6 +23,9 @@ from discord_core.routes import database as database_routes
 from discord_core.routes import broker as broker_routes
 from discord_core.routes import queue_worker as queue_worker_routes
 from discord_core.routes import dispatch as dispatch_routes
+from discord_core.routes import commands as command_routes
+
+from discord_commands.servers.commands_server import CommandsHttpServer
 
 from discord_db.servers.database_server import DatabaseHttpServer
 from discord_search.servers.media_search_server import MediaSearchHttpServer
@@ -53,6 +56,7 @@ def fully_configured_database():
 SEAMS = [
     ('broker', lambda: make_broker_http_server(AsyncioBroker()),
      broker_routes.ALL, 'discord-broker'),
+    ('commands', lambda: CommandsHttpServer(object()), command_routes.ALL, 'discord-commands'),
     ('database', fully_configured_database, database_routes.ALL, 'discord-db'),
     ('dispatch', lambda: DispatchHttpServer(object(), object()), dispatch_routes.ALL,
      'discord-dispatcher'),

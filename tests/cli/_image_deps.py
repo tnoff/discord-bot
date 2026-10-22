@@ -57,11 +57,11 @@ VOCABULARY = (
 # over-broad, where the image installs something nothing reaches any more. That
 # is how yt_dlp sat in [bot] after the download dual path was collapsed.
 IMAGE_IMPORTS = {
-    # bs4 is the urban cog's and stays; spotipy and googleapiclient left with the
-    # media_search cutover, and the forbidden set derived from VOCABULARY is now
-    # what stops them coming back through an import chain.
+    # bs4 left with urban's logic, which now runs in the commands pod (#1030); spotipy and
+    # googleapiclient left with the media_search cutover, and the forbidden set derived from
+    # VOCABULARY is what stops them coming back through an import chain.
     'discord_gateway.cli.bot': frozenset({
-        'discord', 'boto3', 'bs4', 'dappertable',
+        'discord', 'boto3', 'dappertable',
     }),
     # The strictest image. discord is here on its own merits, not by accident:
     # workers/message_dispatcher sends and edits real messages.
@@ -84,9 +84,9 @@ IMAGE_IMPORTS = {
     # this image installs it and only this image ships the revisions, so this is
     # the one declaration that may name it.
     'discord_db.cli.database': frozenset({'sqlalchemy', 'alembic', 'dappertable'}),
-    # No third-party vocabulary package yet. The command logic's (dappertable, bs4) arrive with it,
-    # one command group at a time, and the declaration grows with them.
-    'discord_commands.cli.commands': frozenset(),
+    # The command logic's vocabulary arrives with it, one command group at a time, and the
+    # declaration grows with them: urban's bs4 and dappertable (shorten_string).
+    'discord_commands.cli.commands': frozenset({'bs4', 'dappertable'}),
 }
 
 IMAGE_NAMES = {

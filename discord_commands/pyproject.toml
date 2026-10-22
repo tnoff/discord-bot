@@ -11,12 +11,15 @@ authors = [
 ]
 requires-python = ">=3.13"
 # No discord.py: the pod never connects to Discord. It replies through the dispatcher pod, over
-# HTTP, like every other pod that is not the gateway. Dependencies the command logic needs
-# (dappertable, beautifulsoup4 for urban) arrive with the logic, one command group at a time.
+# HTTP, like every other pod that is not the gateway. Dependencies the command logic needs arrive
+# with the logic, one command group at a time: beautifulsoup4 and dappertable (the same pin the
+# gateway uses) for urban.
 dependencies = [
     # discord_core, pinned to a real released tag. All seven pods pin the IDENTICAL tag string;
     # tests/cli/test_package_pins.py enforces that they never drift apart.
     "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.8.0.tar.gz#subdirectory=discord_core",
+    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.11.tar.gz",
+    "beautifulsoup4==4.15.0",
 ]
 
 [project.scripts]

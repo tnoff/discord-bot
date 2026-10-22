@@ -57,6 +57,8 @@ Configure with:
                                 DiscordBotException if missing)
     general.database_http_url — discord-db pod URL (required for HA bot mode —
                                 raises DiscordBotException if missing)
+    general.commands_http_url — Commands pod URL; the command stubs forward to it (required —
+                                raises DiscordBotException if missing)
     general.include           — which optional cogs to load (markov, urban, music,
                                 delete_messages default off; default and
                                 message_dispatcher default on) — see IncludeConfig
@@ -180,6 +182,8 @@ Configure with:
 
 ```
 Configure with:
+    general.dispatch_http_url — Dispatcher pod URL; every reply goes through it (required —
+                                raises DiscordBotException if missing)
     general.commands_server  — {host, port} for the HTTP server (default 0.0.0.0:8086)
     general.monitoring       — optional OTLP / health-server config
 ```

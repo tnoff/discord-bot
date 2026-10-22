@@ -3,15 +3,15 @@ from re import search
 from dappertable import DapperTable, Columns, Column, PaginationLength
 
 from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
+from discord_core.types.command_envelope import CommandEnvelope
 
-from discord_gateway.command_logic.envelope import CommandEnvelope
 from discord_gateway.command_logic.reply import Reply
 from discord_gateway.command_logic.role_gateway import MemberInfo, RoleGateway, RoleInfo
 
 
 class RoleCommands:
     '''
-    The ``!role`` subcommands. Discord-free: see ``command_logic.envelope``.
+    The ``!role`` subcommands. Discord-free: see ``discord_core.types.command_envelope``.
 
     ``settings`` is the validated role config keyed by integer guild id.
     '''

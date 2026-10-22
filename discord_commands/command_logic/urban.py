@@ -5,15 +5,16 @@ from bs4 import BeautifulSoup
 from dappertable import shorten_string
 from requests import get as requests_get
 
-from discord_gateway.command_logic.envelope import CommandEnvelope
-from discord_gateway.command_logic.reply import Reply
+from discord_core.types.command_envelope import CommandEnvelope
+
+from discord_commands.command_logic.reply import Reply
 
 BASE_URL = 'https://www.urbandictionary.com/'
 
 
 class UrbanCommands:
     '''
-    Urban dictionary lookups. Discord-free: see ``command_logic.envelope``.
+    Urban dictionary lookups. Discord-free: see ``discord_core.types.command_envelope``.
     '''
 
     def __init__(self, reply: Reply, logger: Logger):

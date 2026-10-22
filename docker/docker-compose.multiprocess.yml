@@ -75,6 +75,20 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # Runs the logic behind the commands the gateway forwards. No Discord token: it replies through
+  # the dispatcher. Only the command groups that have moved run here (#1030).
+  commands:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.commands
+    volumes:
+      - ../volumes/cnf/discord.commands.cnf:/opt/discord/cnf/discord.cnf:ro
+      - ../volumes/commands-logs:/var/log/discord
+    depends_on:
+      dispatcher:
+        condition: service_healthy
+    restart: unless-stopped
+
   broker:
     build:
       context: ..
@@ -204,6 +218,8 @@ services:
         condition: service_started
       dispatcher:
         condition: service_healthy
+      commands:
+        condition: service_started
       postgres:
         condition: service_healthy
       # No downloader entry: both flavours are profiled, and a profile-less

@@ -2,9 +2,9 @@ import logging
 
 import pytest
 
-from discord_gateway.command_logic.urban import UrbanCommands, BASE_URL
+from discord_commands.command_logic.urban import UrbanCommands, BASE_URL
 
-from discord_gateway.tests.command_logic.urban_data import HTML_DATA
+from discord_commands.tests.command_logic.urban_data import HTML_DATA
 
 
 @pytest.fixture

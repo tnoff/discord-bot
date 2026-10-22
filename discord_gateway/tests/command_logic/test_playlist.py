@@ -6,10 +6,10 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
+from discord_core.types.command_envelope import CommandEnvelope
 from discord_core.types.playlist import PlaylistItemWrite
 
 from discord_db.database import Playlist
-from discord_gateway.command_logic.envelope import CommandEnvelope
 from discord_gateway.command_logic.playlist import PlaylistCommands
 from tests.helpers import async_mock_session
 from tests.helpers import fake_engine, fake_context, fake_stores #pylint:disable=unused-import

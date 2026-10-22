@@ -6,9 +6,9 @@ from discord_core.clients.dispatch_client_base import DispatchClientBase
 from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.interfaces.database_protocols import GuildAnalyticsStore
+from discord_core.types.command_envelope import CommandEnvelope
 
 from discord_gateway.command_logic.enqueue import MediaEnqueuer
-from discord_gateway.command_logic.envelope import CommandEnvelope
 from discord_gateway.command_logic.player_gateway import PlayerGateway, PlayerStatus
 from discord_gateway.command_logic.playlist import PlaylistCommands
 
