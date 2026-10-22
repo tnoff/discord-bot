@@ -11,10 +11,10 @@ One route, not one per command, so adding a command changes `COMMAND_ARGS` and n
 unknown name or arguments that do not fit the command's model are a 422, which is a bug in the
 sender and never retried.
 
-DEFINED here as its own module, and not yet in any registry or client's `ROUTES_CALLED`, for the
-deploy-order reason routes/gateway_intents.py records: pods install a released discord_core, so the
-symbols ship first, the commands pod serves them next, and the change after that folds this
-registry into the seam check.
+This registry is `HttpCommandsClient.ROUTES_CALLED`, so the gateway's peer route check covers it. It
+shipped before that, for the deploy-order reason routes/gateway_intents.py records: pods install a
+released discord_core, so the symbols went first and the commands pod served them next. The pod
+has served the route since #1116.
 '''
 from discord_core.routes.route import Route, collect
 

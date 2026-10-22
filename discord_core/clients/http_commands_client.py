@@ -1,9 +1,9 @@
 '''
 HTTP client the gateway uses to forward commands to the commands pod (#1030, Phase 2).
 
-Routes are declared in routes/commands.py. They are not in `ROUTES_CALLED` yet, so the peer route
-check does not run for this client: it ships before the pod that serves the route exists, and the
-change that folds the registry in sets `ROUTES_CALLED` and the seam name's check goes live then.
+Routes are declared in routes/commands.py and are this client's `ROUTES_CALLED`, so the gateway
+checks that the commands pod advertises `POST /commands/{command}` the same way it checks the broker
+and dispatcher. The pod has served the route since the skeleton (#1116).
 
 Unlike the broker and dispatch clients this one does not use `HttpClientMixin._http`, because that
 retries transport errors with 1/2/4s backoff and a command is not idempotent. It makes one request
@@ -49,6 +49,7 @@ class HttpCommandsClient(HttpClientMixin):
 
     #: The seam this client speaks, for HttpClientMixin.start_seam_check.
     SEAM = 'commands'
+    ROUTES_CALLED = command_routes.ALL
 
     def __init__(self, base_url: str, session: aiohttp.ClientSession | None = None,
                  seam_contract=None):
