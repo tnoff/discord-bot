@@ -491,7 +491,7 @@ async def test_reserve_youtube_exit_sets_expiring_ttl():
 async def test_pool_mode_pop_does_not_claim_global_window():
     '''Pool mode pops a YouTube item without touching the pod-global :default window
     — that's what lets concurrent drivers pop in parallel instead of serialising.'''
-    w = _pool_worker(exits=('a', 'b'))
+    w = _pool_worker(exits=('us-lax-wg-001', 'us-lax-wg-002'))
     w._now_seconds = lambda: 1000.0
     await w._enqueue_request(7, _mk())
     popped = await w._atomic_pop_youtube()
@@ -502,9 +502,9 @@ async def test_pool_mode_pop_does_not_claim_global_window():
 @pytest.mark.asyncio
 async def test_soonest_exit_free_zero_when_any_exit_free():
     '''With any exit free the pod can pop now, so the backoff gate is 0.'''
-    w = _pool_worker(exits=('a', 'b'))
+    w = _pool_worker(exits=('us-lax-wg-001', 'us-lax-wg-002'))
     w._now_seconds = lambda: 1000.0
-    await w._manager.client.set(youtube_wait_until_key('a'), '1030.0')  # a busy, b free
+    await w._manager.client.set(youtube_wait_until_key('us-lax-wg-001'), '1030.0')  # lax-001 busy, lax-002 free
     assert await w._soonest_exit_free_seconds() == 0
     assert await w._effective_backoff_remaining() == 0
 
@@ -512,11 +512,11 @@ async def test_soonest_exit_free_zero_when_any_exit_free():
 @pytest.mark.asyncio
 async def test_soonest_exit_free_is_min_when_all_busy():
     '''When every exit is busy, the gate is the soonest one to free.'''
-    w = _pool_worker(exits=('a', 'b'))
+    w = _pool_worker(exits=('us-lax-wg-001', 'us-lax-wg-002'))
     w._now_seconds = lambda: 1000.0
-    await w._manager.client.set(youtube_wait_until_key('a'), '1050.0')
-    await w._manager.client.set(youtube_wait_until_key('b'), '1020.0')
-    assert await w._soonest_exit_free_seconds() == 20  # b frees first
+    await w._manager.client.set(youtube_wait_until_key('us-lax-wg-001'), '1050.0')
+    await w._manager.client.set(youtube_wait_until_key('us-lax-wg-002'), '1020.0')
+    assert await w._soonest_exit_free_seconds() == 20  # lax-002 frees first
     assert await w._effective_backoff_remaining() == 20
 
 
