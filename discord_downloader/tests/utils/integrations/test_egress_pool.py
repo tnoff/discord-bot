@@ -5,7 +5,7 @@ from discord_core.exceptions import DiscordBotException
 
 from discord_downloader.utils.integrations.egress_pool import (
     EGRESS_MODE_HTTP_PROXY, ExitClients, ExitPool, HttpProxyEgress, PoolEgress,
-    MullvadSocks5Resolver, build_exit_resolver, mullvad_socks5_endpoint,
+    ClusterSocks5Resolver, MullvadSocks5Resolver, build_exit_resolver, mullvad_socks5_endpoint,
 )
 
 
@@ -58,12 +58,41 @@ def test_build_exit_resolver_selects_mullvad_socks5():
     assert isinstance(build_exit_resolver('mullvad-socks5'), MullvadSocks5Resolver)
 
 
+def test_cluster_resolver_proxy_url():
+    '''The cluster resolver maps an exit to its per-exit port on the proxy Service.'''
+    resolver = ClusterSocks5Resolver('discord-vpn', {'us-lax-wg-001': 10001})
+    assert resolver.proxy_url('us-lax-wg-001') == 'socks5h://discord-vpn:10001'
+
+
+def test_cluster_resolver_unmapped_exit_raises():
+    '''An exit with no configured port fails loudly rather than guessing one.'''
+    with pytest.raises(DiscordBotException):
+        ClusterSocks5Resolver('discord-vpn', {}).proxy_url('us-lax-wg-001')
+
+
+def test_build_exit_resolver_selects_cluster_socks5():
+    '''egress_mode=cluster-socks5 builds the resolver from egress_proxy, ports as ints.'''
+    resolver = build_exit_resolver('cluster-socks5', {
+        'host': 'discord-vpn', 'exit_ports': {'us-lax-wg-001': '10001'}})
+    assert isinstance(resolver, ClusterSocks5Resolver)
+    assert resolver.proxy_url('us-lax-wg-001') == 'socks5h://discord-vpn:10001'
+
+
+@pytest.mark.parametrize('egress_proxy', [None, {}, {'host': 'discord-vpn'}, {'exit_ports': {'a': 1}}])
+def test_build_exit_resolver_cluster_requires_host_and_ports(egress_proxy):
+    '''A missing host or exit_ports fails at startup, naming the config block.'''
+    with pytest.raises(DiscordBotException) as exc:
+        build_exit_resolver('cluster-socks5', egress_proxy)
+    assert 'egress_proxy' in str(exc.value)
+
+
 def test_build_exit_resolver_unknown_mode_raises():
     '''An unknown egress_mode fails loudly, naming the known modes.'''
     with pytest.raises(DiscordBotException) as exc:
         build_exit_resolver('nordvpn-socks5')
     assert EGRESS_MODE_HTTP_PROXY in str(exc.value)
     assert 'mullvad-socks5' in str(exc.value)
+    assert 'cluster-socks5' in str(exc.value)
 
 
 # --------------------------------------------------------------------------- #

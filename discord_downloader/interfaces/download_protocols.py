@@ -224,6 +224,7 @@ class DownloadWorkerBase(ABC):
         retry_backoff_seconds_minimum: int = RETRY_BACKOFF_SECONDS_MINIMUM,
         egress_mode: str = EGRESS_MODE_HTTP_PROXY,
         egress_exits: List[str] | None = None,
+        egress_proxy: dict | None = None,
         suppress_egress_probe_auto_instrumentation: bool = True,
         suppress_download_readiness_auto_instrumentation: bool = True,
     ):
@@ -283,9 +284,14 @@ class DownloadWorkerBase(ABC):
         if egress_mode == EGRESS_MODE_HTTP_PROXY:
             self._egress: Egress = HttpProxyEgress(YoutubeDL(ytdlopts))
         else:
+            resolver = build_exit_resolver(egress_mode, egress_proxy)
+            # Resolve every exit now so a missing mapping fails at startup, not on
+            # the first download that happens to lease that exit.
+            for exit_name in egress_exits or []:
+                resolver.proxy_url(exit_name)
             self._egress = PoolEgress(
                 ExitPool(egress_exits or []),
-                ExitClients(ytdlopts, build_exit_resolver(egress_mode)),
+                ExitClients(ytdlopts, resolver),
             )
         self._broker = broker
         self._download_dir = download_dir

@@ -130,6 +130,24 @@ def test_worker_pool_mode_requires_exits():
         make_download_client(egress_mode='mullvad-socks5', egress_exits=[])
 
 
+def test_worker_cluster_mode_builds_pool_strategy():
+    '''cluster-socks5 is a pool strategy whose exits resolve through egress_proxy.'''
+    x = make_download_client(egress_mode='cluster-socks5',
+                             egress_exits=['us-lax-wg-001', 'us-nyc-wg-301'],
+                             egress_proxy={'host': 'discord-vpn', 'exit_ports': {
+                                 'us-lax-wg-001': 10001, 'us-nyc-wg-301': 10002}})
+    assert isinstance(x._egress, PoolEgress)
+
+
+def test_worker_cluster_mode_unmapped_exit_fails_at_construction():
+    '''An exit in the pool with no port fails at startup, not on its first lease.'''
+    with pytest.raises(DiscordBotException):
+        make_download_client(egress_mode='cluster-socks5',
+                             egress_exits=['us-lax-wg-001', 'us-nyc-wg-301'],
+                             egress_proxy={'host': 'discord-vpn',
+                                           'exit_ports': {'us-lax-wg-001': 10001}})
+
+
 def test_worker_unknown_egress_mode_raises():
     '''An unknown egress_mode fails loudly at construction.'''
     with pytest.raises(DiscordBotException):

@@ -59,6 +59,15 @@ class ExitProxyResolver(ABC):
     everything else (pool, lease, client cache) is generic.
     '''
 
+    @classmethod
+    def from_config(cls, _egress_proxy: dict) -> 'ExitProxyResolver':
+        '''
+        Build the resolver from ``music.download.egress_proxy`` (``{}`` when unset).
+        Resolvers that need no config keep this default; ones that do override it
+        and fail loudly on a missing or malformed key.
+        '''
+        return cls()
+
     @abstractmethod
     def proxy_url(self, exit_name: str) -> str:
         '''Return the yt-dlp ``proxy`` value that egresses via ``exit_name``.'''
@@ -87,14 +96,52 @@ class MullvadSocks5Resolver(ExitProxyResolver):
         return f'socks5h://{mullvad_socks5_endpoint(exit_name)}:{MULLVAD_SOCKS5_PORT}'
 
 
+class ClusterSocks5Resolver(ExitProxyResolver):
+    '''
+    Routes an exit through a per-exit port on an in-cluster proxy that owns the VPN
+    tunnel (the ``discord-vpn`` pod), instead of reaching the exit's SOCKS5 relay
+    directly.  yt-dlp takes one proxy per client and cannot chain, so the second hop
+    (that port -> the exit's Mullvad relay, inside the tunnel) lives in the proxy.
+    The downloader pod itself needs no tunnel.
+    '''
+
+    def __init__(self, host: str, ports: dict):
+        '''
+        host : the proxy's in-cluster hostname (a Service name).
+        ports : exit id -> the port whose listener forwards out that exit.
+        '''
+        self._host = host
+        self._ports = dict(ports)
+
+    @classmethod
+    def from_config(cls, egress_proxy: dict) -> 'ClusterSocks5Resolver':
+        '''Needs ``host`` and an ``exit_ports`` map; raises DiscordBotException otherwise.'''
+        host = egress_proxy.get('host')
+        ports = egress_proxy.get('exit_ports')
+        if not host or not ports:
+            raise DiscordBotException(
+                'egress_mode cluster-socks5 requires music.download.egress_proxy '
+                'with host and exit_ports')
+        return cls(host, {name: int(port) for name, port in ports.items()})
+
+    def proxy_url(self, exit_name: str) -> str:
+        '''``socks5h://`` (remote DNS, see MullvadSocks5Resolver) to the exit's port.'''
+        try:
+            port = self._ports[exit_name]
+        except KeyError as exc:
+            raise DiscordBotException(f'No egress_proxy port configured for exit {exit_name!r}') from exc
+        return f'socks5h://{self._host}:{port}'
+
+
 # Non-default egress modes -> exit-proxy resolver. Register a VPN/proxy provider
 # here and select it with music.download.egress_mode.
 EXIT_PROXY_RESOLVERS = {
     'mullvad-socks5': MullvadSocks5Resolver,
+    'cluster-socks5': ClusterSocks5Resolver,
 }
 
 
-def build_exit_resolver(egress_mode: str) -> ExitProxyResolver:
+def build_exit_resolver(egress_mode: str, egress_proxy: dict | None = None) -> ExitProxyResolver:
     '''
     Build the exit-proxy resolver for a non-default egress mode.
 
@@ -107,7 +154,7 @@ def build_exit_resolver(egress_mode: str) -> ExitProxyResolver:
         known = ', '.join(sorted(EXIT_PROXY_RESOLVERS))
         raise DiscordBotException(
             f'Unknown egress_mode {egress_mode!r}; known: {EGRESS_MODE_HTTP_PROXY}, {known}') from exc
-    return resolver_cls()
+    return resolver_cls.from_config(egress_proxy or {})
 
 
 class ExitPool:

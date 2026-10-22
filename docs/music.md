@@ -314,7 +314,8 @@ Aggregate failure alerting stays on the existing `download_failure_count` metric
 | Value | Behavior |
 | --- | --- |
 | `http-proxy` (default) | Every download goes through one fixed HTTP proxy — a **single shared** VPN exit IP. One flagged exit fails everything until it's manually rotated. |
-| `mullvad-socks5` | Each download leaves through a **different** Mullvad exit, chosen per-download via that server's SOCKS5 proxy. A flagged exit only affects the downloads on it and is dropped from rotation in-app. |
+| `mullvad-socks5` | Each download leaves through a **different** Mullvad exit, chosen per-download via that server's SOCKS5 proxy. A flagged exit only affects the downloads on it and is dropped from rotation in-app. The downloader must itself sit inside the tunnel (an in-pod gluetun sidecar) to reach those relays. |
+| `cluster-socks5` | Same per-download exit leasing, but the tunnel lives in a separate in-cluster proxy (the `discord-vpn` pod) that exposes **one port per exit**. The downloader needs no tunnel: each exit maps to `socks5h://<host>:<port>`, and the proxy forwards that port to the exit's Mullvad SOCKS5 relay. |
 
 `music.download.egress_exits` is the list of Mullvad WireGuard server names a pool mode rotates through (unused by `http-proxy`). An empty list, or an unknown `egress_mode`, fails loudly at startup.
 
@@ -326,6 +327,20 @@ music:
       - us-lax-wg-001
       - us-nyc-wg-301
       - us-sea-wg-001
+```
+
+`cluster-socks5` additionally takes `music.download.egress_proxy`: the proxy's `host` and an `exit_ports` map from every exit in `egress_exits` to its port. yt-dlp takes a single proxy per client and cannot chain, so the exit-to-relay hop is the proxy's job, not the resolver's. A missing `host`, an empty map, or an exit with no port fails at startup.
+
+```yaml
+music:
+  download:
+    egress_mode: cluster-socks5
+    egress_exits: [us-lax-wg-001, us-nyc-wg-301]
+    egress_proxy:
+      host: discord-vpn
+      exit_ports:
+        us-lax-wg-001: 10001
+        us-nyc-wg-301: 10002
 ```
 
 #### `http-proxy` — one shared exit (today)

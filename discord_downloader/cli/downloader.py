@@ -193,6 +193,7 @@ def run(settings: dict, general_config: GeneralConfig):
             'retry_backoff_seconds_minimum', RETRY_BACKOFF_SECONDS_MINIMUM)),
         egress_mode=egress_mode,
         egress_exits=download_cfg.get('egress_exits'),
+        egress_proxy=download_cfg.get('egress_proxy'),
         suppress_egress_probe_auto_instrumentation=(
             tracing_config.suppress_egress_probe_auto_instrumentation),
         suppress_download_readiness_auto_instrumentation=(
