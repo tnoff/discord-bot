@@ -257,11 +257,12 @@ def module_prefixes_for(kind: str, name: str | None = None) -> tuple:
 # core. test_ships_ahead_modules_are_not_yet_shared fails as soon as two images reach a listed
 # module, which is the signal to delete it from this set: it is a queue of contracts waiting for a
 # second consumer, not a place for anything to live.
+#
+# Two stay once the gateway forwards: the commands client and its Protocol are reached by the gateway
+# alone, because the commands pod serves the contract and never calls it. They are still in core so
+# the client could be released before the gateway used it, so they can move into the gateway (and
+# off this list) whenever a core release is next due anyway.
 SHIPS_AHEAD_OF_CONSUMER = frozenset({
     'discord_core.clients.http_commands_client',
     'discord_core.interfaces.commands_client',
-    'discord_core.routes.commands',
-    'discord_core.types.command_args',
-    'discord_core.types.command_envelope',
-    'discord_core.types.command_wire',
 })

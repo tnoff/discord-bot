@@ -86,9 +86,9 @@ discord-gateway /path/to/config.yml
 ```
 
 `discord-gateway` (`discord_gateway.cli.bot`) is one of seven pods and will not
-start on its own — it hard-requires `general.dispatch_http_url` and
-`general.database_http_url` pointing at running `discord-dispatcher` and
-`discord-db` instances (see [docs/configuration.md](docs/configuration.md#database)
+start on its own — it hard-requires `general.dispatch_http_url`,
+`general.database_http_url` and `general.commands_http_url` pointing at running
+`discord-dispatcher`, `discord-db` and `discord-commands` instances (see [docs/configuration.md](docs/configuration.md#database)
 and [docs/architecture.md](docs/architecture.md)). `docker/docker-compose.multiprocess.yml` is the
 easiest way to bring up the other pods for local development.
 

@@ -1,7 +1,7 @@
 '''
 catalog-info.yaml's API wiring matches the measured seam topology.
 
-Acceptance criterion eight of docs/projects/http-seam-contract.md: the six pod
+Acceptance criterion eight of docs/projects/http-seam-contract.md: the seven pod
 Components carry `providesApis` / `consumesApis` derived from the registry
 rather than hand-listed. This is what makes "derived" true rather than a claim
 about how the file happened to be written -- the fields cannot drift from the
@@ -31,12 +31,12 @@ def test_the_join_that_derives_all_of_this_is_unique():
 
     discord-search serves TWO surfaces so the image alone is ambiguous, and
     queue_worker is served by two images so the seam alone is ambiguous. The pair
-    is unique across all six -- and if that ever stops holding, consumesApis
+    is unique across all seven -- and if that ever stops holding, consumesApis
     would start attributing a dependency to the wrong pod with nothing to say so.
     '''
     lookup = api_by_peer_and_seam()
-    assert len(lookup) == 6
-    assert len(set(lookup.values())) == 6
+    assert len(lookup) == 7
+    assert len(set(lookup.values())) == 7
 
 
 def test_an_api_entity_exists_for_every_served_surface():
@@ -60,7 +60,7 @@ def test_provides_matches_what_each_pod_serves():
 
 
 # Declared consumesApis that are real dependencies the seam-topology measurement
-# cannot see, because they are not an HTTP seam between two of the six pods.
+# cannot see, because they are not an HTTP seam between two of the seven pods.
 # Listed explicitly rather than filtered out broadly, so a consumesApis entry
 # that belongs in NEITHER this list nor the measured topology still fails the
 # way every other entry here does.

@@ -3,6 +3,10 @@
 Basic utility commands. Always loaded — there's no `include` key to turn it
 off.
 
+The gateway only parses this command and forwards it to the `discord-commands` pod
+(`general.commands_http_url`), which runs it and replies through the dispatcher. If that pod
+cannot take the command, the bot answers that commands are unavailable and does not retry.
+
 ## Hello
 
 Say hello to the bot and it will say hello back. Useful for checking the

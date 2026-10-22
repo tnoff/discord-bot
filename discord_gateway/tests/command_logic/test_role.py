@@ -1,6 +1,6 @@
 import pytest
 
-from discord_gateway.command_logic.envelope import CommandEnvelope
+from discord_core.types.command_envelope import CommandEnvelope
 from discord_gateway.command_logic.role import RoleCommands
 from discord_gateway.command_logic.role_gateway import MemberInfo, RoleInfo
 

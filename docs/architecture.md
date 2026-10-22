@@ -126,8 +126,10 @@ composite app.
 | `discord-broker` | `discord-db` | database | `/database/guild_analytics` | `HttpPlayAnalyticsStore` | 2 |
 | `discord-broker` | `discord-db` | database | `/database/video_cache` | `HttpVideoCacheStore` | 6 |
 | `discord-broker` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 8 |
+| `discord-commands` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 8 |
 | `discord-downloader` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
 | `discord-gateway` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
+| `discord-gateway` | `discord-commands` | commands | — | `HttpCommandsClient` | 1 |
 | `discord-gateway` | `discord-db` | database | `/database/guild_analytics` | `HttpGuildAnalyticsStore` | 2 |
 | `discord-gateway` | `discord-db` | database | `/database/markov` | `HttpMarkovStore` | 9 |
 | `discord-gateway` | `discord-db` | database | `/database/playlist` | `HttpPlaylistStore` | 16 |
@@ -142,14 +144,15 @@ composite app.
 | seam | served by | called by | routes |
 |---|---|---|---|
 | broker | `discord-broker` | `discord-downloader`, `discord-gateway`, `discord-search` | 39 |
+| commands | `discord-commands` | `discord-gateway` | 1 |
 | database | `discord-db` | `discord-broker`, `discord-gateway` | 33 |
-| dispatch | `discord-dispatcher` | `discord-broker`, `discord-gateway` | 8 |
+| dispatch | `discord-dispatcher` | `discord-broker`, `discord-commands`, `discord-gateway` | 8 |
 | media_search | `discord-search` | `discord-gateway` | 2 |
 | queue_worker | `discord-downloader`, `discord-search` | `discord-gateway` | 8 |
 
 #### Images that call no seam
 
-`discord-commands`, `discord-db`, `discord-dispatcher`.
+`discord-db`, `discord-dispatcher`.
 
 Serve-only pods. An image appearing here that should be calling something is the failure this doc makes visible.
 

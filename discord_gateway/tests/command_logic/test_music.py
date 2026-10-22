@@ -1,5 +1,4 @@
 import logging
-from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -58,7 +57,7 @@ def sent(dispatcher):
 
 @pytest.fixture
 def voiced(envelope):  #pylint:disable=redefined-outer-name
-    return replace(envelope, channel_name='general', **IN_VOICE)
+    return envelope.model_copy(update={'channel_name': 'general', **IN_VOICE})
 
 
 @pytest.mark.asyncio
@@ -71,7 +70,7 @@ async def test_voice_check_not_in_voice(envelope):  #pylint:disable=redefined-ou
 @pytest.mark.asyncio
 async def test_voice_check_other_guild(voiced):  #pylint:disable=redefined-outer-name
     logic, dispatcher = make_logic(FakePlayerGateway())
-    other = replace(voiced, author_voice_guild_id=99)
+    other = voiced.model_copy(update={'author_voice_guild_id': 99})
     assert await logic.check_author_voice_chat(other) is None
     assert sent(dispatcher) == [(22, 'User not joined to channel bot is in, ignoring command', 300)]
     # join does not care which guild the channel is in

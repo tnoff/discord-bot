@@ -41,4 +41,3 @@ def test_is_forbidden_matches_submodules_not_prefixes():
     assert _is_forbidden('discord_gateway.cogs.common')
     # discord_core is not discord.py
     assert not _is_forbidden('discord_core.utils.common')
-    assert not _is_forbidden('discord_gateway.command_logic.envelope')

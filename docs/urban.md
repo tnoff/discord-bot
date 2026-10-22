@@ -2,6 +2,10 @@
 
 Lookup a word in urban dictionary and get a definition.
 
+The gateway only parses this command and forwards it to the `discord-commands` pod
+(`general.commands_http_url`), which runs it and replies through the dispatcher. If that pod
+cannot take the command, the bot answers that commands are unavailable and does not retry.
+
 ```
 !urban
 

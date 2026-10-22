@@ -16,6 +16,8 @@ Configure with:
                                 DiscordBotException if missing)
     general.database_http_url — discord-db pod URL (required for HA bot mode —
                                 raises DiscordBotException if missing)
+    general.commands_http_url — Commands pod URL; the command stubs forward to it (required —
+                                raises DiscordBotException if missing)
     general.include           — which optional cogs to load (markov, urban, music,
                                 delete_messages default off; default and
                                 message_dispatcher default on) — see IncludeConfig
@@ -122,6 +124,10 @@ def run(settings: dict, general_config: GeneralConfig):
     database_http_url = general_settings.get('database_http_url')
     if not database_http_url:
         raise DiscordBotException('database_http_url required for HA bot mode')
+    # Required for the same reason: a stub with no commands pod to forward to would answer every
+    # command with "unavailable", which is a bot that came up fine and does nothing.
+    if not general_settings.get('commands_http_url'):
+        raise DiscordBotException('commands_http_url required for HA bot mode')
 
     http_dispatcher = HttpDispatchClient(dispatch_http_url,
                                          seam_contract=general_config.seam_contract)

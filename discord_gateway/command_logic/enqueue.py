@@ -13,9 +13,9 @@ from discord_core.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.queue import PutsBlocked
 from discord_core.utils.otel import capture_span_context
+from discord_core.types.command_envelope import CommandEnvelope
 
 from discord_gateway.clients.search_client import SearchClient, SearchException
-from discord_gateway.command_logic.envelope import CommandEnvelope
 from discord_gateway.command_logic.player_gateway import PlayerGateway
 from discord_gateway.command_logic.playlist_view import playlist_public_view
 from discord_gateway.types.playlist_add_result import PlaylistAddResult
@@ -24,7 +24,7 @@ from discord_gateway.types.playlist_add_result import PlaylistAddResult
 class MediaEnqueuer:
     '''
     Turns a search into media requests and routes them: to the search queue, to the download
-    queue, or straight to the player on a cache hit. Discord-free: see ``command_logic.envelope``.
+    queue, or straight to the player on a cache hit. Discord-free: see ``discord_core.types.command_envelope``.
 
     The result loops that stay on the gateway (``process_search_results``,
     ``process_download_results``) call ``enqueue_from_cache`` and ``add_playlist_item`` too, so

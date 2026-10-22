@@ -9,6 +9,7 @@ general:
   discord_token: !ENV ${DISCORD_TOKEN}
   sql_connection_statement: postgresql://discord:discord@postgres:5432/discord
   dispatch_http_url: http://dispatcher:8082
+  commands_http_url: http://commands:8086
   monitoring:
     otlp:
       enabled: false

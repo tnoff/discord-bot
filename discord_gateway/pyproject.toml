@@ -36,7 +36,6 @@ dependencies = [
     "davey==0.1.7",
     "async-timeout==5.0.1",
     "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.11.tar.gz",
-    "beautifulsoup4==4.15.0",
 ]
 
 [project.scripts]

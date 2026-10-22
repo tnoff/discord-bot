@@ -3,8 +3,10 @@ import asyncio
 from discord.ext.commands import Cog, Bot, Context
 from pydantic import BaseModel, ValidationError as PydanticValidationError
 
-from discord_core.exceptions import CogMissingRequiredArg
-from discord_core.utils.common import get_logger, LoggingConfig
+from discord_core.clients.http_commands_client import HttpCommandsClient
+from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException
+from discord_core.interfaces.commands_client import CommandsClient, CommandsUnavailable
+from discord_core.utils.common import get_logger, LoggingConfig, seam_contract_from_settings
 from discord_core.utils.otel import capture_span_context
 
 from discord_core.clients.dispatch_client_base import DispatchClientBase
@@ -15,9 +17,19 @@ from discord_core.types.dispatch_request import (
     DeleteRequest,
 )
 
-from discord_gateway.command_logic.envelope import CommandEnvelope
+from discord_core.types.command_envelope import CommandEnvelope
 
 _UNSET = object()
+
+COMMANDS_UNAVAILABLE_MESSAGE = 'Commands are unavailable right now, please try again in a moment'
+
+
+def build_commands_client(settings: dict) -> HttpCommandsClient:
+    '''The client a stub forwards its command through, from ``general.commands_http_url``.'''
+    commands_http_url = settings.get('general', {}).get('commands_http_url')
+    if not commands_http_url:
+        raise DiscordBotException('commands_http_url required to forward commands')
+    return HttpCommandsClient(commands_http_url, seam_contract=seam_contract_from_settings(settings))
 
 
 def envelope_from_ctx(ctx: Context) -> CommandEnvelope:
@@ -42,6 +54,8 @@ class CogHelperBase(Cog):
     HttpDispatchClient; tests may pass a MessageDispatcher.'''
 
     _message_delete_after: int | None = None
+    # Set by the cogs whose commands run in the commands pod; see forward_command.
+    commands_client: CommandsClient
 
     def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase,
                  stores: object = None,
@@ -172,6 +186,23 @@ class CogHelperBase(Cog):
             span_context=capture_span_context(),
         ))
         return content
+
+    async def forward_command(self, ctx: Context, command: str, **args) -> None:
+        '''
+        Hand a parsed command to the commands pod and return once it has accepted it.
+
+        The pod runs the command and replies through the dispatcher, so nothing is returned here.
+        If the pod cannot take it the user is told once and the command is dropped: a command is
+        not idempotent, so it is not retried (see interfaces/commands_client.py). Must be called
+        inside the command's span so the pod's span links back to it. A rejected command (4xx) is
+        a bug in the stub and propagates to ``on_command_error``.
+        '''
+        try:
+            await self.commands_client.forward(
+                command, envelope_from_ctx(ctx), args, span_context=capture_span_context())
+        except CommandsUnavailable as error:
+            self.logger.warning(f'Commands unavailable for "{command}" in guild "{ctx.guild.id}": {error}')
+            await self.dispatch_message(ctx.guild.id, ctx.channel.id, COMMANDS_UNAVAILABLE_MESSAGE)
 
     async def dispatch_delete(self, guild_id: int, channel_id: int, message_id: int) -> None:
         '''Delete a Discord message by ID through the dispatcher (NORMAL priority).'''

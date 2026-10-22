@@ -44,6 +44,7 @@ spec:
   system: discord
   dependsOn:
     - component:default/discord-broker
+    - component:default/discord-commands
     - component:default/discord-db
     - component:default/discord-dispatcher
     - component:default/discord-downloader
@@ -51,6 +52,7 @@ spec:
     - resource:default/discord-data-cache-bucket
   consumesApis:
     - api:default/broker
+    - api:default/commands
     - api:default/database
     - api:default/dispatch
     - api:default/image-bump
@@ -173,13 +175,36 @@ spec:
     - api:default/database
 
 ---
-# The six API entities, one per SERVED SURFACE, and the OpenAPI documents behind
+apiVersion: backstage.io/v1alpha1
+kind: Component
+metadata:
+  name: discord-commands
+  description: >-
+    Runs the logic behind the gateway's commands (#1030). No gateway connection and no Discord
+    token: the gateway parses a command, forwards it here over HTTP and gets a 202, and this
+    pod runs it, one at a time per guild, replying through the dispatcher. Command groups move
+    here one at a time; a command whose group has not moved still runs in the gateway.
+  # Deployment label `tier: commands`, Service port 8086
+spec:
+  type: service
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  dependsOn:
+    - component:default/discord-dispatcher
+  providesApis:
+    - api:default/commands
+  consumesApis:
+    - api:default/dispatch
+
+---
+# The seven API entities, one per SERVED SURFACE, and the OpenAPI documents behind
 # them are generated -- tests/routes/test_openapi_docs.py reads each server's
 # built aiohttp router, the same source GET /_contract/routes reads. A pod and
 # its published API description therefore cannot disagree about which routes
 # exist.
 #
-# Six entities for five seams. `queue_worker` is a route shape rather than a pod:
+# Seven entities for six seams. `queue_worker` is a route shape rather than a pod:
 # the downloader serves it at /downloads and the search pod at /search/ytmusic,
 # with disjoint route sets, so one entity per seam would describe two pods as one
 # and be accurate for neither. discord-search consequently provides two of these.
@@ -208,6 +233,21 @@ spec:
   system: discord
   definition:
     $text: ./docs/openapi/broker.yaml
+---
+apiVersion: backstage.io/v1alpha1
+kind: API
+metadata:
+  name: commands
+  description: >-
+    The `commands` seam as served by discord-commands -- 1 routes across 1 paths.
+    Generated from the built router; do not hand-edit docs/openapi/commands.yaml.
+spec:
+  type: openapi
+  owner: group:default/admin
+  lifecycle: production
+  system: discord
+  definition:
+    $text: ./docs/openapi/commands.yaml
 ---
 apiVersion: backstage.io/v1alpha1
 kind: API

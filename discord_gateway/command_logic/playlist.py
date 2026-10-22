@@ -12,10 +12,10 @@ from discord_core.interfaces.database_protocols import PlaylistStore
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
 from discord_core.types.search import SearchResult
+from discord_core.types.command_envelope import CommandEnvelope
 
 from discord_gateway.clients.search_client import check_youtube_video
 from discord_gateway.command_logic.enqueue import MediaEnqueuer
-from discord_gateway.command_logic.envelope import CommandEnvelope
 from discord_gateway.command_logic.player_gateway import PlayerGateway
 from discord_gateway.command_logic.playlist_view import playlist_public_view
 

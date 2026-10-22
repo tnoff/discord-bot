@@ -18,7 +18,7 @@ one line.
 That join is exact rather than heuristic. `discord-search` serves TWO surfaces
 (media_search and queue_worker/ytmusic) so the image alone is ambiguous, and
 `queue_worker` is served by two images so the seam alone is ambiguous; the pair
-is unique across all six. A test asserts that, because the day it stops being
+is unique across all seven. A test asserts that, because the day it stops being
 true this would start attributing a dependency to the wrong pod silently.
 '''
 from tests.cli._seam_topology import _edges, measure_all as measure_topology, serving_images

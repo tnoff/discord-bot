@@ -5,8 +5,8 @@ from dappertable import DapperTable, Columns, Column, PaginationLength
 
 from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_core.interfaces.database_protocols import MarkovStore
+from discord_core.types.command_envelope import CommandEnvelope
 
-from discord_gateway.command_logic.envelope import CommandEnvelope
 from discord_gateway.command_logic.reply import Reply
 
 # channel id -> whether markov can run there (a text or voice channel). Answering needs
@@ -16,7 +16,7 @@ ChannelCheck = Callable[[int], Awaitable[bool]]
 
 class MarkovCommands:
     '''
-    The ``!markov`` subcommands. Discord-free: see ``command_logic.envelope``.
+    The ``!markov`` subcommands. Discord-free: see ``discord_core.types.command_envelope``.
     '''
 
     def __init__(self, reply: Reply, logger: Logger, markov_store: MarkovStore,
