@@ -251,3 +251,35 @@ async def test_health_aware_queue_get_does_not_drop_items_on_idle_timeout():
         await queue.put(index)
     await asyncio.wait_for(consumer, timeout=2)
     assert received == [0, 1, 2, 3, 4]
+
+
+def test_peer_unavailable_rearms_the_window_without_being_a_success():
+    clock = FakeClock()
+    health = LoopHealth('loop', stale_after_seconds=60, time_func=clock)
+    clock.advance(50)
+    health.record_peer_unavailable()
+    clock.advance(50)
+    assert health.is_healthy
+    assert health.seconds_since_success == 100
+    assert health.consecutive_errors == 1
+    assert health.peer_unavailable_count == 1
+
+
+def test_a_loop_failing_for_another_reason_still_goes_stalled():
+    clock = FakeClock()
+    health = LoopHealth('loop', stale_after_seconds=60, time_func=clock)
+    health.record_peer_unavailable()
+    clock.advance(61)
+    health.record_error()
+    assert not health.is_healthy
+
+
+def test_success_and_restart_clear_the_peer_unavailable_count():
+    clock = FakeClock()
+    health = LoopHealth('loop', stale_after_seconds=60, time_func=clock)
+    health.record_peer_unavailable()
+    health.record_success()
+    assert health.peer_unavailable_count == 0
+    health.record_peer_unavailable()
+    health.mark_running()
+    assert health.peer_unavailable_count == 0

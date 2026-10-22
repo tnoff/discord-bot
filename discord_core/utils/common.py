@@ -5,6 +5,7 @@ from pathlib import Path
 from sys import stdout
 from typing import Callable, Optional, Literal, Protocol
 
+import aiohttp
 from opentelemetry.trace import get_current_span
 from opentelemetry.trace.status import StatusCode
 from opentelemetry.instrumentation.logging.handler import LoggingHandler
@@ -13,6 +14,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from discord_core.cogs.schema import StorageConfig
 from discord_core.exceptions import ExitEarlyException
+from discord_core.utils.circuit_breaker import CircuitBreakerOpenError
 from discord_core.utils.loop_health import DEFAULT_STALE_AFTER_SECONDS, LoopHealth
 
 OTEL_SPAN_PREFIX = 'utils'
@@ -330,8 +332,29 @@ class LoopBot(Protocol):
         '''True once the bot has shut down.'''
 
 
+# HTTP statuses a Service returns when nothing behind it can answer (no endpoints,
+# a pod mid-restart). A 500 is deliberately NOT here: that is the peer failing, not
+# the peer being away, and it should still be able to fail a probe.
+_PEER_UNAVAILABLE_STATUSES = frozenset({502, 503, 504})
+
+
+def is_peer_unavailable(error: BaseException) -> bool:
+    '''True when error means a peer pod could not be reached, as opposed to a fault in this process.
+
+    Connection failures, timeouts, an open circuit breaker, and the 502/503/504 a
+    Service returns while nothing behind it is Ready. Pass as ``peer_unavailable``
+    to ``return_loop_runner`` for a loop whose only failure mode worth surviving
+    is a restarting neighbour.
+    '''
+    if isinstance(error, aiohttp.ClientResponseError):
+        return error.status in _PEER_UNAVAILABLE_STATUSES
+    return isinstance(error, (aiohttp.ClientConnectionError, TimeoutError,
+                              CircuitBreakerOpenError))
+
+
 def return_loop_runner(function: Callable, bot: LoopBot, logger: RootLogger, continue_exceptions=None, exit_exceptions=ExitEarlyException,
-                       health: Optional[LoopHealth] = None):
+                       health: Optional[LoopHealth] = None,
+                       peer_unavailable: Optional[Callable[[BaseException], bool]] = None):
     '''
     Return a basic standard bot loop
 
@@ -344,6 +367,11 @@ def return_loop_runner(function: Callable, bot: LoopBot, logger: RootLogger, con
     health : LoopHealth to report iteration outcomes to. This — not task
              liveness — is what drives the loop's heartbeat gauge and the health
              server's probe result.
+    peer_unavailable : Predicate for "a peer pod was unreachable" (see
+             ``is_peer_unavailable``). A matching error is logged as a warning and
+             reported with ``health.record_peer_unavailable()``, so a neighbour
+             restarting for longer than the staleness window does not 503 this
+             process's liveness probe and get it restarted for a fault it cannot fix.
     '''
     continue_exceptions = continue_exceptions or ()
     async def loop_runner(): #pylint:disable=duplicate-code
@@ -390,6 +418,19 @@ def return_loop_runner(function: Callable, bot: LoopBot, logger: RootLogger, con
                 #
                 # asyncio.CancelledError is a BaseException, so a real
                 # shutdown/drain still bypasses this handler and cancels cleanly.
+                #
+                # EXCEPT a peer being unreachable, when the caller opted in: the
+                # probe would otherwise restart this process for an outage that is
+                # not its fault and that a restart cannot end (the gateway losing
+                # its voice sessions because the broker was away for five minutes).
+                if health and peer_unavailable and peer_unavailable(e):
+                    health.record_peer_unavailable()
+                    logger.warning('Peer unavailable in loop runner (%s so far, %.0fs since last success): %s: %s',
+                                   health.peer_unavailable_count, health.seconds_since_success,
+                                   type(e).__name__, e)
+                    await sleep(backoff)
+                    backoff = min(backoff * 2, _LOOP_ERROR_BACKOFF_MAX_SECONDS)
+                    continue
                 if health:
                     health.record_error()
                     logger.exception('Exception in loop runner (%s consecutive, %.0fs since last success): %s',

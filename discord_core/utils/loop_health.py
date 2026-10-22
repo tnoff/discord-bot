@@ -80,8 +80,17 @@ class LoopHealth:
         self.pinned = pinned
         self._time = time_func
         self._last_success: float = time_func()
+        # Last time a peer pod was unreachable. Counts toward the staleness window
+        # (see record_peer_unavailable) without being a success.
+        self._last_peer_unavailable: float = time_func()
+        self._peer_unavailable_count = 0
         self._consecutive_errors = 0
         self._stopped = False
+
+    @property
+    def peer_unavailable_count(self) -> int:
+        """Peer-unreachable iterations since the last successful one. Diagnostic only."""
+        return self._peer_unavailable_count
 
     @property
     def consecutive_errors(self) -> int:
@@ -97,7 +106,21 @@ class LoopHealth:
         """An iteration completed without raising. Re-arms the staleness window."""
         self._last_success = self._time()
         self._consecutive_errors = 0
+        self._peer_unavailable_count = 0
         self._stopped = False
+
+    def record_peer_unavailable(self) -> None:
+        """An iteration failed because a PEER pod was unreachable. Re-arms the staleness window.
+
+        Not a success: ``seconds_since_success`` keeps growing and the error count
+        still rises. But restarting this process cannot bring the peer back, and it
+        would cost the process its own state, so a peer outage must not by itself
+        fail a liveness probe. A loop that is failing for any OTHER reason still
+        goes stale after ``stale_after_seconds``.
+        """
+        self._last_peer_unavailable = self._time()
+        self._peer_unavailable_count += 1
+        self._consecutive_errors += 1
 
     def record_error(self) -> None:
         """An iteration raised. Does not itself make the loop unhealthy — time does."""
@@ -110,7 +133,9 @@ class LoopHealth:
     def mark_running(self) -> None:
         """(Re)start the staleness window — call when the loop's task is created."""
         self._last_success = self._time()
+        self._last_peer_unavailable = self._last_success
         self._consecutive_errors = 0
+        self._peer_unavailable_count = 0
         self._stopped = False
 
     @property
@@ -118,7 +143,8 @@ class LoopHealth:
         """``ok`` / ``stalled`` / ``stopped`` — the value shown in the health payload."""
         if self._stopped:
             return LoopStatus.STOPPED
-        if self.seconds_since_success > self.stale_after_seconds:
+        alive_at = max(self._last_success, self._last_peer_unavailable)
+        if self._time() - alive_at > self.stale_after_seconds:
             return LoopStatus.STALLED
         return LoopStatus.OK
 
