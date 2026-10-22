@@ -1,1 +1,0 @@
-The pod now serves `hello`, `roll`, `meta` and `urban` (#1030, Phase 2): their logic moved here from the gateway, and the pod replies through the dispatcher, so `general.dispatch_http_url` is now required. It starts the peer route check for its dispatcher client and closes the client after the executor on shutdown. Adds `beautifulsoup4` and `dappertable`.
