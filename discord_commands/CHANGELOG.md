@@ -1,4 +1,10 @@
 # Changelog
+## [0.1.1] - 2026-10-22
+
+### Changed
+
+- Bump the `discord_core` pin to core-v3.8.0 (#1030, Phase 2): the commands route is part of the peer route check.
+
 ## [0.1.0] - 2026-10-21
 
 ### Changed
