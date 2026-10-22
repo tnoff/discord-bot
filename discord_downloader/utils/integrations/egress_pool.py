@@ -19,6 +19,7 @@ The lease is in-process (a single downloader pod runs N concurrent downloads ove
 one tunnel); backoff stays in redis, injected as a callable so the pool never
 touches redis directly and is trivially testable.
 '''
+import socket
 from abc import ABC, abstractmethod
 from typing import NamedTuple
 
@@ -72,6 +73,14 @@ class ExitProxyResolver(ABC):
     def proxy_url(self, exit_name: str) -> str:
         '''Return the yt-dlp ``proxy`` value that egresses via ``exit_name``.'''
 
+    def is_proxy_unreachable(self, error: BaseException) -> bool:  # pylint: disable=unused-argument
+        '''
+        True when ``error`` means the proxy itself could not be reached, so the
+        download never got as far as an exit and the exit is not at fault.  Defaults
+        to False: only a resolver whose proxy is a separate in-cluster hop can tell.
+        '''
+        return False
+
 
 class MullvadSocks5Resolver(ExitProxyResolver):
     '''Routes an exit through that Mullvad server's in-tunnel SOCKS5 proxy.'''
@@ -123,6 +132,27 @@ class ClusterSocks5Resolver(ExitProxyResolver):
                 'egress_mode cluster-socks5 requires music.download.egress_proxy '
                 'with host and exit_ports')
         return cls(host, {name: int(port) for name, port in ports.items()})
+
+    def is_proxy_unreachable(self, error: BaseException) -> bool:
+        '''
+        True when the TCP connection to the proxy Service was refused or its name did
+        not resolve -- what a ``discord-vpn`` roll looks like (no ready endpoint, so
+        kube-proxy rejects).  The proxy is the only hop yt-dlp dials directly, so a
+        refused or unresolvable connect can only be that hop; anything further along
+        (the exit relay, YouTube) is reported by the proxy as a SOCKS error instead.
+        Timeouts are deliberately not matched: they are ambiguous.
+        '''
+        seen = set()
+        while error is not None and id(error) not in seen:
+            if isinstance(error, (ConnectionRefusedError, socket.gaierror)):
+                return True
+            seen.add(id(error))
+            # yt-dlp's DownloadError keeps the underlying error in exc_info; its
+            # networking errors use .cause; everything else chains via __cause__.
+            exc_info = getattr(error, 'exc_info', None)
+            error = ((exc_info[1] if exc_info else None)
+                     or getattr(error, 'cause', None) or error.__cause__)
+        return False
 
     def proxy_url(self, exit_name: str) -> str:
         '''``socks5h://`` (remote DNS, see MullvadSocks5Resolver) to the exit's port.'''
@@ -231,6 +261,10 @@ class ExitClients:
         self._client_factory = client_factory
         self._by_exit: dict = {}
 
+    def is_proxy_unreachable(self, error: BaseException) -> bool:
+        '''Whether the resolver's proxy could not be reached (see ExitProxyResolver).'''
+        return self._resolver.is_proxy_unreachable(error)
+
     def for_exit(self, exit_name: str):
         '''Return the cached client whose proxy routes out ``exit_name``.'''
         client = self._by_exit.get(exit_name)
@@ -281,6 +315,14 @@ class Egress(ABC):
     def exit_names(self) -> tuple:
         '''Exit ids available to fan out across; empty for the fixed proxy.'''
         return ()
+
+    def is_proxy_unreachable(self, _error: BaseException) -> bool:
+        '''
+        True when a download failed because the proxy in front of the exits could
+        not be reached, as opposed to anything an exit did.  Only a pool whose proxy
+        is a separate service can tell; the default is False.
+        '''
+        return False
 
     def client_for_exit(self, _exit_name: str):
         '''
@@ -333,6 +375,10 @@ class PoolEgress(Egress):
     def exit_names(self) -> tuple:
         '''The pool's exit ids (used to size the driver fleet + gate on soonest-free).'''
         return self._pool.exit_names
+
+    def is_proxy_unreachable(self, error: BaseException) -> bool:
+        '''Delegate to the resolver via the client cache.'''
+        return self._clients.is_proxy_unreachable(error)
 
     def client_for_exit(self, exit_name: str):
         '''The cached client routing out ``exit_name`` (same one its downloads use).'''

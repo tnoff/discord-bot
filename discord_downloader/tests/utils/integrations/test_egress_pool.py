@@ -1,4 +1,6 @@
 '''Tests for the per-download egress exit pool + pluggable proxy resolvers.'''
+import socket
+
 import pytest
 
 from discord_core.exceptions import DiscordBotException
@@ -84,6 +86,59 @@ def test_build_exit_resolver_cluster_requires_host_and_ports(egress_proxy):
     with pytest.raises(DiscordBotException) as exc:
         build_exit_resolver('cluster-socks5', egress_proxy)
     assert 'egress_proxy' in str(exc.value)
+
+
+class _Wrapped(Exception):
+    '''Stand-in for yt-dlp's DownloadError/TransportError: carries its cause two ways.'''
+    def __init__(self, message, exc_info=None, cause=None):
+        super().__init__(message)
+        self.exc_info = exc_info
+        self.cause = cause
+
+
+@pytest.mark.parametrize('root', [ConnectionRefusedError(111, 'refused'), socket.gaierror(-2, 'unknown')])
+@pytest.mark.parametrize('chain', ['exc_info', 'cause', '__cause__'])
+def test_cluster_resolver_detects_unreachable_proxy(root, chain):
+    '''A refused/unresolvable connect anywhere in the chain means the proxy hop failed.'''
+    resolver = ClusterSocks5Resolver('discord-vpn', {})
+    if chain == 'exc_info':
+        error = _Wrapped('x', exc_info=(type(root), root, None))
+    elif chain == 'cause':
+        error = _Wrapped('x', cause=root)
+    else:
+        error = _Wrapped('x')
+        error.__cause__ = root
+    assert resolver.is_proxy_unreachable(error)
+
+
+@pytest.mark.parametrize('error', [
+    _Wrapped('Read timed out.'),
+    _Wrapped('x', cause=TimeoutError('timed out')),
+    _Wrapped('x', exc_info=(ValueError, ValueError('boom'), None)),
+])
+def test_cluster_resolver_other_errors_are_not_unreachable(error):
+    '''Timeouts and unrelated errors are ambiguous, so they keep the normal retry path.'''
+    assert not ClusterSocks5Resolver('discord-vpn', {}).is_proxy_unreachable(error)
+
+
+def test_cluster_resolver_unreachable_survives_a_cause_cycle():
+    '''A self-referential chain terminates instead of looping.'''
+    error = _Wrapped('x')
+    error.cause = error
+    assert not ClusterSocks5Resolver('discord-vpn', {}).is_proxy_unreachable(error)
+
+
+def test_mullvad_resolver_never_reports_unreachable():
+    '''mullvad-socks5 dials the relay through the in-pod tunnel; behaviour is unchanged.'''
+    assert not MullvadSocks5Resolver().is_proxy_unreachable(ConnectionRefusedError())
+
+
+def test_pool_egress_delegates_unreachable_to_resolver():
+    '''PoolEgress asks its resolver; the fixed proxy never claims it.'''
+    resolver = ClusterSocks5Resolver('discord-vpn', {'a': 1})
+    egress = PoolEgress(ExitPool(['a']), ExitClients({}, resolver, client_factory=_FakeClient))
+    assert egress.is_proxy_unreachable(ConnectionRefusedError())
+    assert not HttpProxyEgress(_FakeClient({})).is_proxy_unreachable(ConnectionRefusedError())
 
 
 def test_build_exit_resolver_unknown_mode_raises():

@@ -624,8 +624,8 @@ class DownloadWorkerBase(ABC):
         result = await self.create_source(media_request, self._max_retries)
 
         if result.status.error_type == DownloadErrorType.NO_EXIT_AVAILABLE:
-            # Pure contention — every exit was busy, the item was never attempted and
-            # never left QUEUED. Re-queue it unchanged (no retry_count bump, no RETRY
+            # Pure contention (every exit busy) or the egress proxy being down — the
+            # item was never attempted and never left QUEUED. Re-queue it unchanged (no retry_count bump, no RETRY
             # UI); create_source already yielded so this isn't a tight loop.
             await self._enqueue_request(media_request.guild_id, media_request)
             return
@@ -714,6 +714,15 @@ class DownloadWorkerBase(ABC):
                 return self._make_error_result(error_type, media_request, span_context, str(error), user_message=error.user_message)
             except DownloadError as error:
                 error_str = str(error)
+                if self._egress.is_proxy_unreachable(error):
+                    # The egress proxy itself is down (e.g. discord-vpn rolling), so
+                    # no exit was ever reached and none is at fault. Requeue as-is
+                    # like pool contention: no retry consumed, no exit backed off.
+                    span.record_exception(error)
+                    span.set_status(StatusCode.OK)
+                    self.logger.warning('Egress proxy unreachable, requeueing "%s": %s', media_request, error_str)
+                    return self._make_error_result(
+                        DownloadErrorType.NO_EXIT_AVAILABLE, media_request, span_context, error_str)
                 # Match on a punctuation-folded copy, never the raw string. Production
                 # emits U+2019 in "Sign in to confirm you’re not a bot" and pads its
                 # appended URLs with double spaces; folding both here means no matcher
@@ -880,7 +889,14 @@ class DownloadWorkerBase(ABC):
             to_run = partial(self.__prepare_data_source, media_request=media_request,
                              max_retries=max_retries, egress=egress)
             result = await loop.run_in_executor(None, to_run)
-            await self.update_tracking(result, egress.exit_name)
+            # An unattempted request (proxy down) must not feed the exit's failure
+            # ZSET or extend its backoff window: the exit did nothing wrong.
+            if result.status.error_type == DownloadErrorType.NO_EXIT_AVAILABLE:
+                # Pace the requeue like the no-exit-leased path, or a down proxy
+                # spins pop -> fail -> requeue as fast as the connect is refused.
+                await sleep(_IDLE_POLL_BACKOFF_SECONDS)
+            else:
+                await self.update_tracking(result, egress.exit_name)
             if result.status.success and result.file_name is not None:
                 try:
                     pcm_path = await loop.run_in_executor(None, edit_audio_file, result.file_name, self.normalize_audio, self.logging_config)

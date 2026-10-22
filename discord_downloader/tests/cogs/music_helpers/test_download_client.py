@@ -28,7 +28,8 @@ from discord_downloader.interfaces import download_protocols
 from discord_downloader.interfaces.download_protocols import VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded, DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator, DirectItemAvailableException
 from discord_downloader.utils.audio import AudioProcessingError
 from discord_downloader.utils.integrations.egress_pool import (
-    DownloadEgress, HttpProxyEgress, PoolEgress, ExitPool, ExitClients, MullvadSocks5Resolver)
+    DownloadEgress, HttpProxyEgress, PoolEgress, ExitPool, ExitClients, MullvadSocks5Resolver,
+    ClusterSocks5Resolver)
 
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.helpers import fake_source_dict, generate_fake_context
@@ -796,6 +797,55 @@ def test_match_generator_video_within_length_limit():
 
     # Should not raise any exception
     filter_func(video_info, incomplete=False)
+
+def _cluster_worker(error):
+    '''A cluster-socks5 worker whose client raises a DownloadError wrapping ``error``.'''
+    class _Client:
+        '''Client whose request fails the way yt-dlp reports a refused proxy connect.'''
+        params = {}
+
+        def extract_info(self, _search_string, **_kwargs):
+            '''Raise DownloadError with the underlying error in exc_info.'''
+            raise DownloadError('Unable to download webpage', exc_info=(type(error), error, None))
+
+    resolver = ClusterSocks5Resolver('discord-vpn', {'us-lax-wg-001': 10001})
+    x = make_download_client(egress_mode='cluster-socks5', egress_exits=['us-lax-wg-001'],
+                             egress_proxy={'host': 'discord-vpn', 'exit_ports': {'us-lax-wg-001': 10001}})
+    x._egress = PoolEgress(ExitPool(['us-lax-wg-001']),
+                           ExitClients({}, resolver, client_factory=lambda _opts: _Client()))
+    return x
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_proxy_unreachable_requeues_without_penalising_the_exit(mocker):
+    '''A refused connect to the cluster proxy is not the exit's fault: it comes back
+    as NO_EXIT_AVAILABLE (requeue, no retry consumed) and never reaches update_tracking.'''
+    mocker.patch('discord_downloader.interfaces.download_protocols.sleep')
+    x = _cluster_worker(ConnectionRefusedError(111, 'Connection refused'))
+    tracking = mocker.patch.object(x, 'update_tracking')
+    y = fake_source_dict(generate_fake_context())
+
+    result = await x.create_source(y, 3)
+
+    assert not result.status.success
+    assert result.status.error_type == DownloadErrorType.NO_EXIT_AVAILABLE
+    tracking.assert_not_called()
+    assert y.download_retry_information.retry_count == 0
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_cluster_mode_other_errors_still_retry_and_track(mocker):
+    '''Only an unreachable proxy gets the no-penalty path; other failures are RETRYABLE
+    and still feed the exit's backoff.'''
+    x = _cluster_worker(ValueError('boom'))
+    tracking = mocker.patch.object(x, 'update_tracking')
+    y = fake_source_dict(generate_fake_context())
+
+    result = await x.create_source(y, 3)
+
+    assert result.status.error_type == DownloadErrorType.RETRYABLE
+    tracking.assert_called_once()
+
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_retryable_exception_on_timeout():
