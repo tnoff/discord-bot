@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.0] - 2026-10-22
+
+### Changed
+
+- `/ready` no longer probes the dispatcher, db, broker, downloader or search pods, so a peer restarting can no longer flip the gateway NotReady (the five sequential 1s probes could also outlast the kubelet's probe timeout on their own). `/ready` now answers exactly what `/health` does: the bot is ready and open and no background loop is stalled. The `peer_ready_check` metric is removed with it; a dashboard panel reading it will go empty. `HealthServer` and `setup_health_server` lose their `*_http_url` parameters.
+
 ## [3.4.0] - 2026-10-22
 
 ### Changed
