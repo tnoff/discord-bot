@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.8.0] - 2026-10-22
+
+### Changed
+
+- Fold the commands route into the peer route check (#1030, Phase 2): `HttpCommandsClient.ROUTES_CALLED` is now `routes/commands.py`'s `ALL`, so the gateway verifies the commands pod advertises `POST /commands/{command}`. The pod has served it since #1116; the gateway starts building the client in the change after this one.
+
 ## [3.7.0] - 2026-10-21
 
 ### Changed
