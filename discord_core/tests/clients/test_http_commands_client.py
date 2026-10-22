@@ -61,6 +61,13 @@ async def _connected(pod: StubPod):
             yield HttpCommandsClient(str(server.make_url('')), session=session)
 
 
+def test_the_client_calls_the_commands_seam():
+    """The gateway's peer route check is only live if the client names its seam and its routes."""
+    assert HttpCommandsClient.SEAM == 'commands'
+    assert HttpCommandsClient.ROUTES_CALLED == command_routes.ALL
+    assert command_routes.FORWARD_COMMAND in HttpCommandsClient.ROUTES_CALLED
+
+
 def test_the_client_implements_the_protocol():
     assert callable(getattr(HttpCommandsClient, 'forward'))
     assert set(CommandsClient.__dict__) >= {'forward'}
