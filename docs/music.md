@@ -329,7 +329,7 @@ music:
       - us-sea-wg-001
 ```
 
-`cluster-socks5` additionally takes `music.download.egress_proxy`: the proxy's `host` and an `exit_ports` map from every exit in `egress_exits` to its port. yt-dlp takes a single proxy per client and cannot chain, so the exit-to-relay hop is the proxy's job, not the resolver's. A missing `host`, an empty map, or an exit with no port fails at startup.
+`cluster-socks5` additionally takes `music.download.egress_proxy`: the proxy's `host` and an `exit_ports` map from every exit in `egress_exits` to its port. yt-dlp takes a single proxy per client and cannot chain, so the exit-to-relay hop is the proxy's job, not the resolver's. A missing `host`, an empty map, or an exit with no port fails at startup. If the proxy itself cannot be reached (a refused or unresolvable connect, which is what a `discord-vpn` roll looks like), the download comes back as `NO_EXIT_AVAILABLE`: it is requeued without consuming a retry, and the leased exit's failure count and backoff window are left alone, since the exit was never reached. Timeouts are not matched and keep the normal retry path.
 
 ```yaml
 music:
