@@ -73,9 +73,11 @@ def test_the_queue_workers_share_one_set_of_names():
         assert gone not in names, f'{gone} came back; it is a label, not a name'
 
 
-def test_readiness_separates_self_reports_from_peer_probes():
+def test_readiness_is_only_a_pods_own_report():
     '''
-    Two metrics, because they answer different questions.
+    Only `pod_ready_check` remains: the bot no longer probes peers.
+
+    It used to be two metrics because they answered different questions.
 
     `dispatcher_ready_check` was the trap: it read like a pod reporting its own
     health and was emitted by the BOT probing one. Folding both kinds into a
@@ -83,9 +85,10 @@ def test_readiness_separates_self_reports_from_peer_probes():
     forgotten filter reads as a plausible number rather than an error.
     '''
     names = ALL_NAMES
-    assert {'pod_ready_check', 'peer_ready_check'} <= names
+    assert 'pod_ready_check' in names
     for gone in ('broker.ready_check', 'database.ready_check',
-                 'dispatcher_ready_check', 'database_peer_ready_check'):
+                 'dispatcher_ready_check', 'database_peer_ready_check',
+                 'peer_ready_check'):
         assert gone not in names
     assert {AttributeNaming.POD.value, AttributeNaming.SOURCE.value,
             AttributeNaming.TARGET.value} == {'pod', 'source', 'target'}

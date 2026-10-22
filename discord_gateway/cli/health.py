@@ -2,9 +2,9 @@
 HealthServer factory for the bot/full entry-points.
 
 Lives in its own module because importing ``discord_core.cli._lib.common`` used
-to pull sqlalchemy in transitively via ``servers.health_server``. As of MR 4b
-that chain is gone -- HealthServer probes the db POD over TCP instead of pinging
-an engine -- so the split no longer earns its keep on those grounds. It stays
+to pull sqlalchemy in transitively via ``servers.health_server``. That chain is
+gone -- HealthServer probes no peer at all -- so the split no longer earns its keep
+on those grounds. It stays
 because ``cli.dispatcher`` still constructs ``DispatchHealthServer`` directly and
 has no reason to import a factory for a server it does not use.
 '''
@@ -15,12 +15,7 @@ from discord_core.utils.common import GeneralConfig
 from discord_gateway.servers.health_server import HealthServer
 
 
-def setup_health_server(bot: Bot, general_config: GeneralConfig,
-                        dispatch_http_url: str | None = None,
-                        database_http_url: str | None = None,
-                        broker_http_url: str | None = None,
-                        download_http_url: str | None = None,
-                        search_http_url: str | None = None):
+def setup_health_server(bot: Bot, general_config: GeneralConfig):
     '''Return a HealthServer if monitoring.health_server.enabled, else None.'''
     if (general_config.monitoring and general_config.monitoring.health_server
             and general_config.monitoring.health_server.enabled):
@@ -28,10 +23,5 @@ def setup_health_server(bot: Bot, general_config: GeneralConfig,
             bot,
             port=general_config.monitoring.health_server.port,
             bind_address=general_config.monitoring.health_server.bind_address,
-            dispatch_http_url=dispatch_http_url,
-            database_http_url=database_http_url,
-            broker_http_url=broker_http_url,
-            download_http_url=download_http_url,
-            search_http_url=search_http_url,
         )
     return None

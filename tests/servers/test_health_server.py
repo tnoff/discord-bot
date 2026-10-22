@@ -98,17 +98,6 @@ class TestHealthServerInit:
         hs = HealthServer(bot)
         assert hs.port == 8080
 
-    def test_init_with_database_http_url(self):
-        """The db pod's URL is stored when provided."""
-        bot = _make_bot()
-        hs = HealthServer(bot, database_http_url='http://discord-db:8085')
-        assert hs._database_http_url == 'http://discord-db:8085'  #pylint:disable=protected-access
-
-    def test_init_without_database_http_url(self):
-        """database_http_url defaults to None, and nothing is probed."""
-        hs = HealthServer(_make_bot())
-        assert hs._database_http_url is None  #pylint:disable=protected-access
-
 
 @pytest.mark.asyncio
 class TestHealthServerAsync:
@@ -168,13 +157,13 @@ class TestHealthServerAsync:
     async def test_health_is_bot_only_and_carries_no_db_key(self):
         """/health reports the bot and nothing else.
 
-        The SELECT 1 that used to run here is gone with the engine, and the db
-        pod is deliberately NOT folded back in as a liveness check: an
-        unreachable peer must not make the kubelet restart this container. It
-        belongs on /ready, where TestHealthServerReadiness covers it.
+        The SELECT 1 that used to run here is gone with the engine, and no peer
+        is folded in: an unreachable peer must not make the kubelet restart this
+        container. /ready does not probe peers either; see
+        TestHealthServerReadiness.
         """
         bot = _make_bot(is_ready=True, is_closed=False)
-        hs = HealthServer(bot, port=18084, database_http_url='http://discord-db:8085')
+        hs = HealthServer(bot, port=18084)
         task = asyncio.create_task(hs.serve())
         await _wait_for_port(18084)
         try:
@@ -316,19 +305,26 @@ async def test_health_server_base_readiness_defaults_to_check():
 
 @pytest.mark.asyncio
 class TestHealthServerReadiness:
-    '''/ready routes to _readiness_check; with dispatch_http_url it adds a TCP probe.'''
+    '''/ready answers from the bot alone: no peer pod is probed.'''
 
-    async def test_ready_without_dispatch_url_returns_liveness(self):
-        '''When dispatch_http_url is unset, /ready mirrors /health.'''
-        bot = _make_bot(is_ready=True, is_closed=False)
+    @pytest.mark.parametrize('is_ready,is_closed,status', [
+        (True, False, '200 OK'),
+        (False, False, '503'),
+        (True, True, '503'),
+    ])
+    async def test_ready_mirrors_liveness(self, is_ready, is_closed, status):
+        '''/ready is 200 exactly when /health is.'''
+        bot = _make_bot(is_ready=is_ready, is_closed=is_closed)
         hs = HealthServer(bot, port=18100)
         task = asyncio.create_task(hs.serve())
         await _wait_for_port(18100)
         try:
-            response = await _raw_request(18100, path='/ready')
-            assert '200 OK' in response
-            body = json.loads(response.split('\r\n\r\n', 1)[1])
-            assert body == {'status': 'ok'}
+            ready = await _raw_request(18100, path='/ready')
+            health = await _raw_request(18100, path='/health')
+            assert status in ready
+            assert status in health
+            if status == '200 OK':
+                assert json.loads(ready.split('\r\n\r\n', 1)[1]) == {'status': 'ok'}
         finally:
             task.cancel()
             try:
@@ -336,180 +332,23 @@ class TestHealthServerReadiness:
             except asyncio.CancelledError:
                 pass
 
-    async def test_ready_check_increments_counter_by_outcome(self, mocker):
-        '''_readiness_check records the probe outcome, tagged with its target.'''
-        counter = mocker.patch('discord_gateway.servers.health_server._PEER_READY_CHECK_COUNTER')
+    async def test_ready_does_not_depend_on_any_peer(self, mocker):
+        '''The peer probe is never called from /ready, so a dead peer cannot flip it.'''
+        probe = mocker.patch('discord_gateway.utils.peer_probe.tcp_probe', new=AsyncMock(return_value=False))
         bot = _make_bot(is_ready=True, is_closed=False)
-        hs = HealthServer(bot, port=18110, dispatch_http_url='http://dispatcher:8082')
-
-        mocker.patch.object(hs, '_tcp_probe', AsyncMock(return_value=True))
-        await hs._readiness_check()  # pylint: disable=protected-access
-        counter.add.assert_called_once_with(
-            1, {'source': 'bot', 'target': 'dispatch', 'outcome': 'ok'})
-
-        counter.reset_mock()
-        mocker.patch.object(hs, '_tcp_probe', AsyncMock(return_value=False))
-        await hs._readiness_check()  # pylint: disable=protected-access
-        counter.add.assert_called_once_with(
-            1, {'source': 'bot', 'target': 'dispatch', 'outcome': 'unavailable'})
-
-    async def test_database_peer_is_tagged_as_its_own_target(self, mocker):
-        '''
-        The db probe is separable from the dispatcher probe, now by label.
-
-        This used to be two counters with two metric names, because a
-        docker-apps panel titled for the dispatcher summed
-        dispatcher_ready_check by outcome and a dimension would have folded db
-        results into it -- a correct-looking graph answering a different
-        question. The panel now selects on `target`, so one metric is safe, and
-        the separation this asserts is the same separation as before: a db
-        result must never arrive unlabelled or labelled as the dispatcher.
-        '''
-        counter = mocker.patch(
-            'discord_gateway.servers.health_server._PEER_READY_CHECK_COUNTER')
-        bot = _make_bot(is_ready=True, is_closed=False)
-        hs = HealthServer(bot, port=18112, database_http_url='http://discord-db:8085')
-
-        mocker.patch.object(hs, '_tcp_probe', AsyncMock(return_value=True))
-        ok, payload = await hs._readiness_check()  # pylint: disable=protected-access
-
-        assert ok is True
-        assert payload == {'database': 'ok'}
-        counter.add.assert_called_once_with(
-            1, {'source': 'bot', 'target': 'database', 'outcome': 'ok'})
-
-    async def test_both_peers_are_probed_and_reported_independently(self, mocker):
-        '''One unreachable peer fails readiness without masking the other's state.
-
-        Short-circuiting on the first failure would make the payload say which
-        probe ran rather than which dependency is down -- with two peers that is
-        the difference between "the dispatcher is gone" and "everything is gone",
-        which is exactly what an operator reads this endpoint to find out.
-        '''
-        bot = _make_bot(is_ready=True, is_closed=False)
-        hs = HealthServer(bot, port=18113,
-                          dispatch_http_url='http://dispatcher:8082',
-                          database_http_url='http://discord-db:8085')
-
-        async def probe(url):
-            return 'dispatcher' in url
-
-        mocker.patch.object(hs, '_tcp_probe', AsyncMock(side_effect=probe))
-        ok, payload = await hs._readiness_check()  # pylint: disable=protected-access
-
-        assert ok is False
-        assert payload == {'dispatch': 'ok', 'database': 'unavailable'}
-
-    async def test_music_peers_are_tagged_as_their_own_targets(self, mocker):
-        '''The broker, downloader and search probes report under their own names.
-
-        A downloader that is still starting must read as download:unavailable, not
-        as a generic failure, so the payload and the peer_ready_check counter say
-        which pod the gateway is waiting for.
-        '''
-        bot = _make_bot(is_ready=True, is_closed=False)
-        hs = HealthServer(bot, port=18114,
-                          broker_http_url='http://discord-broker:8081',
-                          download_http_url='http://discord-downloader:8083',
-                          search_http_url='http://discord-search:8084')
-
-        async def probe(url):
-            return 'downloader' not in url
-
-        mocker.patch.object(hs, '_tcp_probe', AsyncMock(side_effect=probe))
-        counter = mocker.patch('discord_gateway.servers.health_server._PEER_READY_CHECK_COUNTER')
-        ok, payload = await hs._readiness_check()  # pylint: disable=protected-access
-
-        assert ok is False
-        assert payload == {'broker': 'ok', 'download': 'unavailable', 'search': 'ok'}
-        counter.add.assert_any_call(
-            1, {'source': 'bot', 'target': 'download', 'outcome': 'unavailable'})
-        counter.add.assert_any_call(
-            1, {'source': 'bot', 'target': 'broker', 'outcome': 'ok'})
-        counter.add.assert_any_call(
-            1, {'source': 'bot', 'target': 'search', 'outcome': 'ok'})
-
-    async def test_ready_check_skips_counter_without_dispatch_url(self, mocker):
-        '''No probe and no counter increment when dispatch_http_url is unset.'''
-        counter = mocker.patch('discord_gateway.servers.health_server._PEER_READY_CHECK_COUNTER')
-        bot = _make_bot(is_ready=True, is_closed=False)
-        hs = HealthServer(bot, port=18111)
-        await hs._readiness_check()  # pylint: disable=protected-access
-        counter.add.assert_not_called()
-
-    async def test_ready_with_unreachable_dispatcher_returns_503(self):
-        '''/ready 503s and reports dispatch:unavailable when the URL doesn't connect.'''
-        bot = _make_bot(is_ready=True, is_closed=False)
-        # Port 1 is reserved (tcpmux); a connect on localhost:1 fast-fails on Linux
-        hs = HealthServer(bot, port=18101, dispatch_http_url='http://127.0.0.1:1')
+        hs = HealthServer(bot, port=18101)
         task = asyncio.create_task(hs.serve())
         await _wait_for_port(18101)
         try:
             response = await _raw_request(18101, path='/ready')
-            assert '503' in response
-            body = json.loads(response.split('\r\n\r\n', 1)[1])
-            assert body['status'] == 'unavailable'
-            assert body['dispatch'] == 'unavailable'
-        finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-    async def test_ready_with_reachable_dispatcher_returns_200(self):
-        '''/ready 200s and reports dispatch:ok when a TCP listener accepts the connect.'''
-        bot = _make_bot(is_ready=True, is_closed=False)
-        # Stand up a stub listener that accepts and immediately closes
-        async def _accept(_reader, writer):
-            await close_writer(writer)
-        stub = await asyncio.start_server(_accept, '127.0.0.1', 18102)
-        stub_task = asyncio.create_task(stub.serve_forever())
-        hs = HealthServer(bot, port=18103, dispatch_http_url='http://127.0.0.1:18102')
-        task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18103)
-        try:
-            response = await _raw_request(18103, path='/ready')
             assert '200 OK' in response
-            body = json.loads(response.split('\r\n\r\n', 1)[1])
-            assert body['status'] == 'ok'
-            assert body['dispatch'] == 'ok'
-        finally:
-            task.cancel()
-            stub_task.cancel()
-            stub.close()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            try:
-                await stub_task
-            except asyncio.CancelledError:
-                pass
-
-    async def test_health_endpoint_does_not_probe_dispatcher(self):
-        '''/health stays purely liveness; dispatcher reachability never gates it.'''
-        bot = _make_bot(is_ready=True, is_closed=False)
-        # Even with an unreachable dispatcher, /health must return 200
-        hs = HealthServer(bot, port=18104, dispatch_http_url='http://127.0.0.1:1')
-        task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18104)
-        try:
-            response = await _raw_request(18104, path='/health')
-            assert '200 OK' in response
-            body = json.loads(response.split('\r\n\r\n', 1)[1])
-            assert 'dispatch' not in body
+            probe.assert_not_called()
         finally:
             task.cancel()
             try:
                 await task
             except asyncio.CancelledError:
                 pass
-
-    async def test_tcp_probe_invalid_url_returns_false(self):
-        '''_tcp_probe returns False when the URL has no host:port.'''
-        hs = HealthServer(_make_bot())
-        assert await hs._tcp_probe('not-a-url') is False  #pylint:disable=protected-access
 
 
 @pytest.mark.asyncio(loop_scope="session")
