@@ -6,7 +6,7 @@ from opentelemetry.metrics import Observation
 from pydantic import BaseModel
 
 from discord_core.exceptions import CogMissingRequiredArg
-from discord_core.utils.common import return_loop_runner
+from discord_core.utils.common import is_peer_unavailable, return_loop_runner
 from discord_core.utils.loop_health import LOOP_HEALTH, health_aware_queue_get
 from discord_core.utils.otel import MetricNaming, AttributeNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations
 
@@ -79,7 +79,8 @@ class DeleteMessages(CogHelperBase):
         # so its staleness window is sized from that cadence — see markov.
         self._task = self.bot.loop.create_task(
             return_loop_runner(self._delete_request_loop, self.bot, self.logger, continue_exceptions=DiscordServerError,
-                               health=LOOP_HEALTH.register_for_interval(LOOP_DELETE_MESSAGE_CHECK, self.loop_sleep_interval))()
+                               health=LOOP_HEALTH.register_for_interval(LOOP_DELETE_MESSAGE_CHECK, self.loop_sleep_interval),
+                               peer_unavailable=is_peer_unavailable)()
         )
         self._result_task = self.bot.loop.create_task(self._delete_result_loop())
 
