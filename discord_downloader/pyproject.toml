@@ -18,7 +18,7 @@ dependencies = [
     # string; tests/cli/test_package_pins.py enforces that they never drift
     # apart.
     "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.9.0.tar.gz#subdirectory=discord_core",
-    "yt-dlp==2026.8.19",
+    "yt-dlp==2026.10.21",
     # Dont pin, let yt-dlp install
     "yt-dlp-ejs",
 ]
