@@ -1,1 +1,0 @@
-Music, delete_messages and markov loops treat an unreachable peer pod (broker, downloader, search, dispatcher) as non-fatal to liveness, so a peer restart or outage no longer restarts the gateway. Other errors still stall the loop and fail `/health`.
