@@ -82,7 +82,7 @@ class LoopHealth:
         self._last_success: float = time_func()
         # Last time a peer pod was unreachable. Counts toward the staleness window
         # (see record_peer_unavailable) without being a success.
-        self._last_peer_unavailable: float = time_func()
+        self._last_peer_unavailable: float | None = None
         self._peer_unavailable_count = 0
         self._consecutive_errors = 0
         self._stopped = False
@@ -133,7 +133,7 @@ class LoopHealth:
     def mark_running(self) -> None:
         """(Re)start the staleness window — call when the loop's task is created."""
         self._last_success = self._time()
-        self._last_peer_unavailable = self._last_success
+        self._last_peer_unavailable = None
         self._consecutive_errors = 0
         self._peer_unavailable_count = 0
         self._stopped = False
@@ -143,7 +143,7 @@ class LoopHealth:
         """``ok`` / ``stalled`` / ``stopped`` — the value shown in the health payload."""
         if self._stopped:
             return LoopStatus.STOPPED
-        alive_at = max(self._last_success, self._last_peer_unavailable)
+        alive_at = max(self._last_success, self._last_peer_unavailable or self._last_success)
         if self._time() - alive_at > self.stale_after_seconds:
             return LoopStatus.STALLED
         return LoopStatus.OK
