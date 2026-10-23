@@ -5,15 +5,16 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock
 
 from pydantic import ValidationError as PydanticValidationError
-from aiohttp import ClientResponseError
+from aiohttp import ClientConnectionError, ClientResponseError
 from discord.errors import DiscordServerError, HTTPException, RateLimited, NotFound
 from opentelemetry.trace.status import StatusCode
 import pytest
 
 from discord_core.exceptions import ExitEarlyException
+from discord_core.utils.circuit_breaker import CircuitBreakerOpenError
 from discord_core.utils.common import GeneralConfig, LoggingConfig, RedisSentinelConfig
 from discord_core.utils.common import get_logger
-from discord_core.utils.common import return_loop_runner, _LOOP_ERROR_BACKOFF_MAX_SECONDS
+from discord_core.utils.common import is_peer_unavailable, return_loop_runner, _LOOP_ERROR_BACKOFF_MAX_SECONDS
 from discord_core.utils.common import rm_tree
 from discord_core.utils.discord_utils import discord_format_string_embed
 from discord_core.utils.loop_health import LoopHealth
@@ -632,3 +633,65 @@ def test_redis_sentinel_service_name_defaults_to_mymaster():
     '''service_name defaults to Sentinel's conventional 'mymaster'.'''
     cfg = RedisSentinelConfig(sentinels=['redis-sentinel:26379'])
     assert cfg.service_name == 'mymaster'
+
+
+class _PeerDown(Exception):
+    pass
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_return_loop_runner_peer_unavailable_rearms_health_and_does_not_log_a_traceback(mocker):
+    mocker.patch('discord_core.utils.common.sleep', new_callable=AsyncMock)
+    fake_bot = fake_bot_yielder()()
+    health = LoopHealth('peer-loop', stale_after_seconds=60)
+    calls = 0
+    async def fake_func():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise _PeerDown('broker is restarting')
+        fake_bot.bot_closed = True
+    logger = MagicMock()
+    runner = return_loop_runner(fake_func, fake_bot, logger, health=health,
+                                peer_unavailable=lambda error: isinstance(error, _PeerDown))
+    await runner()
+    assert calls == 2
+    logger.warning.assert_called_once()
+    logger.exception.assert_not_called()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_return_loop_runner_without_the_predicate_still_treats_it_as_an_error(mocker):
+    mocker.patch('discord_core.utils.common.sleep', new_callable=AsyncMock)
+    fake_bot = fake_bot_yielder()()
+    health = LoopHealth('peer-loop', stale_after_seconds=60)
+    calls = 0
+    async def fake_func():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise _PeerDown('broker is restarting')
+        fake_bot.bot_closed = True
+    logger = MagicMock()
+    await return_loop_runner(fake_func, fake_bot, logger, health=health)()
+    logger.exception.assert_called_once()
+    assert health.peer_unavailable_count == 0
+
+
+def _response_error(status):
+    return ClientResponseError(request_info=MagicMock(), history=(), status=status)
+
+
+@pytest.mark.parametrize('error,expected', [
+    (ClientConnectionError(), True),
+    (TimeoutError(), True),
+    (CircuitBreakerOpenError(), True),
+    (_response_error(503), True),
+    (_response_error(502), True),
+    (_response_error(504), True),
+    (_response_error(500), False),
+    (_response_error(404), False),
+    (ValueError('bug'), False),
+])
+def test_is_peer_unavailable(error, expected):
+    assert is_peer_unavailable(error) is expected

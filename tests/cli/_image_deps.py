@@ -399,6 +399,7 @@ ALL_IMAGES = frozenset({
     'discord_core.routes.contract',
     'discord_core.routes.route',
     'discord_core.servers.health_server_base',
+    'discord_core.utils.circuit_breaker',
     'discord_core.utils.common',
     'discord_core.utils.gc_census',
     'discord_core.utils.loop_health',
