@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.1.4] - 2026-10-23
+
+### Changed
+
+- Bump the `discord_core` pin to core-v3.9.0 (#1030): loops can treat a peer outage as non-fatal to liveness.
+
 ## [3.1.3] - 2026-10-22
 
 ### Changed
