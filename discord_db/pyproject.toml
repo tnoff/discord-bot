@@ -19,7 +19,7 @@ dependencies = [
     # string; tests/cli/test_package_pins.py enforces that they never drift
     # apart.
     "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.9.0.tar.gz#subdirectory=discord_core",
-    "SQLAlchemy[asyncio]==2.1.5",
+    "SQLAlchemy[asyncio]==2.1.6",
     # No import site. SQLAlchemy's async driver, named in the URL cli/_lib/db
     # builds ("postgresql+asyncpg"); absent, nothing can open the database.
     "asyncpg==0.32.0",
