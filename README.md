@@ -12,7 +12,7 @@ Includes some pre-written cogs for:
 
 ## Setup
 
-This project is made up of six pods that work together; assume all six are built and running — see [docs/setup.md](./docs/setup.md) for the full walkthrough. Docker Compose is the quickest way to stand up the whole stack:
+This project is made up of seven pods that work together; assume all seven are built and running — see [docs/setup.md](./docs/setup.md) for the full walkthrough. Docker Compose is the quickest way to stand up the whole stack:
 
 ```bash
 $ git clone https://github.com/tnoff/discord-bot.git
@@ -21,16 +21,16 @@ $ cp docker/.env.example docker/.env      # Discord token + music creds; leave M
 $ docker compose -f docker/docker-compose.multiprocess.yml --profile local up -d --build
 ```
 
-Installing just the bot's own package via `pip` is **not recommended** — with six inter-dependent pods, standing up the rest of the stack by hand is significantly more work than Compose does for you.
+Installing just the bot's own package via `pip` is **not recommended** — with seven inter-dependent pods, standing up the rest of the stack by hand is significantly more work than Compose does for you.
 
 ## Configuration
 
-Each of the six pods takes its own YAML config file — there is no single config
+Each of the seven pods takes its own YAML config file — there is no single config
 that runs "the bot" by itself. Only the bot and dispatcher pods require a real
 Discord bot token (generate one via the
 [discord developer portal](https://discord.com/developers/docs/topics/oauth2)) —
 the bot for its gateway connection, the dispatcher to authenticate outbound
-REST calls; the other four pods don't need one. Every pod's config supports
+REST calls; the other five pods don't need one. Every pod's config supports
 [pyaml-env](https://pypi.org/project/pyaml-env/) so values can come from an
 environment variable instead of being written in plain text. See
 [docs/configuration.md](./docs/configuration.md) for the full per-pod
@@ -47,11 +47,16 @@ To check the available functions, use `!help` command.
 | Cog | Config key | Example commands | Docs |
 |-----|------------|------------------|------|
 | `General` | (always loaded) | `!hello`, `!roll <dice>`, `!meta` | [docs/general.md](./docs/general.md) |
-| `DeleteMessages` | `delete_messages` | `!delete <n>`, `!autodelete` | [docs/delete_messages.md](./docs/delete_messages.md) |
+| `DeleteMessages` | `delete_messages` | (none — runs in the background) | [docs/delete_messages.md](./docs/delete_messages.md) |
 | `Markov` | `markov` | `!markov speak`, `!markov on/off` | [docs/markov.md](./docs/markov.md) |
-| `Music` | `music` | `!play`, `!pause`, `!skip`, `!queue`, `!history` | [docs/music.md](./docs/music.md) |
-| `RoleAssignment` | `role` | `!role add/remove/list` | [docs/role.md](./docs/role.md) |
-| `UrbanDictionary` | `urban` | `!word <term>` | [docs/urban.md](./docs/urban.md) |
+| `Music` | `music` | `!play`, `!skip`, `!stop`, `!history`, `!playlist ...` | [docs/music.md](./docs/music.md) |
+| `RoleAssignment` | `role` | `!role add/remove/list/users/available` | [docs/role.md](./docs/role.md) |
+| `UrbanDictionary` | `urban` | `!urban <term>` | [docs/urban.md](./docs/urban.md) |
+
+The gateway only parses commands. `!hello`, `!roll`, `!meta`, `!urban` and the `!markov`
+commands are forwarded to the `discord-commands` pod, which runs them and replies through the
+dispatcher; the rest still run in the gateway while they move across one group at a time (see
+[HA architecture](./docs/architecture.md#the-commands-pod)).
 
 `CommandErrorHandler` loads unconditionally and has no user-facing commands.
 `MessageDispatcher` is not one of the bot's cogs at all — it is the sole
@@ -63,7 +68,7 @@ Discord messages on the bot's behalf over HTTP. See
 
 - [Setup](./docs/setup.md) — the Docker Compose walkthrough
 - [Configuration](./docs/configuration.md) — database, logging, cog include-list, intents, guild removal, config file/volume locations
-- [HA architecture](./docs/architecture.md) — what each of the six pods does, how they talk to each other, and container runtime details (non-root user, volume permissions, debug builds)
+- [HA architecture](./docs/architecture.md) — what each of the seven pods does, how they talk to each other, and container runtime details (non-root user, volume permissions, debug builds)
 - [CLI and application lifecycle](./docs/cli.md)
 - [`CogHelperBase` reference (for developers)](./DEVELOPMENT.md#cog-skeleton)
 - [Message dispatcher](./docs/message_dispatcher.md)

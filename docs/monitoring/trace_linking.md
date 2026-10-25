@@ -167,6 +167,29 @@ The originating command span additionally carries Discord context attributes
 `discord.context.command`, `discord.context.message`) set by
 `@command_wrapper`.
 
+## Command forwarding
+
+A command that runs in the commands pod crosses the same kind of boundary, with
+the same two techniques:
+
+- `HttpCommandsClient` injects the active span's `traceparent` into
+  `POST /commands/{command}`, and the commands pod opens a `commands.accept`
+  (`SERVER`) span as a child of the gateway's command span. That span closes
+  when the pod answers 202, because the command has only been queued.
+- The command runs later, on the guild's worker task, so there is no active
+  parent. The gateway also sends `capture_span_context()` in the request body,
+  and the pod opens `commands.run` (`CONSUMER`, attributes `music.guild_id`,
+  `command.name`, `command.request_id`) with a `trace.Link` back to the
+  gateway's command span via `span_links_from_context()`. An exception inside the
+  handler is logged and sets that span's status to `ERROR`.
+- The reply the command sends goes through `dispatcher_reply`, which captures
+  the context inside `commands.run`, so the dispatcher's worker span links back
+  to the command that caused it.
+
+Dashboards that group by `<cog>.<command>` keep working for the gateway's own
+spans; look for `commands.run` with `command.name` to see the pod's side of a
+moved command.
+
 ## Dispatcher trace propagation
 
 Distinct from the media-request pipeline above, but built on the same
@@ -213,7 +236,7 @@ is which package the span-creating code is *defined* in, not which pod
 necessarily emits it at runtime — `dispatch_client.*` lives in
 `discord_core` (`DispatchClientBase`) and is reachable from any pod that
 constructs an `HttpDispatchClient`; in practice only the bot pod's cogs
-call the history/emoji fetch path today.
+call the history/emoji fetch path today (the commands pod only sends).
 
 <!-- BEGIN GENERATED(dispatcher-span-table) by tests/cli/test_span_census.py. Do not edit this block by hand.
      Regenerate with: UPDATE_SPAN_CENSUS=1 pytest tests/cli/test_span_census.py -->

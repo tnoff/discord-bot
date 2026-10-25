@@ -8,17 +8,23 @@ and what each pod is responsible for.
 ## HA is the only mode
 
 There is no single-process mode any more — it was retired by the
-discord-bot-ha-only project. Cog logic (music, markov, etc.) runs in the bot
-(gateway) pod; Discord API calls are handled exclusively by a dedicated
+discord-bot-ha-only project. The gateway pod holds the Discord connection and
+parses commands; Discord API calls are handled exclusively by a dedicated
 dispatcher pod, reached over HTTP via `HttpDispatchClient`
 (`discord_core/clients/http_dispatch_client.py`), injected into every cog
 via `CogHelperBase.__init__`. There is no `CogHelper._dispatcher` property
 and no in-process fallback: `discord_gateway/cli/bot.py::run()` raises
 `DiscordBotException` at startup if `general.dispatch_http_url` is missing.
 
-The bot pod separately requires `general.database_http_url`, pointing at the
-`discord-db` pod — equally hard-required, equally no fallback (see
-[Database](./configuration.md#database)).
+The gateway pod separately requires `general.database_http_url`, pointing at the
+`discord-db` pod, and `general.commands_http_url`, pointing at the
+`discord-commands` pod — equally hard-required, equally no fallback (see
+[Database](./configuration.md#database) and [The commands
+pod](#the-commands-pod)).
+
+There are seven pods: `discord-gateway`, `discord-commands`,
+`discord-dispatcher`, `discord-broker`, `discord-db`, `discord-downloader`
+and `discord-search`.
 
 ---
 
@@ -31,6 +37,7 @@ arrow.
 ```mermaid
 flowchart LR
     BOT["Bot<br/>discord_gateway"]
+    COMMANDS["Commands<br/>discord_commands"]
     DISPATCHER["Dispatcher<br/>discord_dispatcher"]
     BROKER["Broker<br/>discord_broker"]
     DB["DB<br/>discord_db"]
@@ -40,6 +47,9 @@ flowchart LR
     DATABASE["Postgres or SQLite"]
 
     BOT -->|dispatch| DISPATCHER
+    BOT -->|forward commands| COMMANDS
+    COMMANDS -->|replies| DISPATCHER
+    COMMANDS -->|markov| DB
     BOT -->|media broker| BROKER
     BOT -->|source expansion, search queue| SEARCH
     BOT -->|download queue| DOWNLOADER
@@ -63,12 +73,21 @@ missing:
 
 - **Bot → Dispatcher** (`HttpDispatchClient`): hard-required — `bot.py::run()`
   raises at startup if `dispatch_http_url` is missing.
+- **Bot → Commands** (`HttpCommandsClient`): hard-required — `bot.py::run()`
+  raises at startup if `commands_http_url` is missing. One attempt per
+  command, no retry; see [The commands pod](#the-commands-pod).
+- **Commands → Dispatcher** (`HttpDispatchClient`) and **Commands → DB**
+  (`HttpMarkovStore`): both hard-required — the commands pod raises at
+  startup if `dispatch_http_url` or `database_http_url` is missing. Every
+  reply a command makes goes out through the dispatcher.
 - **Bot → Broker / Search / Downloader** (`HttpBrokerClient`,
   `HttpMediaSearchClient` + `HttpYoutubeMusicSearchClient`,
   `HttpDownloadClient`): constructed by the music cog only.
 - **Bot → DB** (`HttpPlaylistStore` / `HttpMarkovStore` /
   `HttpGuildAnalyticsStore`, all `HttpStoreBase` subclasses built by
-  `build_http_stores()`): one store per db-backed cog.
+  `build_http_stores()`): one store per db-backed cog. The markov loops still
+  run in the gateway and use the markov store; the markov *commands* use the
+  commands pod's own store.
 - **Downloader → Broker**, **Search → Broker** (`HttpBrokerClient`):
   unconditional in both pods' `run()`.
 - **Broker → Dispatcher** (`HttpDispatchClient`): only if
@@ -79,9 +98,11 @@ missing:
   and `music.storage.bucket_name` are all set; otherwise the video cache is
   disabled for that broker instance.
 - **Dispatcher, Broker, Downloader, Search → Redis**: each holds its own
-  `RedisManager`; the bot and the db pod do not connect to Redis at all
-  (the bot's `redis_manager` constructor param exists but is never wired to
-  a real URL in `bot.py::run()`).
+  `RedisManager`; the bot, the commands pod and the db pod do not connect to
+  Redis at all (the bot's `redis_manager` constructor param exists but is
+  never wired to a real URL in `bot.py::run()`). The gateway and the commands
+  pod coordinate through the broker and the dispatcher, never through Redis
+  directly.
 - **DB → Postgres or SQLite**: the only pod with a database engine; every other pod's
   `[database]` extra was removed along with its SQLAlchemy/asyncpg imports.
 
@@ -158,6 +179,63 @@ composite app.
 Serve-only pods. An image appearing here that should be calling something is the failure this doc makes visible.
 
 <!-- END GENERATED(seam-topology) -->
+
+---
+
+## The commands pod
+
+`discord-commands` (`discord_commands`) runs the logic behind the gateway's
+commands (#1030). It has no Discord connection and no Discord token: the
+gateway parses a command with discord.py, forwards it, and the commands pod
+runs it and replies through the dispatcher.
+
+1. A command stub in `discord_gateway/cogs/` builds a `CommandEnvelope` (who
+   sent it, from which channel, in which voice channel, holding which roles)
+   and the command's typed arguments, and calls
+   `CogHelperBase.forward_command`.
+2. `HttpCommandsClient` POSTs `POST /commands/{command}` to the commands pod
+   (`general.commands_http_url`) — **one attempt**, with a 3 s accept timeout.
+   A command is not idempotent (`play` twice queues twice), so nothing
+   retries it.
+3. The pod validates the arguments against the command's model
+   (`discord_core/types/command_args.py`), queues the command and answers
+   **202** — accepted, not run.
+4. `CommandExecutor` runs each guild's commands one at a time, in arrival
+   order, with one worker task per guild, so a slow command in one guild holds
+   up no other. A command that raises is logged and its span marked as an
+   error; the guild's next command still runs.
+5. The command replies through the dispatcher
+   (`POST /dispatch/send`), exactly as a gateway cog would.
+
+If the pod cannot take a command (unreachable, refusing connections, timing
+out) the gateway tells the user "Commands are unavailable right now" and drops
+it. A 4xx means the stub sent something the pod does not accept, which is a
+bug in the stub, and surfaces through `on_command_error`.
+
+The seam is protected by a NetworkPolicy in the deployment repo rather than a
+shared secret: only the gateway may reach the commands port.
+
+Command groups move to the pod one at a time, in the same change that makes
+the gateway forward them, so a command is never served by neither pod:
+
+| Group | Where it runs |
+|---|---|
+| `hello`, `roll`, `meta`, `urban` | commands pod |
+| `markov on / off / list-channels / speak` | commands pod |
+| `play`, `skip`, `join`, `stop`, the queue and playlist commands, `music-stats`, `history`, `random-play` | gateway (not moved yet) |
+| `role *` | gateway (not moved yet) |
+| markov and delete-messages loops, music result loops | gateway (not moved yet) |
+
+A command whose group has not moved still runs in the gateway; the commands
+pod answers 501 for a known command it has no handler for, and the gateway
+never asks it for one.
+
+Two small things cross the boundary that the commands pod cannot look up
+itself. `markov on` sends `channel_is_text_or_voice`, because the gateway
+knows the type of the channel the command was typed in. The gateway also
+polls the broker for **gateway intents**, the inbox through which other pods
+ask it to do something only it can (join voice, wake a player); the gateway
+never receives a call from the commands pod, so the pod graph stays acyclic.
 
 ---
 
@@ -252,6 +330,24 @@ general:
 The same `redis_sentinel` block applies to the dispatcher, the broker, and any
 process that opens Redis.
 
+### Commands pod
+
+```yaml
+general:
+  dispatch_http_url: "http://dispatcher:8082"   # every reply goes through it
+  database_http_url: "http://db:8085"           # markov commands read and write here
+  commands_server:
+    host: 0.0.0.0
+    port: 8086
+markov:
+  server_reject_list: []                        # guild ids markov refuses to run for
+```
+
+No `discord_token`, no `redis_url`. `discord_commands/cli/commands.py::run()`
+raises `DiscordBotException` at startup if `dispatch_http_url` or
+`database_http_url` is missing. `markov.server_reject_list` is read from this
+pod's config, since the markov commands run here.
+
 ### Bot / cog pod
 
 ```yaml
@@ -259,6 +355,7 @@ general:
   discord_token: "YOUR_TOKEN"      # gateway connection
   dispatch_http_url: "http://dispatcher:8082"   # all dispatch calls go here
   database_http_url: "http://db:8085"           # all database calls go here
+  commands_http_url: "http://commands:8086"     # forwarded commands go here
   include:
     default: true
     markov: true
@@ -268,7 +365,8 @@ general:
 
 `dispatch_http_url` activates `HttpDispatchClient`, and `discord_gateway/cli/bot.py`
 refuses to start without it — equally for `database_http_url`, which activates
-this pod's HTTP store clients to `discord-db`. There is no longer an
+this pod's HTTP store clients to `discord-db`, and `commands_http_url`, which
+activates `HttpCommandsClient`. There is no longer an
 in-process fallback to fall back *to*: the single-process entrypoint that
 built a local `MessageDispatcher` was retired, and the bot's own database
 engine went with the same migration, so either URL being unset is a startup
@@ -285,8 +383,8 @@ in the dedicated monitoring docs now: see [Dispatcher trace
 propagation](monitoring/trace_linking.md#dispatcher-trace-propagation) for
 how context crosses the HTTP+Redis hop and the full span table, and
 [Metrics Reference](monitoring/metrics_reference.md#messagedispatcher-metrics)
-for `dispatcher_ready_check`, `message_dispatcher_queue_depth` (**planned,
-not currently emitted** — do not treat it as a real series), and the
+for `message_dispatcher_queue_depth` (**planned, not currently emitted** — do
+not treat it as a real series), and the
 `heartbeat{background_job="message_dispatcher"}` loop-health gauge.
 
 ---
@@ -304,7 +402,8 @@ core services have no profile and always start:
 | `dispatcher` | — | `Dockerfile.dispatcher` | HTTP server + Redis worker; makes outbound Discord REST calls on the bot's behalf |
 | `broker` | — | `Dockerfile.broker` | S3 media checkout/release; persists and serves download/search results to the bot |
 | `search` | — | `Dockerfile.search` | Standalone search tier; resolutions return via the broker |
-| `bot` | — | `Dockerfile.gateway` | Holds the actual Discord gateway connection; cog logic; enqueues to the downloader + reads results from the broker |
+| `commands` | — | `Dockerfile.commands` | Runs the commands the gateway forwards (no Discord token); replies through the dispatcher |
+| `bot` | — | `Dockerfile.gateway` | Holds the actual Discord gateway connection; parses commands and forwards them; cog logic; enqueues to the downloader + reads results from the broker |
 | `downloader-direct` | `local` | `Dockerfile.downloader` | Download worker with no tunnel — default egress, **no Mullvad key** |
 | `gluetun` | `vpn` | `qmcgaw/gluetun` | One Mullvad WireGuard tunnel; `downloader-vpn` shares its netns |
 | `downloader-vpn` | `vpn` | `Dockerfile.downloader` | Download worker, in-tunnel, per-download SOCKS5 exits (prod shape) |
@@ -313,10 +412,11 @@ core services have no profile and always start:
 8085) is a real, separate pod in production, but nothing in
 `docker/docker-compose.multiprocess.yml` builds or runs it — the `postgres`
 service above is bare postgres with no HTTP API in front of it. Since
-`discord_gateway/cli/bot.py::run()` hard-requires `general.database_http_url`,
-the `bot` service as checked in cannot actually reach a database through this
-compose file. Treat the compose file's database wiring as incomplete rather
-than a working reference until a `db` service is added.
+`discord_gateway/cli/bot.py::run()` and the commands pod's `run()` both
+hard-require `general.database_http_url`, neither the `bot` nor the `commands`
+service as checked in can actually reach a database through this compose
+file. Treat the compose file's database wiring as incomplete rather than a
+working reference until a `db` service is added.
 
 **Contributor default — no Mullvad account needed:**
 
@@ -344,7 +444,7 @@ when you switch profiles.
 
 Config files go in `volumes/cnf/` (copy the `docker/*.cnf.example` files):
 `discord.dispatcher.cnf`, `discord.broker.cnf`, `discord.search.cnf`,
-`discord.bot.cnf`, and the downloader config for your profile —
+`discord.commands.cnf`, `discord.bot.cnf`, and the downloader config for your profile —
 `discord.downloader.direct.cnf` for `local`, `discord.downloader.cnf` (which
 carries the `mullvad-socks5` egress block, see
 [Egress Modes](./music.md#egress-modes)) for `vpn`. Each is mounted at
@@ -359,10 +459,11 @@ what it actually needs, and compose only serializes along those edges:
 |---|---|---|
 | `redis`, `postgres` | — | (no dependencies) |
 | `dispatcher` | `redis` | started |
+| `commands` | `dispatcher` | healthy |
 | `broker` | `redis`, `postgres` | started, healthy |
 | `downloader-direct` (`local`), `search` | `redis`, `broker` | started, started |
 | `downloader-vpn` (`vpn`) | `gluetun`, `redis`, `broker` | healthy, started, started |
-| `bot` | `redis`, `dispatcher`, `postgres`, `search` | started, healthy, healthy, started |
+| `bot` | `redis`, `dispatcher`, `commands`, `postgres`, `search` | started, healthy, started, healthy, started |
 
 Two things worth calling out, since the pod diagram above could suggest
 otherwise:
@@ -426,17 +527,20 @@ expects its config mounted.
 ### Health checks
 
 Every image ships a `HEALTHCHECK`, but only the bot's actually exercises the
-health server's `/health` endpoint — the other five probe a raw TCP
-connection to the pod's own application port instead. See [Health server
+health server's `/health` endpoint — the other six probe a raw TCP
+connection to the pod's own application port instead (the commands image
+probes 8086, the port the gateway calls, because its `/health` only says the
+process is up). See [Health server
 documentation](./monitoring/health_server.md#docker-integration) for the
 full breakdown and [Health Check](./configuration.md#health-check) for the
 config toggle.
 
-### No database driver in the bot image
+### No database driver outside the db image
 
-The bot image (`docker/Dockerfile.gateway`) carries no database driver
+The bot image (`docker/Dockerfile.gateway`) and the commands image
+(`docker/Dockerfile.commands`) carry no database driver
 (PostgreSQL or SQLite) — SQLAlchemy, asyncpg and aiosqlite are not among
-`discord_core`'s or `discord_gateway`'s dependencies, since the bot talks to the database exclusively over HTTP (see
+`discord_core`'s, `discord_gateway`'s or `discord_commands`'s dependencies, since neither pod talks to the database any other way than over HTTP (see
 [Database](./configuration.md#database)). The driver is installed only in
 the `discord-db` image (`docker/Dockerfile.db`), the sole image that opens a
 real database connection and runs the alembic migrations.

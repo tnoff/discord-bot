@@ -167,22 +167,6 @@ pod's permanent-zero copy of this series is gone.
 
 ## MessageDispatcher Metrics
 
-### `dispatcher_ready_check`
-
-**Type**: Counter (exported to Prometheus/Mimir without a `_total` suffix, as
-`dispatcher_ready_check`)
-**Unit**: dimensionless (1)
-**Description**: Count of dispatcher readiness probes performed by the bot pod,
-by outcome. Incremented once per `/ready` probe whenever `dispatch_http_url` is
-configured (HA bot mode).
-**Labels**:
-- `outcome` = `ok` | `unavailable`
-
-**Usage**: `sum by (outcome) (rate(dispatcher_ready_check[5m]))`. A rising
-`unavailable` rate means the bot cannot reach the dispatcher's TCP port — an
-early warning for the readiness-split regression class. Only the bot pod
-(`cli.bot`) emits this; the dispatcher pod has no peer to probe.
-
 ### `message_dispatcher_queue_depth`
 
 **Status**: Planned — **not currently emitted**. The work queue is a single
@@ -191,7 +175,7 @@ of per-guild queues, so there is no per-guild breakdown to label, and an
 observable-gauge callback (synchronous) cannot read the Redis depth without an
 async poller. Tracked for a follow-up that adds a `depth()` to the `WorkQueue`
 interface plus a background poller; until then, dispatcher backlog is inferred
-from the worker `heartbeat` and `dispatcher_ready_check` signals.
+from the worker `heartbeat` signal.
 
 ## Heartbeat Metrics
 
@@ -224,6 +208,7 @@ probes, so this metric and the pod's readiness can never disagree.
 | `download_files` | downloader pod | Audio download loop — the bot no longer runs one, so the series only ever carries the pod's label set |
 | `process_download_results` | bot | Download result routing (Music) |
 | `process_search_results` | bot | Resolved-search consumer, submits downloads (Music) |
+| `process_gateway_intents` | bot | Gateway intent inbox consumer: acts on what other pods ask the gateway to do, e.g. join voice (Music) |
 | `youtube_music_search` | search pod | YouTube Music search loop — the bot no longer runs one, so the series only ever carries the pod's label set |
 | `history_worker` | broker pod | Records played tracks to the db pod (history playlist and analytics); replaced the bot's `post_play_processing` loop |
 | `downloader_worker` | downloader pod | Download consumer driver |

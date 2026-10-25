@@ -82,6 +82,13 @@ Each cog performs specific cleanup during `cog_unload()`:
 #### Delete Messages Cog
 - Cancels its init/result background tasks
 
+#### Commands pod (`discord-commands`)
+- Has no cogs. On SIGTERM it drains its HTTP server first (so nothing is
+  accepted after the executor stops, which would be a 202 for a command that
+  never runs), then stops the command executor, then closes the dispatcher and
+  db clients — in that order, because a command still running needs the
+  dispatcher to send its reply
+
 ### Logging During Shutdown
 
 The bot logs the shutdown process for monitoring and debugging:
@@ -126,7 +133,7 @@ docker stop --time 30 my-discord-bot
 
 The real `docker/Dockerfile.gateway` uses a shared `entrypoint.sh`, not a direct
 `CMD`, so the console script can be selected by `DISCORD_BOT_CMD` (the same
-entrypoint script is reused across all six pods' Dockerfiles):
+entrypoint script is reused across all seven pods' Dockerfiles):
 
 ```dockerfile
 ENTRYPOINT ["/entrypoint.sh"]

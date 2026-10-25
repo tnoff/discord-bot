@@ -8,8 +8,8 @@ Configure with:
     general.database_http_url — discord-db pod URL; the markov commands read and write through it
                                 (required — raises DiscordBotException if missing)
     markov.server_reject_list — optional guild ids markov refuses to run for
-    general.commands_server  — {host, port} for the HTTP server (default 0.0.0.0:8086)
-    general.monitoring       — optional OTLP / health-server config
+    general.commands_server   — {host, port} for the HTTP server (default 0.0.0.0:8086)
+    general.monitoring        — optional OTLP / health-server config
 '''
 import asyncio
 import logging
