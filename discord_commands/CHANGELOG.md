@@ -1,4 +1,10 @@
 # Changelog
+## [0.2.2] - 2026-10-25
+
+### Changed
+
+- Bumped tnoff/dappertable to v1.1.12
+
 ## [0.2.1] - 2026-10-23
 
 ### Changed
