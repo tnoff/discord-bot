@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from discord_core.exceptions import CogMissingRequiredArg
+from discord_core.utils.common import is_peer_unavailable
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import loop_heartbeat_observations
 
@@ -122,6 +123,16 @@ async def test_cog_load_creates_task(fake_context):  #pylint:disable=redefined-o
     await cog.cog_load()
     assert getattr(cog, '_task') is fake_task
     assert getattr(cog, '_result_task') is fake_task
+
+
+@pytest.mark.asyncio
+async def test_cog_load_request_loop_tolerates_peer_outage(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    '''A dispatcher outage must not fail liveness: the request loop opts into peer_unavailable'''
+    runner = mocker.patch('discord_gateway.cogs.delete_messages.return_loop_runner')
+    cog = DeleteMessages(fake_context['bot'], _FULL_CONFIG, fake_context['dispatcher'])
+    fake_context['bot'].loop = MagicMock()
+    await cog.cog_load()
+    assert runner.call_args.kwargs['peer_unavailable'] is is_peer_unavailable
 
 
 @pytest.mark.asyncio

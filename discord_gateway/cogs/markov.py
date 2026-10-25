@@ -8,7 +8,7 @@ from opentelemetry.metrics import Observation
 from pydantic import BaseModel, Field
 
 from discord_core.exceptions import CogMissingRequiredArg
-from discord_core.utils.common import return_loop_runner
+from discord_core.utils.common import is_peer_unavailable, return_loop_runner
 from discord_core.utils.loop_health import LOOP_HEALTH, health_aware_queue_get
 from discord_core.utils.otel import AttributeNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations
 from discord_core.clients.dispatch_client_base import DispatchClientBase
@@ -111,7 +111,8 @@ class Markov(CogHelperBase):
         self._task = self.bot.loop.create_task(
             return_loop_runner(self._markov_request_loop, self.bot, self.logger,
                                continue_exceptions=(DiscordServerError, TimeoutError),
-                               health=LOOP_HEALTH.register_for_interval(LOOP_MARKOV_CHECK, self.loop_sleep_interval))()
+                               health=LOOP_HEALTH.register_for_interval(LOOP_MARKOV_CHECK, self.loop_sleep_interval),
+                               peer_unavailable=is_peer_unavailable)()
         )
         self._result_task = self.bot.loop.create_task(self._markov_result_loop())
 

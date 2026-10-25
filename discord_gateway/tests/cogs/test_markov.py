@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
 from discord_core.exceptions import CogMissingRequiredArg
+from discord_core.utils.common import is_peer_unavailable
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import loop_heartbeat_observations
 
@@ -393,6 +394,16 @@ async def test_cog_load_creates_task(fake_context, mocker, fake_stores):  #pylin
     await cog.cog_load()
     assert cog._task is not None  #pylint:disable=protected-access
     assert cog._result_task is not None  #pylint:disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_cog_load_request_loop_tolerates_peer_outage(fake_context, mocker, fake_stores):  #pylint:disable=redefined-outer-name
+    '''A dispatcher outage must not fail liveness: the request loop opts into peer_unavailable'''
+    runner = mocker.patch('discord_gateway.cogs.markov.return_loop_runner')
+    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
+    fake_context['bot'].loop = mocker.Mock()
+    await cog.cog_load()
+    assert runner.call_args.kwargs['peer_unavailable'] is is_peer_unavailable
 
 
 # ---------------------------------------------------------------------------
