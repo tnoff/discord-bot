@@ -15,6 +15,7 @@ from discord_core.types.download import DownloadErrorType, DownloadResult, Downl
 from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchResult, SearchCollection
+from discord_core.utils.common import is_peer_unavailable
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import loop_heartbeat_observations
 
@@ -1923,6 +1924,23 @@ async def test_cog_load_starts_poller_in_ha(fake_context):  #pylint:disable=rede
     # peer wait + cleanup + init + result + search_result + intents only — the download and
     # search loops both live in their own pods now, and no broker server is configured.
     assert mock_loop.create_task.call_count == 6
+
+
+@pytest.mark.asyncio
+async def test_cog_load_loops_tolerate_peer_outage(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """A broker/downloader/search outage must not fail liveness: every runner-driven loop opts in."""
+    runner = mocker.patch('discord_gateway.cogs.music.return_loop_runner')
+    config = music_config({
+        'music': {'download_client': {'url': 'http://downloader-host:8083'}}
+    })
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    cog.download_client = Mock()
+    cog.download_client.start = AsyncMock()
+    cog.bot.loop = Mock()
+    cog.dispatcher = Mock()
+    await cog.cog_load()
+    assert runner.call_count == 4
+    assert all(call.kwargs['peer_unavailable'] is is_peer_unavailable for call in runner.call_args_list)
 
 
 @pytest.mark.asyncio

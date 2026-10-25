@@ -21,7 +21,8 @@ from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
 from discord_core.types.download import LifecycleEvent
 from discord_core.types.media_download import MediaDownload
-from discord_core.utils.common import (rm_tree, return_loop_runner,
+from discord_core.utils.common import (is_peer_unavailable, rm_tree,
+                                      return_loop_runner,
                                       seam_contract_from_settings,
                                       tracing_config_from_settings)
 from discord_core.utils.discord_context import DiscordContextNaming
@@ -513,7 +514,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         self._cleanup_task = self.bot.loop.create_task(
             self._after_peers_ready(return_loop_runner(
                 self.cleanup_players, self.bot, self.logger,
-                health=LOOP_HEALTH.register(LOOP_CLEANUP_PLAYERS)))
+                health=LOOP_HEALTH.register(LOOP_CLEANUP_PLAYERS),
+                peer_unavailable=is_peer_unavailable))
         )
         # One-shot, not a loop: sessions are consumed once at startup.  It waits
         # on the gateway itself rather than going through return_loop_runner,
@@ -527,17 +529,20 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         self._result_task = self.bot.loop.create_task(
             self._after_peers_ready(return_loop_runner(
                 self.process_download_results, self.bot, self.logger,
-                health=LOOP_HEALTH.register(LOOP_PROCESS_DOWNLOAD_RESULTS)))
+                health=LOOP_HEALTH.register(LOOP_PROCESS_DOWNLOAD_RESULTS),
+                peer_unavailable=is_peer_unavailable))
         )
         self._search_result_task = self.bot.loop.create_task(
             self._after_peers_ready(return_loop_runner(
                 self.process_search_results, self.bot, self.logger,
-                health=LOOP_HEALTH.register(LOOP_PROCESS_SEARCH_RESULTS)))
+                health=LOOP_HEALTH.register(LOOP_PROCESS_SEARCH_RESULTS),
+                peer_unavailable=is_peer_unavailable))
         )
         self._intent_task = self.bot.loop.create_task(
             self._after_peers_ready(return_loop_runner(
                 self.process_gateway_intents, self.bot, self.logger,
-                health=LOOP_HEALTH.register(LOOP_PROCESS_GATEWAY_INTENTS)))
+                health=LOOP_HEALTH.register(LOOP_PROCESS_GATEWAY_INTENTS),
+                peer_unavailable=is_peer_unavailable))
         )
         # The search loop lives in the search pod, so the cog starts only the
         # client's status poller. The bot registers no youtube_music_search loop
