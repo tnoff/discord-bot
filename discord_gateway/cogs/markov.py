@@ -16,8 +16,7 @@ from discord_core.types.dispatch_result import ChannelHistoryResult, GuildEmojis
 
 from discord_core.interfaces.database_protocols import MarkovStore
 
-from discord_gateway.cogs.common import CogHelperBase, envelope_from_ctx
-from discord_gateway.command_logic.markov import MarkovCommands
+from discord_gateway.cogs.common import CogHelperBase, build_commands_client
 from discord_gateway.loop_logic.markov import MarkovLoop
 from discord_gateway.utils.otel_command import command_wrapper
 
@@ -40,6 +39,8 @@ class MarkovConfig(BaseModel):
     loop_sleep_interval: float = 300.0
     message_check_limit: int = 16
     history_retention_days: int = 365
+    # Read by the commands pod (markov.server_reject_list); kept here so one config file validates
+    # against both.
     server_reject_list: list[int] = Field(default_factory=list)
 
 class Markov(CogHelperBase):
@@ -61,7 +62,6 @@ class Markov(CogHelperBase):
         self.loop_sleep_interval = self.config.loop_sleep_interval
         self.message_check_limit = self.config.message_check_limit
         self.history_retention_days = self.config.history_retention_days
-        self.server_reject_list = self.config.server_reject_list
 
         # The cog talks to persistence only through this. It was annotated against
         # the Protocol rather than MarkovClient so the HTTP store could drop in
@@ -72,6 +72,7 @@ class Markov(CogHelperBase):
         # day MarkovStore existed, precisely so this line could change without any
         # line below it changing.
         self.markov_store: MarkovStore = stores.markov
+        self.commands_client = build_commands_client(settings)
 
         self._task = None
         self._result_task = None
@@ -176,28 +177,16 @@ class Markov(CogHelperBase):
         if ctx.invoked_subcommand is None:
             await ctx.send('Invalid sub command passed...')
 
-    @property
-    def markov_logic(self) -> MarkovCommands:
-        '''
-        The ``!markov`` subcommands, built from this cog's current store and reject list.
-        Stateless, so rebuilt per use rather than cached: replacing the store on the cog
-        (as the tests do) is picked up with nothing to keep in sync.
-        '''
-        return MarkovCommands(self.dispatch_message, self.logger, self.markov_store,
-                              self.server_reject_list, self._is_markov_channel)
-
-    async def _is_markov_channel(self, channel_id: int) -> bool:
-        '''Whether markov can run in this channel: it has to be a text or voice channel.'''
-        channel = await self.bot.fetch_channel(channel_id)
-        return channel.type in [ChannelType.text, ChannelType.voice]
-
     @markov.command(name='on')
     @command_wrapper
     async def on(self, ctx: Context):
         '''
         Turn markov on for channel
         '''
-        return await self.markov_logic.on(envelope_from_ctx(ctx))
+        # The commands pod has no Discord connection, so it is told the one thing it would have
+        # fetched the channel to learn.
+        await self.forward_command(ctx, 'markov.on',
+                                   channel_is_text_or_voice=ctx.channel.type in [ChannelType.text, ChannelType.voice])
 
     @markov.command(name='off')
     @command_wrapper
@@ -205,7 +194,7 @@ class Markov(CogHelperBase):
         '''
         Turn markov off for channel
         '''
-        return await self.markov_logic.off(envelope_from_ctx(ctx))
+        await self.forward_command(ctx, 'markov.off')
 
     @markov.command(name='list-channels')
     @command_wrapper
@@ -213,7 +202,7 @@ class Markov(CogHelperBase):
         '''
         List channels markov is enabled for in this server
         '''
-        return await self.markov_logic.list_channels(envelope_from_ctx(ctx))
+        await self.forward_command(ctx, 'markov.list-channels')
 
     @markov.command(name='speak')
     @command_wrapper
@@ -231,4 +220,4 @@ class Markov(CogHelperBase):
         Note that for first_word, multiple words can be given, but they must be in quotes
         Ex: !markov speak "hey whats up", or !markov speak "hey whats up" 64
         '''
-        return await self.markov_logic.speak(envelope_from_ctx(ctx), first_word, sentence_length)
+        await self.forward_command(ctx, 'markov.speak', first_word=first_word, sentence_length=sentence_length)

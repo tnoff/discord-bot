@@ -67,7 +67,7 @@ general:
 | `stale_after_seconds` | float | `300` | How long a loop may go without a successful iteration before it is reported unhealthy |
 
 Applied at startup by `setup_observability()`, so every pod's entrypoint
-(bot, dispatcher, broker, db, downloader, search) picks it up.
+(bot, commands, dispatcher, broker, db, downloader, search) picks it up.
 
 **This is also the "how long before we restart the pod" knob.** The Kubernetes
 `livenessProbe` consumes the same bit, so a stalled loop gets the pod killed.
@@ -83,6 +83,34 @@ The 300 s default leaves generous headroom over all three. Widening it makes the
 bot more tolerant of long peer outages at the cost of noticing a real wedge
 later; narrowing it does the reverse. Note the probe's own
 `failureThreshold × periodSeconds` stacks on top of this window.
+
+### Peer outages
+
+A loop that polls another pod (the gateway's music loops poll the broker, the
+delete-messages and markov producers call the dispatcher) cannot be repaired by
+restarting its own process: the peer is what is down, and a restart would also
+cost the process its state. So `return_loop_runner` takes an opt-in
+`peer_unavailable` predicate, and the gateway passes
+`discord_core.utils.common.is_peer_unavailable`.
+
+An error the predicate accepts is recorded with `record_peer_unavailable()`
+instead of `record_error()`:
+
+- it is logged as a warning with no stack trace,
+- it re-arms the staleness window, so the loop reads `ok` while the peer is away,
+- it is **not** a success: `seconds_since_success` keeps growing and the error
+  count keeps rising, so the outage is still visible in the loop-runner log line.
+
+`is_peer_unavailable` accepts connection errors, timeouts, an open circuit
+breaker, and 502, 503 and 504 responses. Anything else — a 500, a bug in the loop
+itself — still stalls the loop after `stale_after_seconds`, so a genuine fault
+keeps failing the probe and alerting. Loops that do not pass the predicate behave
+as before.
+
+The effect is that a broker, downloader, search or dispatcher restart or outage
+of any length no longer restarts the gateway pod. It does not stop the music
+loops from being unable to do their work while the peer is away, and it does not
+apply to a peer that is up but erroring.
 
 ### Per-loop windows
 

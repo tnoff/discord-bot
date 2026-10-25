@@ -31,8 +31,8 @@ see — name, description, unit, and which pod.
 | `heartbeat` | Delete message loop heartbeat | `1` | gateway | `discord_gateway/cogs/delete_messages.py:57` |
 | `heartbeat` | Delete message result loop heartbeat | `1` | gateway | `discord_gateway/cogs/delete_messages.py:59` |
 | `heartbeat` | Download HTTP server heartbeat | `1` | downloader | `discord_core/servers/queue_worker_server.py:75` |
-| `heartbeat` | Markov check loop heartbeat | `1` | gateway | `discord_gateway/cogs/markov.py:82` |
-| `heartbeat` | Markov result loop heartbeat | `1` | gateway | `discord_gateway/cogs/markov.py:84` |
+| `heartbeat` | Markov check loop heartbeat | `1` | gateway | `discord_gateway/cogs/markov.py:83` |
+| `heartbeat` | Markov result loop heartbeat | `1` | gateway | `discord_gateway/cogs/markov.py:85` |
 | `heartbeat` | Message dispatcher worker pool heartbeat | `1` | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:331` |
 | `heartbeat` | Youtube music search HTTP server heartbeat | `1` | search | `discord_core/servers/queue_worker_server.py:75` |
 | `history_event_queue_depth` | Play records waiting for the broker history worker | `1` | broker | `discord_broker/workers/history_worker.py:78` |
@@ -43,7 +43,7 @@ see — name, description, unit, and which pod.
 | `queue_worker_failures` | Failures in the shared YouTube failure queue | `1` | downloader | `discord_core/workers/queue_metrics.py:55` |
 | `queue_worker_failures` | Failures in the shared search failure queue | `1` | search | `discord_core/workers/queue_metrics.py:55` |
 | `result_queue_depth` | Delete message dispatch result queue depth | `1` | gateway | `discord_gateway/cogs/delete_messages.py:61` |
-| `result_queue_depth` | Markov dispatch result queue depth | `1` | gateway | `discord_gateway/cogs/markov.py:86` |
+| `result_queue_depth` | Markov dispatch result queue depth | `1` | gateway | `discord_gateway/cogs/markov.py:87` |
 | `result_queue_depth` | Pending results on the broker bot-ready queues, by result type | `1` | broker | `discord_broker/workers/broker_metrics.py:75` |
 | `seam_contract_breach` | 1 when a peer has been missing a called route longer than the grace window | `1` | core (shared) | `discord_core/clients/seam_contract.py:307` |
 | `voice_sessions` | Voice sessions, by what counted them | `1` | gateway | `discord_gateway/cogs/music.py:387` |
@@ -167,22 +167,6 @@ pod's permanent-zero copy of this series is gone.
 
 ## MessageDispatcher Metrics
 
-### `dispatcher_ready_check`
-
-**Type**: Counter (exported to Prometheus/Mimir without a `_total` suffix, as
-`dispatcher_ready_check`)
-**Unit**: dimensionless (1)
-**Description**: Count of dispatcher readiness probes performed by the bot pod,
-by outcome. Incremented once per `/ready` probe whenever `dispatch_http_url` is
-configured (HA bot mode).
-**Labels**:
-- `outcome` = `ok` | `unavailable`
-
-**Usage**: `sum by (outcome) (rate(dispatcher_ready_check[5m]))`. A rising
-`unavailable` rate means the bot cannot reach the dispatcher's TCP port — an
-early warning for the readiness-split regression class. Only the bot pod
-(`cli.bot`) emits this; the dispatcher pod has no peer to probe.
-
 ### `message_dispatcher_queue_depth`
 
 **Status**: Planned — **not currently emitted**. The work queue is a single
@@ -191,7 +175,7 @@ of per-guild queues, so there is no per-guild breakdown to label, and an
 observable-gauge callback (synchronous) cannot read the Redis depth without an
 async poller. Tracked for a follow-up that adds a `depth()` to the `WorkQueue`
 interface plus a background poller; until then, dispatcher backlog is inferred
-from the worker `heartbeat` and `dispatcher_ready_check` signals.
+from the worker `heartbeat` signal.
 
 ## Heartbeat Metrics
 
@@ -224,6 +208,7 @@ probes, so this metric and the pod's readiness can never disagree.
 | `download_files` | downloader pod | Audio download loop — the bot no longer runs one, so the series only ever carries the pod's label set |
 | `process_download_results` | bot | Download result routing (Music) |
 | `process_search_results` | bot | Resolved-search consumer, submits downloads (Music) |
+| `process_gateway_intents` | bot | Gateway intent inbox consumer: acts on what other pods ask the gateway to do, e.g. join voice (Music) |
 | `youtube_music_search` | search pod | YouTube Music search loop — the bot no longer runs one, so the series only ever carries the pod's label set |
 | `history_worker` | broker pod | Records played tracks to the db pod (history playlist and analytics); replaced the bot's `post_play_processing` loop |
 | `downloader_worker` | downloader pod | Download consumer driver |

@@ -4,7 +4,7 @@
 pod (`discord_dispatcher/workers/message_dispatcher.py`) — not a cog, and
 not part of `discord_gateway`'s process. It serialises Discord API calls per
 guild, applies retry logic, and deduplicates rapid-fire mutable message
-updates, all for the bot (and any other pod) reaching it over HTTP via
+updates, all for the gateway, the commands pod and the broker reaching it over HTTP via
 `HttpDispatchClient`.
 
 This page is the full reference for the worker itself. For the higher-level
@@ -260,7 +260,7 @@ general:
     message_dispatcher: true
 ```
 
-The bot pod's full config (`dispatch_http_url` alongside `database_http_url`,
+The bot pod's full config (`dispatch_http_url` alongside `database_http_url` and `commands_http_url`,
 the cog `include` list, etc.) isn't repeated here — see [HA
 architecture](./architecture.md#bot--cog-pod) for the complete example and
 [HA architecture](./architecture.md#docker-compose) for the full multi-pod setup.

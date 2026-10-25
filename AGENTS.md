@@ -164,7 +164,11 @@ hand-maintained list here):
   subsystem (`music_player.py`, `search_client.py` — download, search,
   broker and db-side pieces live in their own pods below). `clients/` holds
   this pod's own HTTP client wrappers for talking to the other pods
-  (`http_download_client.py`, `http_markov_store.py`, etc.).
+  (`http_download_client.py`, `http_playlist_store.py`, etc.; the markov store
+  is `discord_core/clients/http_markov_store.py` because the commands pod builds
+  it too). Commands are forwarding stubs in `cogs/` for the groups that have
+  moved to the commands pod; `command_logic/` holds the logic of those that
+  have not.
 - **`discord_dispatcher/`** — the `discord-dispatcher` pod. `workers/message_dispatcher.py`
   is the `MessageDispatcher` worker (Redis-backed, per-guild); `servers/`
   serves its HTTP API.
@@ -186,8 +190,10 @@ hand-maintained list here):
 - **`discord_commands/`** — the `discord-commands` pod (#1030 Phase 2): runs
   the logic behind the gateway's commands. `servers/commands_server.py` serves
   `POST /commands/{command}`; `workers/command_executor.py` is the per-guild
-  FIFO with `request_id` dedup; `handlers.py` is the command registry (empty
-  until the logic moves in, one command group at a time).
+  FIFO with `request_id` dedup; `handlers.py` is the command registry. The
+  logic of a command group moves into `command_logic/` in the same change that
+  makes the gateway stub forward it, one group at a time: so far `hello`,
+  `roll`, `meta`, `urban` and the `markov` commands.
 
 Central `tests/`, `docs/`, `alembic/`, `docker/` sit alongside the eight
 packages at the repo root, shared across all of them.

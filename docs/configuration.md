@@ -184,18 +184,22 @@ Configure with:
 Configure with:
     general.dispatch_http_url — Dispatcher pod URL; every reply goes through it (required —
                                 raises DiscordBotException if missing)
-    general.commands_server  — {host, port} for the HTTP server (default 0.0.0.0:8086)
-    general.monitoring       — optional OTLP / health-server config
+    general.database_http_url — discord-db pod URL; the markov commands read and write through it
+                                (required — raises DiscordBotException if missing)
+    markov.server_reject_list — optional guild ids markov refuses to run for
+    general.commands_server   — {host, port} for the HTTP server (default 0.0.0.0:8086)
+    general.monitoring        — optional OTLP / health-server config
 ```
 
 <!-- END GENERATED(config-reference) -->
 
 ## Health Check
 
-Every pod ships an image-level Docker `HEALTHCHECK`, but only the bot pod's
-config toggle below actually drives one that exercises real health-check
-logic (Redis ping, database `SELECT 1`, loop health) rather than a bare TCP
-probe — see [Health server documentation](./monitoring/health_server.md#docker-integration)
+Every pod ships an image-level Docker `HEALTHCHECK`, but only the bot image's
+drives the health server (loop health and the Discord connection); the other
+six probe a bare TCP connection to their own port. Every pod, including the
+commands pod, serves the same `monitoring.health_server` block below for
+Kubernetes probes — see [Health server documentation](./monitoring/health_server.md#docker-integration)
 for that distinction and the full endpoint reference.
 
 ```yaml
@@ -209,8 +213,9 @@ general:
 ## Database
 
 Certain cogs, such as markov or music, have functions that require database
-support — but the bot itself has no direct database connection. It is an
-HTTP client of the `discord-db` pod, and needs that pod's URL:
+support — but neither the bot nor the commands pod has a direct database
+connection. Both are HTTP clients of the `discord-db` pod and need that pod's
+URL (`general.database_http_url`):
 
 ```
 ---
@@ -347,7 +352,7 @@ general:
 
 ## Include Cogs
 
-Bot pod only — the other five pods have no cogs. The "common" cog with some
+Bot pod only — the other six pods have no cogs. The "common" cog with some
 basic functions will be included by default, the rest are opt-in
 ```
 ---

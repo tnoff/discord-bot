@@ -12,6 +12,8 @@ from discord_commands.cli import commands as commands_cli
 
 
 DISPATCH_URL = 'http://dispatcher:8082'
+DATABASE_URL = 'http://db:8085'
+GENERAL = {'dispatch_http_url': DISPATCH_URL, 'database_http_url': DATABASE_URL}
 
 
 def general_config(health=False):
@@ -29,13 +31,13 @@ def fixture_run_loop(mocker):
 
 
 def test_run_builds_the_server_on_the_configured_port(run_loop):
-    commands_cli.run({'general': {'dispatch_http_url': DISPATCH_URL,
-                                  'commands_server': {'host': '127.0.0.1', 'port': 9999}}}, general_config())
+    commands_cli.run({'general': {**GENERAL, 'commands_server': {'host': '127.0.0.1', 'port': 9999}}}, general_config())
     (http_server, executor), kwargs = run_loop.call_args.args[0]
     assert (http_server._host, http_server._port) == ('127.0.0.1', 9999)  # pylint: disable=protected-access
     assert http_server._executor is executor  # pylint: disable=protected-access
     assert kwargs['health_server'] is None
     assert kwargs['dispatcher']._base_url == DISPATCH_URL  # pylint: disable=protected-access
+    assert kwargs['markov_store']._base_url == DATABASE_URL  # pylint: disable=protected-access
 
 
 def test_run_requires_a_dispatcher_url(run_loop):
@@ -44,14 +46,34 @@ def test_run_requires_a_dispatcher_url(run_loop):
     run_loop.assert_not_called()
 
 
+def test_run_requires_a_database_url(run_loop):
+    with pytest.raises(DiscordBotException, match='database_http_url'):
+        commands_cli.run({'general': {'dispatch_http_url': DISPATCH_URL}}, general_config())
+    run_loop.assert_not_called()
+
+
+def test_run_gives_the_markov_reject_list_to_the_handlers(run_loop, mocker):
+    build = mocker.patch.object(commands_cli, 'build_handlers', return_value={})
+    commands_cli.run({'general': GENERAL, 'markov': {'server_reject_list': [5, 6]}}, general_config())
+    assert build.call_args.args[3] == [5, 6]
+    run_loop.assert_called_once()
+
+
+@pytest.mark.usefixtures('run_loop')
+def test_run_defaults_to_an_empty_markov_reject_list(mocker):
+    build = mocker.patch.object(commands_cli, 'build_handlers', return_value={})
+    commands_cli.run({'general': GENERAL}, general_config())
+    assert build.call_args.args[3] == []
+
+
 def test_run_defaults_to_all_interfaces_on_8086(run_loop):
-    commands_cli.run({'general': {'dispatch_http_url': DISPATCH_URL}}, general_config())
+    commands_cli.run({'general': GENERAL}, general_config())
     (http_server, _), _ = run_loop.call_args.args[0]
     assert (http_server._host, http_server._port) == ('0.0.0.0', 8086)  # pylint: disable=protected-access
 
 
 def test_run_adds_a_health_server_when_monitoring_enables_one(run_loop):
-    commands_cli.run({'general': {'dispatch_http_url': DISPATCH_URL}}, general_config(health=True))
+    commands_cli.run({'general': GENERAL}, general_config(health=True))
     _, kwargs = run_loop.call_args.args[0]
     assert (kwargs['health_server'].port, kwargs['health_server'].bind_address) == (18080, '127.0.0.1')
 
@@ -76,13 +98,15 @@ async def test_main_loop_serves_until_stopped_then_drains_before_closing_the_exe
     health_server.serve = AsyncMock(side_effect=lambda: order.append('health'))
     dispatcher = MagicMock()
     dispatcher.close = AsyncMock(side_effect=lambda: order.append('dispatcher'))
+    markov_store = MagicMock()
+    markov_store.close = AsyncMock(side_effect=lambda: order.append('store'))
 
-    loop_task = asyncio.create_task(commands_cli.main_loop(http_server, executor, health_server, dispatcher))
+    loop_task = asyncio.create_task(commands_cli.main_loop(http_server, executor, health_server, dispatcher, markov_store))
     await asyncio.sleep(0.01)
     assert not loop_task.done()
     stop_event.set()
     await loop_task
-    assert order[-3:] == ['drain', 'close', 'dispatcher']
+    assert order[-4:] == ['drain', 'close', 'dispatcher', 'store']
     assert {'serve', 'health', 'seams'} <= set(order)
 
 

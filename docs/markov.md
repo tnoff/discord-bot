@@ -2,6 +2,8 @@
 
 Uses [Markov Chain](https://en.wikipedia.org/wiki/Markov_chain) to mimic chat in discord channels.
 
+The gateway only parses the `markov` commands and forwards them to the `discord-commands` pod (`general.commands_http_url`), which runs them against the db pod and replies through the dispatcher. `markov.server_reject_list` is read from the commands pod's config. The loop that gathers channel history still runs in the gateway.
+
 Use the command `on` to have the bot read message history for a given channel. Once turned on in a discord channel, reads channel history to get its data set. There is a loop which will automatically gather new text data, and there is a setting for how far back in time we will keep chat history. For text messages in that channel, it takes text and breaks down each message into "leader" and "follower" pairs. For example, given the text:
 
 ```

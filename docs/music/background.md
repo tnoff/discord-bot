@@ -40,13 +40,14 @@ See [messaging.md](../messaging.md) and [AGENTS.md](../../AGENTS.md#messagedispa
 
 ---
 
-## The Six Background Loops, Across Four Pods
+## The Seven Background Loops, Across Four Pods
 
 Two of these (Download Files, YouTube Music Search) run in their own
 standalone pods, not the bot, and the History Worker runs in the broker pod;
-the other three run in the gateway pod (`discord_gateway/cogs/music.py`) and
-are what the old "Four Background Loops" title here used to mean, before the
-rest moved out.
+the other four run in the gateway pod (`discord_gateway/cogs/music.py`). Three
+of those are what the old "Four Background Loops" title here used to mean,
+before the rest moved out; the fourth, the gateway intents loop, arrived with
+the commands pod.
 
 ### 1. **Download Files Loop** (`download_files()`)
 
@@ -212,7 +213,46 @@ broker and route them to a player or a playlist handler.
 
 ---
 
-### 6. **History Worker** (`HistoryWorker`, broker pod)
+### 6. **Process Gateway Intents Loop** (`process_gateway_intents()`)
+
+**Purpose**: Do what other pods ask the gateway to do to a player
+
+The commands pod has no Discord connection, so it cannot join a voice channel or
+stop a player itself. It asks the broker, which holds a per-guild **intent
+inbox**; this loop claims what is waiting and carries it out. The gateway never
+receives a call from another pod, which keeps the pod graph acyclic.
+
+**Intent kinds** (`discord_core/types/gateway_intents.py`): `join` (ensure a
+player is connected to a voice channel), `stop`, `move_messages` (re-post the
+player's status messages in a channel) and `wake` (nudge an idle player after a
+track is queued).
+
+**Processing Flow**:
+1. Claim every pending intent for every guild in one poll
+   (`broker_client.claim_intents`); sleep 0.25 s if there was nothing
+2. Hand each intent to its guild: a guild works through its own intents in the
+   order the broker took them, on its own task, so a slow join in one guild holds
+   up neither another guild nor the next poll
+3. Run the intent against the player and report the outcome with
+   `complete_intent(id, ok, error)`; `error` is text the caller can show the
+   channel. An exception is logged and reported as "The bot hit an internal
+   error"
+
+Every intent is completed, including the fire-and-forget kinds. A claimed
+intent that is never completed is handed out again when its lease lapses;
+redelivery is safe because every kind is idempotent, and an intent still running
+here is not run a second time.
+
+**Peer outages**: it polls the broker, so it passes `peer_unavailable` to the loop
+runner — a broker outage re-arms the health window instead of restarting the
+gateway. See [Background Loop Health](../monitoring/loop_health.md#peer-outages).
+
+**Shutdown Behavior**: Exits early when the shutdown event is set; unfinished
+intents are handed out again by the broker.
+
+---
+
+### 7. **History Worker** (`HistoryWorker`, broker pod)
 
 **Purpose**: Record each track that played out to the database. It replaces the
 gateway's old post-play processing loop: the queue (and with it the knowledge
@@ -379,6 +419,7 @@ Each loop reports its health through an OpenTelemetry observable gauge
 | `download_files` | Audio downloads — **downloader pod only**; the cog registers no such loop and emits no series |
 | `process_download_results` | Download result routing |
 | `process_search_results` | Resolved-search consumer |
+| `process_gateway_intents` | Gateway intent inbox consumer |
 | `youtube_music_search` | YouTube Music search — **search pod only**; the cog registers no such loop |
 | `history_worker` | Play history/analytics recording — **broker pod only**; the cog registers no such loop |
 
