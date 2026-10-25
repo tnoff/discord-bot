@@ -1,5 +1,23 @@
 # Changelog
 
+## [3.1.8] - 2026-10-25
+
+### Changed
+
+- Bumped alembic to v1.20.1
+
+## [3.1.7] - 2026-10-25
+
+### Changed
+
+- Bumped sqlalchemy to v2.1.6
+
+## [3.1.6] - 2026-10-25
+
+### Changed
+
+- Bumped tnoff/dappertable to v1.1.12
+
 ## [3.1.5] - 2026-10-23
 
 ### Changed

@@ -19,7 +19,7 @@ dependencies = [
     # string; tests/cli/test_package_pins.py enforces that they never drift
     # apart.
     "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.9.0.tar.gz#subdirectory=discord_core",
-    "SQLAlchemy[asyncio]==2.1.5",
+    "SQLAlchemy[asyncio]==2.1.6",
     # No import site. SQLAlchemy's async driver, named in the URL cli/_lib/db
     # builds ("postgresql+asyncpg"); absent, nothing can open the database.
     "asyncpg==0.32.0",
@@ -28,8 +28,8 @@ dependencies = [
     "aiosqlite==0.22.1",
     # No import site. The migration CLI; this is the only image that COPYs
     # alembic/ and alembic.ini and can run `alembic upgrade head`.
-    "alembic==1.20.0",
-    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.11.tar.gz",
+    "alembic==1.20.1",
+    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.12.tar.gz",
 ]
 
 [project.scripts]
