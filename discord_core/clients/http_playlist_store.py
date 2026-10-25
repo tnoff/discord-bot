@@ -7,8 +7,7 @@ interfaces.database_protocols.PlaylistStore that PlaylistClient does, so the
 Music cog -- which annotates against the Protocol -- selects one or the other
 with a constructor change and nothing else.
 
-**Inert.** Nothing constructs this yet; the cog still builds the in-process
-client, and will until MR 4's cutover.
+**Lives in core so the gateway and the commands pod can both build it (#1030, Phase 2).**
 
 **Its own module, not beside PlaylistClient**, for the reason the video-cache and
 media-search splits already established: the in-process client imports SQLAlchemy

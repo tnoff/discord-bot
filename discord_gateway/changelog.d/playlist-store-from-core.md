@@ -1,0 +1,1 @@
+Import `HttpPlaylistStore` and `playlist_public_view` from `discord_core` (they moved there so the commands pod can use them too) and drop the gateway's copies. Needs `discord_core` 3.11.0, so this release should not be deployed before the pin bump that follows it.

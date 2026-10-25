@@ -7,8 +7,7 @@ interfaces.database_protocols.MarkovStore that MarkovClient does, so the Markov
 cog -- which annotates against the Protocol -- selects one or the other with a
 constructor change and nothing else.
 
-**Lives in core so the commands pod can build it (#1030, Phase 2).** The gateway keeps
-its own copy until it pins a core release that has this one, then deletes it.
+**Lives in core so the gateway and the commands pod can both build it (#1030, Phase 2).**
 
 **Its own module, not beside MarkovClient**, for the reason the video-cache and
 media-search splits already established: the in-process client imports SQLAlchemy
@@ -21,8 +20,6 @@ all: a per-message signature would be one round trip per message here, exactly
 the cost `!267` removed one layer down. The Protocol was sized for this seam
 before the seam existed, and this class is what collects on that.
 '''
-# Temporary twin of discord_gateway/clients/http_markov_store.py until the gateway pins the core release that has it (#1030).
-# pylint: disable=duplicate-code
 import logging
 from datetime import datetime
 from typing import List

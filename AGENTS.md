@@ -164,9 +164,9 @@ hand-maintained list here):
   subsystem (`music_player.py`, `search_client.py` — download, search,
   broker and db-side pieces live in their own pods below). `clients/` holds
   this pod's own HTTP client wrappers for talking to the other pods
-  (`http_download_client.py`, `http_playlist_store.py`, etc.; the markov store
-  is `discord_core/clients/http_markov_store.py` because the commands pod builds
-  it too). Commands are forwarding stubs in `cogs/` for the groups that have
+  (`http_download_client.py`, `http_guild_analytics_store.py`, etc.; the markov
+  and playlist stores are in `discord_core/clients/` because the commands pod
+  builds them too). Commands are forwarding stubs in `cogs/` for the groups that have
   moved to the commands pod; `command_logic/` holds the logic of those that
   have not.
 - **`discord_dispatcher/`** — the `discord-dispatcher` pod. `workers/message_dispatcher.py`
