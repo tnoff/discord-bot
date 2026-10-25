@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.3.3] - 2026-10-25
+
+### Changed
+
+- Bump the `discord_core` pin to core-v3.10.0 (#1030): the markov store and `markov.on` arguments are available to the commands pod.
+
 ## [3.3.2] - 2026-10-25
 
 ### Changed
