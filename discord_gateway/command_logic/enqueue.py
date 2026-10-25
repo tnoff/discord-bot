@@ -14,10 +14,10 @@ from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.queue import PutsBlocked
 from discord_core.utils.otel import capture_span_context
 from discord_core.types.command_envelope import CommandEnvelope
+from discord_core.utils.playlist_view import playlist_public_view
 
 from discord_gateway.clients.search_client import SearchClient, SearchException
 from discord_gateway.command_logic.player_gateway import PlayerGateway
-from discord_gateway.command_logic.playlist_view import playlist_public_view
 from discord_gateway.types.playlist_add_result import PlaylistAddResult
 
 

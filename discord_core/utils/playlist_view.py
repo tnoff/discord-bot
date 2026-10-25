@@ -1,5 +1,3 @@
-# Temporary twin of discord_gateway/command_logic/playlist_view.py until the gateway pins the core release that has it (#1030).
-# pylint: disable=duplicate-code
 from discord_core.interfaces.database_protocols import PlaylistStore
 
 

@@ -7,8 +7,7 @@ interfaces.database_protocols.PlaylistStore that PlaylistClient does, so the
 Music cog -- which annotates against the Protocol -- selects one or the other
 with a constructor change and nothing else.
 
-**Lives in core so the commands pod can build it (#1030, Phase 2).** The gateway keeps
-its own copy until it pins a core release that has this one, then deletes it.
+**Lives in core so the gateway and the commands pod can both build it (#1030, Phase 2).**
 
 **Its own module, not beside PlaylistClient**, for the reason the video-cache and
 media-search splits already established: the in-process client imports SQLAlchemy
@@ -29,8 +28,6 @@ than something the caller checks first, because the count and the insert have to
 be one transaction. Over HTTP the check-then-act version is not merely racy, it
 is racy across processes with a network hop in the gap.
 '''
-# Temporary twin of discord_gateway/clients/http_playlist_store.py until the gateway pins the core release that has it (#1030).
-# pylint: disable=duplicate-code
 import logging
 from typing import List
 
