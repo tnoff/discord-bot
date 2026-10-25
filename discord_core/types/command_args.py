@@ -38,6 +38,12 @@ class UrbanArgs(_Args):
     word: str
 
 
+class MarkovOnArgs(_Args):
+    '''markov.on. The gateway knows the channel's type from the invocation, so the commands pod
+    does not have to fetch the channel to learn whether markov can run there.'''
+    channel_is_text_or_voice: bool
+
+
 class MarkovSpeakArgs(_Args):
     '''markov.speak'''
     first_word: str | None = ''
@@ -108,7 +114,7 @@ COMMAND_ARGS: dict[str, type[_Args]] = {
     'roll': RollArgs,
     'meta': NoArgs,
     'urban': UrbanArgs,
-    'markov.on': NoArgs,
+    'markov.on': MarkovOnArgs,
     'markov.off': NoArgs,
     'markov.list-channels': NoArgs,
     'markov.speak': MarkovSpeakArgs,

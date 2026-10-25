@@ -1,0 +1,1 @@
+Add `HttpMarkovStore` to core so the commands pod can build it (the gateway keeps its own copy until it pins this release), and give `markov.on` an argument, `channel_is_text_or_voice`, so the commands pod does not need a Discord fetch to validate the channel. Callers of `markov.on` must now send that argument.

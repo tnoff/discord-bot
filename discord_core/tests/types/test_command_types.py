@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from discord_core.types.command_args import COMMAND_ARGS, MarkovSpeakArgs, NoArgs, PlaylistItemAddArgs
+from discord_core.types.command_args import COMMAND_ARGS, MarkovOnArgs, MarkovSpeakArgs, NoArgs, PlaylistItemAddArgs
 from discord_core.types.command_envelope import CommandEnvelope
 from discord_core.types.command_wire import (
     CommandAcceptedResponse, CommandRequestBody, UnknownCommand, parse_args,
@@ -54,6 +54,12 @@ def test_parse_args_fills_declared_defaults():
     args = parse_args('markov.speak', {})
     assert isinstance(args, MarkovSpeakArgs)
     assert (args.first_word, args.sentence_length) == ('', 32)
+
+
+def test_markov_on_carries_whether_the_channel_can_run_markov():
+    assert isinstance(parse_args('markov.on', {'channel_is_text_or_voice': True}), MarkovOnArgs)
+    with pytest.raises(ValidationError):
+        parse_args('markov.on', {})
 
 
 def test_parse_args_coerces_like_the_dispatch_bodies():
