@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.7] - 2026-10-25
+
+### Changed
+
+- Docstring only: point at where the playlist store client now lives.
+
 ## [3.5.6] - 2026-10-25
 
 ### Changed

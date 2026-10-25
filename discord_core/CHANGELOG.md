@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.11.0] - 2026-10-25
+
+### Changed
+
+- Add `HttpPlaylistStore` and `playlist_public_view` to core so the commands pod can serve the playlist commands that only touch the playlist store (the gateway keeps its own copies until it pins this release).
+
 ## [3.10.0] - 2026-10-25
 
 ### Changed
