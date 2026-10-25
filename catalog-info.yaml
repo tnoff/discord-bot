@@ -191,10 +191,12 @@ spec:
   lifecycle: production
   system: discord
   dependsOn:
+    - component:default/discord-db
     - component:default/discord-dispatcher
   providesApis:
     - api:default/commands
   consumesApis:
+    - api:default/database
     - api:default/dispatch
 
 ---

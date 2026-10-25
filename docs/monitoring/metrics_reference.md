@@ -31,8 +31,8 @@ see — name, description, unit, and which pod.
 | `heartbeat` | Delete message loop heartbeat | `1` | gateway | `discord_gateway/cogs/delete_messages.py:57` |
 | `heartbeat` | Delete message result loop heartbeat | `1` | gateway | `discord_gateway/cogs/delete_messages.py:59` |
 | `heartbeat` | Download HTTP server heartbeat | `1` | downloader | `discord_core/servers/queue_worker_server.py:75` |
-| `heartbeat` | Markov check loop heartbeat | `1` | gateway | `discord_gateway/cogs/markov.py:82` |
-| `heartbeat` | Markov result loop heartbeat | `1` | gateway | `discord_gateway/cogs/markov.py:84` |
+| `heartbeat` | Markov check loop heartbeat | `1` | gateway | `discord_gateway/cogs/markov.py:83` |
+| `heartbeat` | Markov result loop heartbeat | `1` | gateway | `discord_gateway/cogs/markov.py:85` |
 | `heartbeat` | Message dispatcher worker pool heartbeat | `1` | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:331` |
 | `heartbeat` | Youtube music search HTTP server heartbeat | `1` | search | `discord_core/servers/queue_worker_server.py:75` |
 | `history_event_queue_depth` | Play records waiting for the broker history worker | `1` | broker | `discord_broker/workers/history_worker.py:78` |
@@ -43,7 +43,7 @@ see — name, description, unit, and which pod.
 | `queue_worker_failures` | Failures in the shared YouTube failure queue | `1` | downloader | `discord_core/workers/queue_metrics.py:55` |
 | `queue_worker_failures` | Failures in the shared search failure queue | `1` | search | `discord_core/workers/queue_metrics.py:55` |
 | `result_queue_depth` | Delete message dispatch result queue depth | `1` | gateway | `discord_gateway/cogs/delete_messages.py:61` |
-| `result_queue_depth` | Markov dispatch result queue depth | `1` | gateway | `discord_gateway/cogs/markov.py:86` |
+| `result_queue_depth` | Markov dispatch result queue depth | `1` | gateway | `discord_gateway/cogs/markov.py:87` |
 | `result_queue_depth` | Pending results on the broker bot-ready queues, by result type | `1` | broker | `discord_broker/workers/broker_metrics.py:75` |
 | `seam_contract_breach` | 1 when a peer has been missing a called route longer than the grace window | `1` | core (shared) | `discord_core/clients/seam_contract.py:307` |
 | `voice_sessions` | Voice sessions, by what counted them | `1` | gateway | `discord_gateway/cogs/music.py:387` |

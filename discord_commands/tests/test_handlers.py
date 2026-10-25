@@ -16,16 +16,47 @@ def fixture_sent():
     return []
 
 
+class FakeMarkovStore:
+    '''Just enough store for the handlers to be seen reaching it; the logic has its own tests.'''
+    def __init__(self):
+        self.channels = set()
+        self.generated = []
+
+    async def get_channel(self, guild_id, channel_id):
+        return (guild_id, channel_id) if (guild_id, channel_id) in self.channels else None
+
+    async def add_channel(self, guild_id, channel_id):
+        self.channels.add((guild_id, channel_id))
+
+    async def remove_channel(self, guild_id, channel_id):
+        removed = (guild_id, channel_id) in self.channels
+        self.channels.discard((guild_id, channel_id))
+        return removed
+
+    async def list_guild_channel_ids(self, guild_id):
+        return [channel for guild, channel in self.channels if guild == guild_id]
+
+    async def generate_words(self, guild_id, length, first_word=None):
+        self.generated.append((guild_id, length, first_word))
+        return ['one', 'two']
+
+
+@pytest.fixture(name='store')
+def fixture_store():
+    return FakeMarkovStore()
+
+
 @pytest.fixture(name='handlers')
-def fixture_handlers(sent):
+def fixture_handlers(sent, store):
     async def reply(guild_id, channel_id, content):
         sent.append((guild_id, channel_id, content))
         return content
-    return build_handlers(reply, logging.getLogger('test'))
+    return build_handlers(reply, logging.getLogger('test'), store, [])
 
 
-def test_the_general_and_urban_commands_are_served(handlers):
-    assert set(handlers) == {'hello', 'roll', 'meta', 'urban'}
+def test_the_general_urban_and_markov_commands_are_served(handlers):
+    assert set(handlers) == {'hello', 'roll', 'meta', 'urban',
+                             'markov.on', 'markov.off', 'markov.list-channels', 'markov.speak'}
 
 
 def test_every_handler_is_a_command_the_contract_knows(handlers):
@@ -54,3 +85,30 @@ async def test_urban_passes_the_word_through(handlers, sent, requests_mock):
     requests_mock.get('https://www.urbandictionary.com/define.php?term=foo', status_code=500)
     await handlers['urban'](ENVELOPE, parse_args('urban', {'word': 'foo'}))
     assert sent == [(11, 22, 'Unable to lookup word "foo"')]
+
+
+@pytest.mark.asyncio
+async def test_markov_on_passes_the_gateways_channel_check_through(handlers, sent, store):
+    await handlers['markov.on'](ENVELOPE, parse_args('markov.on', {'channel_is_text_or_voice': False}))
+    assert not store.channels
+    await handlers['markov.on'](ENVELOPE, parse_args('markov.on', {'channel_is_text_or_voice': True}))
+    assert store.channels == {(11, 22)}
+    assert [content for _, _, content in sent] == [
+        'Not a valid markov channel, cannot turn on markov', 'Markov turned on for channel']
+
+
+@pytest.mark.asyncio
+async def test_markov_off_and_list_channels(handlers, sent, store):
+    store.channels.add((11, 22))
+    await handlers['markov.list-channels'](ENVELOPE, parse_args('markov.list-channels', {}))
+    await handlers['markov.off'](ENVELOPE, parse_args('markov.off', {}))
+    assert not store.channels
+    assert sent[-1] == (11, 22, 'Markov turned off for channel')
+    assert 'Channel List' in sent[0][2]
+
+
+@pytest.mark.asyncio
+async def test_markov_speak_passes_its_arguments_through(handlers, sent, store):
+    await handlers['markov.speak'](ENVELOPE, parse_args('markov.speak', {'first_word': 'Hey up', 'sentence_length': 5}))
+    assert store.generated == [(11, 4, 'up')]
+    assert sent == [(11, 22, 'hey one two')]

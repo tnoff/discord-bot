@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
@@ -7,7 +8,9 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_core.exceptions import CogMissingRequiredArg
+from discord import ChannelType
+
+from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException
 from discord_core.utils.common import is_peer_unavailable
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import loop_heartbeat_observations
@@ -18,15 +21,17 @@ from discord_core.types.dispatch_result import ChannelHistoryResult, GuildEmojis
 from discord_core.types.fetched_message import FetchedMessage
 
 from discord_gateway.clients.database_stores import DatabaseStores
+from discord_gateway.cogs.common import envelope_from_ctx
 from discord_gateway.cogs.markov import Markov, LOOP_MARKOV_CHECK, LOOP_MARKOV_RESULT, MARKOV_HISTORY_RETENTION_DAYS_DEFAULT
 from discord_db.database import MarkovChannel, MarkovRelation
 
 from tests.helpers import fake_context, fake_engine, fake_stores #pylint:disable=unused-import
 from tests.helpers import async_mock_session
-from tests.helpers import FakeChannel, FakeMessage
+from tests.helpers import FakeMessage
 
 GENERIC_CONFIG = {
     'general': {
+        'commands_http_url': 'http://commands:8086',
         'include': {
             'markov': True
         }
@@ -51,57 +56,57 @@ def test_markov_refuses_a_bundle_without_its_store(fake_context):  #pylint:disab
         assert 'No markov store passed' in str(exc.value)
 
 
-@pytest.mark.asyncio
-async def test_turn_on(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''on command enables markov for the channel'''
+def _forwarding_cog(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    result = await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    assert result == 'Markov turned on for channel'
-    async with async_mock_session(fake_engine) as session:
-        assert (await session.execute(select(sql_count()).select_from(MarkovChannel))).scalar() == 1
-    result = await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    assert result == 'Channel already has markov turned on'
+    cog.commands_client = AsyncMock()
+    return cog
+
+
+def test_markov_requires_the_commands_url(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
+    config = {'general': {'include': {'markov': True}}}
+    with pytest.raises(DiscordBotException, match='commands_http_url'):
+        Markov(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
+
 
 @pytest.mark.asyncio
-async def test_turn_on_invalid_channel(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''on command rejects non-text/voice channel types'''
-    fake_channel = FakeChannel(channel_type='news')
-    fake_context['bot'].channels.append(fake_channel)
-    fake_context['context'].channel = fake_channel
-    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    result = await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    assert result == 'Not a valid markov channel, cannot turn on markov'
+@pytest.mark.parametrize('channel_type,expected', [
+    (ChannelType.text, True), (ChannelType.voice, True), (ChannelType.news, False)])
+async def test_on_forwards_whether_the_channel_can_run_markov(fake_context, fake_stores, channel_type, expected):  #pylint:disable=redefined-outer-name
+    '''The pod has no Discord connection, so the stub sends the channel check it would have fetched'''
+    cog = _forwarding_cog(fake_context, fake_stores)
+    ctx = fake_context['context']
+    ctx.channel.type = channel_type
+    await cog.on(cog, ctx)  #pylint:disable=too-many-function-args
+    cog.commands_client.forward.assert_awaited_once()
+    assert cog.commands_client.forward.await_args.args[:3] == (
+        'markov.on', envelope_from_ctx(ctx), {'channel_is_text_or_voice': expected})
+    assert not fake_context['channel'].messages_sent
+
 
 @pytest.mark.asyncio
-async def test_server_reject_list(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''on and speak commands are blocked for servers in the reject list'''
-    config = {
-        'markov': {
-            'server_reject_list': [
-                fake_context['guild'].id,
-            ]
-        }
-    } | GENERIC_CONFIG
-    cog = Markov(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
-    result = await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    assert result == 'Unable to turn on markov for server, in reject list'
-    result = await cog.speak(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    assert result == 'Unable to use markov for server, in reject list'
+async def test_off_and_list_channels_forward_without_arguments(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
+    cog = _forwarding_cog(fake_context, fake_stores)
+    ctx = fake_context['context']
+    await cog.off(cog, ctx)  #pylint:disable=too-many-function-args
+    await cog.list_channels(cog, ctx)  #pylint:disable=too-many-function-args
+    assert [call.args for call in cog.commands_client.forward.await_args_list] == [
+        ('markov.off', envelope_from_ctx(ctx), {}, ), ('markov.list-channels', envelope_from_ctx(ctx), {})]
+
 
 @pytest.mark.asyncio
-async def test_turn_off(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''off command reports channel not enabled when markov not on'''
-    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    result = await cog.off(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    assert result == 'Channel does not have markov turned on'
+async def test_speak_forwards_its_arguments(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
+    cog = _forwarding_cog(fake_context, fake_stores)
+    ctx = fake_context['context']
+    await cog.speak(cog, ctx, 'hey whats up', 64)  #pylint:disable=too-many-function-args
+    assert cog.commands_client.forward.await_args.args[:3] == (
+        'markov.speak', envelope_from_ctx(ctx), {'first_word': 'hey whats up', 'sentence_length': 64})
 
-@pytest.mark.asyncio
-async def test_turn_on_and_off(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''on then off disables markov for the channel'''
-    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    result = await cog.off(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    assert result == 'Markov turned off for channel'
+
+
+async def _enable_markov(cog, fake_context):  #pylint:disable=redefined-outer-name
+    '''Turn markov on for the context's channel. The command lives in the commands pod now.'''
+    ctx = fake_context['context']
+    await cog.markov_store.add_channel(ctx.guild.id, ctx.channel.id)
 
 
 async def _run_markov_request_and_result(cog, mocker):
@@ -128,7 +133,7 @@ async def test_turn_on_and_sync(mocker, fake_engine, fake_context, fake_stores):
     fake_context['channel'].messages.append(fake_message)
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
     cog.register_result_queue()
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
     await _run_markov_request_and_result(cog, mocker)
     async with async_mock_session(fake_engine) as session:
         assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() > 0
@@ -139,7 +144,7 @@ async def test_turn_on_and_sync_no_messages(mocker, fake_engine, fake_context, f
     '''Producer+consumer loop saves nothing when channel has no messages'''
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
     cog.register_result_queue()
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
     await _run_markov_request_and_result(cog, mocker)
     async with async_mock_session(fake_engine) as session:
         assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() == 0
@@ -154,7 +159,7 @@ async def test_turn_on_and_sync_multiple_times(mocker, fake_engine, freezer, fak
 
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
     cog.register_result_queue()
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
     await _run_markov_request_and_result(cog, mocker)
 
     new_fake_message = FakeMessage(content='another basic message', channel=fake_context['channel'],
@@ -174,7 +179,7 @@ async def test_turn_on_and_sync_message_dissapears(mocker, fake_engine, freezer,
     fake_context['channel'].messages = [fake_message]
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
     cog.register_result_queue()
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
     await _run_markov_request_and_result(cog, mocker)
 
     fake_context['channel'].messages = []
@@ -192,7 +197,7 @@ async def test_turn_on_and_sync_bot_command(mocker, fake_engine, fake_context, f
     fake_context['channel'].messages = [fake_message]
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
     cog.register_result_queue()
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
     await _run_markov_request_and_result(cog, mocker)
     async with async_mock_session(fake_engine) as session:
         assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() == 0
@@ -206,7 +211,7 @@ async def test_turn_on_and_sync_no_content(mocker, fake_engine, fake_context, fa
     fake_context['channel'].messages = [fake_message]
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
     cog.register_result_queue()
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
     await _run_markov_request_and_result(cog, mocker)
     async with async_mock_session(fake_engine) as session:
         assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() == 0
@@ -221,7 +226,7 @@ async def test_turn_on_and_sync_too_long_words(mocker, fake_engine, fake_context
     fake_context['channel'].messages = [fake_message]
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
     cog.register_result_queue()
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
     await _run_markov_request_and_result(cog, mocker)
     async with async_mock_session(fake_engine) as session:
         assert (await session.execute(select(sql_count()).select_from(MarkovRelation))).scalar() == 4
@@ -229,7 +234,7 @@ async def test_turn_on_and_sync_too_long_words(mocker, fake_engine, fake_context
 @pytest.mark.asyncio
 @freeze_time('2024-12-01 12:00:00', tz_offset=0)
 async def test_turn_on_sync_and_speak(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''After syncing, speak generates a predictable markov sentence
+    '''After syncing, the store generates a predictable markov sentence
 
     Determinism comes from the corpus, not from patching the selection. Every
     word here has exactly one follower and the corpus loops back to the start,
@@ -244,111 +249,11 @@ async def test_turn_on_sync_and_speak(mocker, fake_context, fake_stores):  #pyli
     fake_context['channel'].messages = [fake_message]
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
     cog.register_result_queue()
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
     await _run_markov_request_and_result(cog, mocker)
-    result = await cog.speak(cog, fake_context['context'], 'alpha')
-    assert result == ' '.join(['alpha', 'bravo', 'charlie', 'delta'] * 8)
-    assert len(result.split(' ')) == 32
+    words = await cog.markov_store.generate_words(fake_context['context'].guild.id, 32, first_word='alpha')
+    assert words == ['alpha', 'bravo', 'charlie', 'delta'] * 8
 
-
-@pytest.mark.asyncio
-@freeze_time('2024-12-01 12:00:00', tz_offset=0)
-async def test_turn_on_sync_speak_invalid_first_word(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''speak returns an error message when given a first_word with no matches'''
-    fake_message = FakeMessage(content='this is an example message, an example of what you can say, if you were a real human',
-                                channel=fake_context['channel'],
-                                created_at=datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc))
-    fake_context['channel'].messages = [fake_message]
-    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    cog.register_result_queue()
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    await _run_markov_request_and_result(cog, mocker)
-    result = await cog.speak(cog, fake_context['context'], 'non-existing')
-    assert result == 'No markov word matching "non-existing"'
-
-@pytest.mark.asyncio
-@freeze_time('2024-12-01 12:00:00', tz_offset=0)
-async def test_turn_on_sync_speak_multi_first_word(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''speak handles a multi-word first_word argument'''
-    fake_message = FakeMessage(content='this is an example message, an example of what you can say, if you were a real human',
-                               channel=fake_context['channel'],
-                               created_at=datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc))
-    fake_context['channel'].messages = [fake_message]
-    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    cog.register_result_queue()
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    await _run_markov_request_and_result(cog, mocker)
-    result = await cog.speak(cog, fake_context['context'], 'funny you want an example')
-    assert len(result.split(' ')) == 32
-
-@pytest.mark.asyncio
-@freeze_time('2024-12-01 12:00:00', tz_offset=0)
-async def test_turn_on_sync_speak_sentence_length(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''speak respects the sentence_length parameter'''
-    fake_message = FakeMessage(content='this is an example message, an example of what you can say, if you were a real human',
-                               channel=fake_context['channel'],
-                               created_at=datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc))
-    fake_context['channel'].messages = [fake_message]
-    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    cog.register_result_queue()
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    await _run_markov_request_and_result(cog, mocker)
-    result = await cog.speak(cog, fake_context['context'], sentence_length=5)
-    assert len(result.split(' ')) == 5
-
-@pytest.mark.asyncio
-@freeze_time('2024-12-01 12:00:00', tz_offset=0)
-async def test_speak_no_words(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''speak returns a message when no markov words exist'''
-    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    result = await cog.speak(cog, fake_context['context'], sentence_length=5)
-    assert result == 'No markov words to pick from'
-
-@pytest.mark.asyncio
-@freeze_time('2024-12-01 12:00:00', tz_offset=0)
-async def test_speak_stops_at_a_dead_end_instead_of_raising(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''A word that leads nowhere ends the sentence rather than raising.
-
-    Reachable in production: retention deletes relations by created_at, so it
-    can remove every relation in which a word leads while keeping one where it
-    follows. The old implementation handed the resulting empty id list to
-    choice(), which raises IndexError.
-    '''
-    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    await cog.on(cog, fake_context['context'])  #pylint: disable=too-many-function-args
-
-    async with async_mock_session(fake_engine) as session:
-        channel = (await session.execute(select(MarkovChannel))).scalars().first()
-        # alpha -> omega, and nothing leads on from omega.
-        session.add(MarkovRelation(channel_id=channel.id,
-                                   leader_word='alpha',
-                                   follower_word='omega',
-                                   created_at=datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc)))
-        await session.commit()
-
-    result = await cog.speak(cog, fake_context['context'], 'alpha', 10)
-    assert result == 'alpha omega'
-
-@pytest.mark.asyncio
-@freeze_time('2024-12-01 12:00:00', tz_offset=0)
-async def test_list_channels_none_on(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''list_channels reports no channels when none are enabled'''
-    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    result = await cog.list_channels(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    assert result == 'Markov not enabled for any channels in server'
-
-@pytest.mark.asyncio
-@freeze_time('2024-12-01 12:00:00', tz_offset=0)
-async def test_list_channels_with_valid_output(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''list_channels shows enabled channels in a table'''
-    cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    # Clear messages sent before next bit
-    fake_context['context'].messages_sent = []
-    result = await cog.list_channels(cog, fake_context['context']) #pylint: disable=too-many-function-args
-    assert fake_context['context'].messages_sent == [f'Channel List \nChannel\n-------\n<#{fake_context["channel"].id}>']
-    assert result is True
 
 # ---------------------------------------------------------------------------
 # Producer-loop heartbeat (LoopHealth-driven)
@@ -457,7 +362,7 @@ async def test_process_history_result_not_found_clears_relations(fake_engine, fa
     from tests.helpers import FakeResponse  #pylint:disable=import-outside-toplevel
 
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
 
     result = ChannelHistoryResult(
         guild_id=fake_context['guild'].id,
@@ -498,7 +403,7 @@ async def test_process_history_result_saves_relations(fake_engine, fake_context,
                                created_at=datetime(2024, 11, 30, 0, 0, 0, tzinfo=timezone.utc))
 
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
 
     result = ChannelHistoryResult(
         guild_id=fake_context['guild'].id,
@@ -531,7 +436,7 @@ async def test_history_result_opens_one_session_per_channel_not_one_per_word(moc
     -- or, once the store is remote, a round trip -- per message.
     '''
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    await cog.on(cog, fake_context['context'])  #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
 
     original_session = cog.markov_store.session_generator
     sessions_opened = []
@@ -588,7 +493,7 @@ async def test_history_result_relations_and_last_message_id_commit_together(mock
     means nothing was ever staged to roll back.
     '''
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    await cog.on(cog, fake_context['context'])  #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
 
     original_session = cog.markov_store.session_generator
 
@@ -824,7 +729,7 @@ async def test_process_history_result_remote_not_found_clears_relations(fake_eng
     to a deleted message and re-404ing every loop forever.
     '''
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
 
     result = ChannelHistoryResult(
         guild_id=fake_context['guild'].id,
@@ -850,7 +755,7 @@ async def test_process_history_result_remote_not_found_clears_relations(fake_eng
 async def test_process_history_result_remote_server_error_is_not_recovered(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     '''A non-404 remote failure leaves last_message_id intact rather than wiping the channel'''
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
     async with async_mock_session(fake_engine) as session:
         mc = (await session.execute(
             select(MarkovChannel).where(MarkovChannel.channel_id == fake_context['channel'].id)
@@ -892,7 +797,7 @@ async def test_not_found_recovery_refetches_from_retention_cutoff(mocker, freeze
     fake_context['channel'].messages = [fake_message]
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
     cog.register_result_queue()
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
     await _run_markov_request_and_result(cog, mocker)
 
     # The tracked message disappears -> 404 -> clear and reset.
@@ -917,7 +822,7 @@ async def test_not_found_recovery_refetches_from_retention_cutoff(mocker, freeze
 async def test_history_result_span_links_back_to_request(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     '''A result carrying a span_context is processed (linked) rather than rejected'''
     cog = Markov(fake_context['bot'], GENERIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    await cog.on(cog, fake_context['context']) #pylint: disable=too-many-function-args
+    await _enable_markov(cog, fake_context)
     result = ChannelHistoryResult(
         guild_id=fake_context['guild'].id,
         channel_id=fake_context['channel'].id,

@@ -5,6 +5,9 @@ No gateway connection and no Discord token; it replies through the dispatcher po
 Configure with:
     general.dispatch_http_url — Dispatcher pod URL; every reply goes through it (required —
                                 raises DiscordBotException if missing)
+    general.database_http_url — discord-db pod URL; the markov commands read and write through it
+                                (required — raises DiscordBotException if missing)
+    markov.server_reject_list — optional guild ids markov refuses to run for
     general.commands_server  — {host, port} for the HTTP server (default 0.0.0.0:8086)
     general.monitoring       — optional OTLP / health-server config
 '''
@@ -18,6 +21,7 @@ from discord_core.cli._lib.common import (
 )
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.clients.http_dispatch_client import HttpDispatchClient
+from discord_core.clients.http_markov_store import HttpMarkovStore
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig
 
@@ -37,8 +41,8 @@ def main(config_file):
 
 
 async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, health_server=None,
-                    dispatcher: HttpDispatchClient | None = None):
-    '''Serve until SIGTERM/SIGINT, then drain the HTTP server, stop the executor and close the dispatcher.'''
+                    dispatcher: HttpDispatchClient | None = None, markov_store: HttpMarkovStore | None = None):
+    '''Serve until SIGTERM/SIGINT, then drain the HTTP server, stop the executor and close the clients.'''
     logger = logging.getLogger('main')
     with shutdown_event_signals() as stop_event:
         if health_server:
@@ -57,6 +61,8 @@ async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, 
         # After the executor: a command still running needs the dispatcher to send its reply.
         if dispatcher:
             await dispatcher.close()
+        if markov_store:
+            await markov_store.close()
         logger.info('Main :: Shutdown complete')
 
 
@@ -68,7 +74,12 @@ def run(settings: dict, general_config: GeneralConfig):
     if not dispatch_http_url:
         raise DiscordBotException('dispatch_http_url required for the commands pod')
     dispatcher = HttpDispatchClient(dispatch_http_url, seam_contract=general_config.seam_contract)
-    executor = CommandExecutor(build_handlers(dispatcher_reply(dispatcher), logger))
+    database_http_url = settings.get('general', {}).get('database_http_url')
+    if not database_http_url:
+        raise DiscordBotException('database_http_url required for the commands pod')
+    markov_store = HttpMarkovStore(database_http_url, seam_contract=general_config.seam_contract)
+    markov_reject_list = settings.get('markov', {}).get('server_reject_list', [])
+    executor = CommandExecutor(build_handlers(dispatcher_reply(dispatcher), logger, markov_store, markov_reject_list))
     cfg = settings.get('general', {}).get('commands_server', {})
     # bandit B104: '0.0.0.0' default is intentional — the gateway reaches this pod across the docker/k8s network; override via commands_server.host config
     http_server = CommandsHttpServer(
@@ -85,7 +96,8 @@ def run(settings: dict, general_config: GeneralConfig):
             bind_address=general_config.monitoring.health_server.bind_address,
         )
 
-    run_loop(main_loop(http_server, executor, health_server=health_server, dispatcher=dispatcher))
+    run_loop(main_loop(http_server, executor, health_server=health_server, dispatcher=dispatcher,
+                       markov_store=markov_store))
 
 
 if __name__ == '__main__':  # pragma: no cover

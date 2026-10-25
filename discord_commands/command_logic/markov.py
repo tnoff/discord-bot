@@ -1,34 +1,37 @@
 from logging import Logger
-from typing import Awaitable, Callable, Optional
+from typing import Optional
 
 from dappertable import DapperTable, Columns, Column, PaginationLength
 
 from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
-from discord_core.interfaces.database_protocols import MarkovStore
+from discord_core.clients.http_markov_store import HttpMarkovStore
 from discord_core.types.command_envelope import CommandEnvelope
 
-from discord_gateway.command_logic.reply import Reply
-
-# channel id -> whether markov can run there (a text or voice channel). Answering needs
-# Discord, so the cog supplies it; the logic only asks.
-ChannelCheck = Callable[[int], Awaitable[bool]]
+from discord_commands.command_logic.reply import Reply
 
 
 class MarkovCommands:
     '''
     The ``!markov`` subcommands. Discord-free: see ``discord_core.types.command_envelope``.
+
+    Annotated against the concrete HTTP store, not the ``MarkovStore`` Protocol: the Protocol's
+    module imports types that need discord.py, which this pod does not install.
     '''
 
-    def __init__(self, reply: Reply, logger: Logger, markov_store: MarkovStore,
-                 server_reject_list: list, is_markov_channel: ChannelCheck):
+    def __init__(self, reply: Reply, logger: Logger, markov_store: HttpMarkovStore,
+                 server_reject_list: list):
         self.reply = reply
         self.logger = logger
         self.markov_store = markov_store
         self.server_reject_list = server_reject_list
-        self.is_markov_channel = is_markov_channel
 
-    async def on(self, env: CommandEnvelope) -> str:
-        '''Turn markov on for the channel.'''
+    async def on(self, env: CommandEnvelope, channel_is_text_or_voice: bool) -> str:
+        '''
+        Turn markov on for the channel.
+
+        ``channel_is_text_or_voice`` comes from the gateway, which knows the type of the channel
+        the command was typed in; this pod has no Discord connection to look it up.
+        '''
         if env.guild_id in self.server_reject_list:
             return await self.reply(env.guild_id, env.channel_id, 'Unable to turn on markov for server, in reject list')
 
@@ -37,9 +40,7 @@ class MarkovCommands:
 
         if markov:
             return await self.reply(env.guild_id, env.channel_id, 'Channel already has markov turned on')
-        # Deliberately outside any store call: this awaits Discord, and the old
-        # shape held an open postgres session across it.
-        if not await self.is_markov_channel(env.channel_id):
+        if not channel_is_text_or_voice:
             return await self.reply(env.guild_id, env.channel_id, 'Not a valid markov channel, cannot turn on markov')
 
         await self.markov_store.add_channel(env.guild_id, env.channel_id)

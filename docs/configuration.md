@@ -184,6 +184,9 @@ Configure with:
 Configure with:
     general.dispatch_http_url — Dispatcher pod URL; every reply goes through it (required —
                                 raises DiscordBotException if missing)
+    general.database_http_url — discord-db pod URL; the markov commands read and write through it
+                                (required — raises DiscordBotException if missing)
+    markov.server_reject_list — optional guild ids markov refuses to run for
     general.commands_server  — {host, port} for the HTTP server (default 0.0.0.0:8086)
     general.monitoring       — optional OTLP / health-server config
 ```
