@@ -5,8 +5,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from discord_core.interfaces.player_gateway import EnsureResult, PlayerStatus
+
 from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
-from discord_gateway.command_logic.player_gateway import EnsureResult, PlayerStatus
 from discord_gateway.types.cleanup_reason import CleanupReason
 
 

@@ -7,12 +7,12 @@ from unittest.mock import MagicMock, AsyncMock
 
 import pytest
 
+from discord_core.utils.media_enqueuer import MediaEnqueuer
+from discord_core.interfaces.player_gateway import EnsureResult
+
 from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
-from discord_gateway.command_logic.enqueue import MediaEnqueuer
-from discord_gateway.command_logic.player_gateway import EnsureResult
-
 from discord_gateway.tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import fake_engine, fake_context, fake_media_download  # pylint: disable=unused-import
 from tests.helpers import attach_in_process_broker, queue_in_broker

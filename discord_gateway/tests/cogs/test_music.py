@@ -18,21 +18,20 @@ from discord_core.types.search import SearchResult, SearchCollection
 from discord_core.utils.common import is_peer_unavailable
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import loop_heartbeat_observations
-
 from discord_core.clients.http_broker_client import HttpBrokerClient
+from discord_core.clients.http_download_client import HttpDownloadClient
+from discord_core.clients.http_media_search_client import HttpMediaSearchClient
+from discord_core.clients.http_youtube_music_search_client import HttpYoutubeMusicSearchClient
+from discord_core.interfaces.player_gateway import EnsureResult
+from discord_core.clients.search_client import SearchException
 
-from discord_gateway.clients.http_download_client import HttpDownloadClient
-from discord_gateway.clients.http_media_search_client import HttpMediaSearchClient
-from discord_gateway.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_gateway.cogs import music as music_module
 from discord_gateway.cogs.music import (Music, LOOP_CLEANUP_PLAYERS,
                                     LOOP_PROCESS_DOWNLOAD_RESULTS, LOOP_PROCESS_GATEWAY_INTENTS,
                                     LOOP_PROCESS_SEARCH_RESULTS)
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
-from discord_gateway.command_logic.player_gateway import EnsureResult
 from discord_gateway.command_logic.playlist import PlaylistCommands
-from discord_gateway.clients.search_client import SearchException
 from discord_gateway.types.cleanup_reason import CleanupReason
 from discord_gateway.utils.bot_metrics import BotMetricNaming
 from discord_downloader.interfaces.download_protocols import ClearGuildResult

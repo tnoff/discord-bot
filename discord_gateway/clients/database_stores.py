@@ -24,7 +24,7 @@ from discord_core.interfaces.database_protocols import (GuildAnalyticsStore, Mar
 
 from discord_core.clients.http_markov_store import HttpMarkovStore
 from discord_core.clients.http_playlist_store import HttpPlaylistStore
-from discord_gateway.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
+from discord_core.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
 
 
 @dataclass(frozen=True)

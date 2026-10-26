@@ -14,9 +14,9 @@ from discord_core.types.search import SearchResult
 from discord_core.types.command_envelope import CommandEnvelope
 from discord_core.utils.playlist_view import playlist_public_view
 
-from discord_gateway.clients.search_client import check_youtube_video
-from discord_gateway.command_logic.enqueue import MediaEnqueuer
-from discord_gateway.command_logic.player_gateway import PlayerGateway
+from discord_core.clients.search_client import check_youtube_video
+from discord_core.utils.media_enqueuer import MediaEnqueuer
+from discord_core.interfaces.player_gateway import PlayerGateway
 
 PLAYHISTORY_NAME = 'Channel History'
 

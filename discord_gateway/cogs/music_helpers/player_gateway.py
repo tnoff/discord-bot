@@ -2,7 +2,7 @@ from asyncio import TimeoutError as async_timeout
 
 from discord_core.types.media_download import MediaDownload
 
-from discord_gateway.command_logic.player_gateway import EnsureResult, PlayerStatus
+from discord_core.interfaces.player_gateway import EnsureResult, PlayerStatus
 from discord_gateway.types.cleanup_reason import CleanupReason
 
 

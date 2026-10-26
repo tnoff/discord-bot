@@ -25,7 +25,7 @@ from discord_core.types.search import SearchResult
 
 from discord_core.types.queue import PutsBlocked
 
-from discord_gateway.clients.youtube_music_search_client import HttpYoutubeMusicSearchClient
+from discord_core.clients.http_youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
 
 
