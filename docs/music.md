@@ -62,6 +62,8 @@ If you would like to move the queue messages to a different channel, call `!move
 
 ## Playlist Functions
 
+The playlist commands that only touch the database (`create`, `list`, `show`, `delete`, `rename`, `item-remove`, `merge`) are forwarded to the `discord-commands` pod (`general.commands_http_url`), which reads `music.playlist.server_playlist_max_size` and `music.general.message_delete_after` from its own config. `item-add`, `queue`, `save-queue` and `save-history` still run in the gateway.
+
 If database creds are given to the bot, playlists can be created and updated to the server. This will allow you to save lists of videos to be played within the server. By default, a "history" playlist is created which adds previously played videos from the server. Anyone can queue these videos up in the server using:
 
 ```

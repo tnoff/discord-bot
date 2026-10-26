@@ -394,13 +394,17 @@ NOT_YET_SPLIT = frozenset()
 #: six-image rebuild trigger, and it took criterion 5 to get it back out.
 ALL_IMAGES = frozenset({
     'discord_core.cli._lib.common',
+    'discord_core.cogs.music_helpers.common',
     'discord_core.cogs.schema',
     'discord_core.exceptions',
     'discord_core.routes.contract',
     'discord_core.routes.route',
     'discord_core.servers.health_server_base',
+    'discord_core.types.media_request',
+    'discord_core.types.search',
     'discord_core.utils.circuit_breaker',
     'discord_core.utils.common',
+    'discord_core.utils.discord_utils',
     'discord_core.utils.gc_census',
     'discord_core.utils.loop_health',
     'discord_core.utils.memory_profiler',

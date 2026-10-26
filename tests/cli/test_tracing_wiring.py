@@ -175,7 +175,7 @@ def test_downloader_toggles_are_independent(mocker):
 
 def _music_settings(tracing: dict | None) -> dict:
     '''Music-cog settings, optionally carrying a tracing block.'''
-    general: dict = {'include': {'music': True}}
+    general: dict = {'include': {'music': True}, 'commands_http_url': 'http://commands:8086'}
     if tracing is not None:
         general['monitoring'] = {'otlp': {'enabled': False}, 'tracing': tracing}
     return {

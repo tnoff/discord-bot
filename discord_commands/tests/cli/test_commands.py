@@ -38,6 +38,7 @@ def test_run_builds_the_server_on_the_configured_port(run_loop):
     assert kwargs['health_server'] is None
     assert kwargs['dispatcher']._base_url == DISPATCH_URL  # pylint: disable=protected-access
     assert kwargs['markov_store']._base_url == DATABASE_URL  # pylint: disable=protected-access
+    assert kwargs['playlist_store']._base_url == DATABASE_URL  # pylint: disable=protected-access
 
 
 def test_run_requires_a_dispatcher_url(run_loop):
@@ -64,6 +65,21 @@ def test_run_defaults_to_an_empty_markov_reject_list(mocker):
     build = mocker.patch.object(commands_cli, 'build_handlers', return_value={})
     commands_cli.run({'general': GENERAL}, general_config())
     assert build.call_args.args[3] == []
+
+
+def test_run_gives_the_playlist_settings_to_the_handlers(run_loop, mocker):
+    build = mocker.patch.object(commands_cli, 'build_handlers', return_value={})
+    music = {'general': {'message_delete_after': 60}, 'playlist': {'server_playlist_max_size': 512}}
+    commands_cli.run({'general': GENERAL, 'music': music}, general_config())
+    assert build.call_args.args[5:] == (60, 512)
+    run_loop.assert_called_once()
+
+
+@pytest.mark.usefixtures('run_loop')
+def test_run_defaults_the_playlist_settings(mocker):
+    build = mocker.patch.object(commands_cli, 'build_handlers', return_value={})
+    commands_cli.run({'general': GENERAL}, general_config())
+    assert build.call_args.args[5:] == (300, 64)
 
 
 def test_run_defaults_to_all_interfaces_on_8086(run_loop):
@@ -101,12 +117,16 @@ async def test_main_loop_serves_until_stopped_then_drains_before_closing_the_exe
     markov_store = MagicMock()
     markov_store.close = AsyncMock(side_effect=lambda: order.append('store'))
 
-    loop_task = asyncio.create_task(commands_cli.main_loop(http_server, executor, health_server, dispatcher, markov_store))
+    playlist_store = MagicMock()
+    playlist_store.close = AsyncMock(side_effect=lambda: order.append('playlist'))
+
+    loop_task = asyncio.create_task(commands_cli.main_loop(
+        http_server, executor, health_server, dispatcher, markov_store, playlist_store))
     await asyncio.sleep(0.01)
     assert not loop_task.done()
     stop_event.set()
     await loop_task
-    assert order[-4:] == ['drain', 'close', 'dispatcher', 'store']
+    assert order[-5:] == ['drain', 'close', 'dispatcher', 'store', 'playlist']
     assert {'serve', 'health', 'seams'} <= set(order)
 
 

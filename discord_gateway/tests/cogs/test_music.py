@@ -69,6 +69,7 @@ DOWNLOAD_LOOP_NAME = 'download_files'
 
 BASE_MUSIC_CONFIG = {
     'general': {
+        'commands_http_url': 'http://commands:8086',
         'include': {
             'music': True
         }
@@ -2197,3 +2198,10 @@ async def test_cog_load_waits_on_the_broker_downloader_and_search_urls(fake_cont
         'download': 'http://downloader:8083',
         'search': 'http://search:8085',
     }
+
+
+def test_music_requires_the_commands_url(fake_context):  #pylint:disable=redefined-outer-name
+    '''The playlist stubs forward to the commands pod, so a music cog without its url is fatal.'''
+    config = music_config({'general': {'commands_http_url': None}})
+    with pytest.raises(DiscordBotException, match='commands_http_url'):
+        Music(fake_context['bot'], config, fake_context['dispatcher'])

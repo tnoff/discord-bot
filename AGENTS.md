@@ -193,7 +193,8 @@ hand-maintained list here):
   FIFO with `request_id` dedup; `handlers.py` is the command registry. The
   logic of a command group moves into `command_logic/` in the same change that
   makes the gateway stub forward it, one group at a time: so far `hello`,
-  `roll`, `meta`, `urban` and the `markov` commands.
+  `roll`, `meta`, `urban`, the `markov` commands and the store-only `playlist` commands
+  (create, list, show, delete, rename, item-remove, merge).
 
 Central `tests/`, `docs/`, `alembic/`, `docker/` sit alongside the eight
 packages at the repo root, shared across all of them.

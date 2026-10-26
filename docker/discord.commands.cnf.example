@@ -3,7 +3,7 @@
 # only the CommandsHttpServer on :8086. Replies go out through the dispatcher.
 general:
   dispatch_http_url: http://dispatcher:8082
-  # The markov commands read and write through the db pod.
+  # The markov and playlist commands read and write through the db pod.
   database_http_url: http://db:8085
   commands_server:
     host: 0.0.0.0
@@ -14,3 +14,9 @@ general:
     health_server:
       enabled: true
       port: 8080
+# Read by the playlist commands (the same keys the gateway reads for the commands it still runs).
+music:
+  general:
+    message_delete_after: 300
+  playlist:
+    server_playlist_max_size: 64

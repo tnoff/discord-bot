@@ -46,7 +46,7 @@ BUILT_CLIENTS = {
     'discord-dispatcher': set(),
     # Serves the commands seam and replies through the dispatcher. The markov commands read and
     # write through the db pod. The broker client arrives with the music commands.
-    'discord-commands': {'HttpDispatchClient', 'HttpMarkovStore'},
+    'discord-commands': {'HttpDispatchClient', 'HttpMarkovStore', 'HttpPlaylistStore'},
 }
 
 

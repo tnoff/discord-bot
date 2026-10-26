@@ -14,3 +14,10 @@ async def test_dispatcher_reply_submits_a_send_and_returns_the_content():
     request = dispatcher.submit_request.await_args.args[0]
     assert isinstance(request, SendRequest)
     assert (request.guild_id, request.channel_id, request.content, request.delete_after) == (1, 2, 'hi', None)
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_reply_passes_the_delete_timer_through():
+    dispatcher = AsyncMock()
+    await dispatcher_reply(dispatcher)(1, 2, 'hi', delete_after=300)
+    assert dispatcher.submit_request.await_args.args[0].delete_after == 300

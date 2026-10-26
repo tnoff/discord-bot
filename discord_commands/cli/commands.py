@@ -5,9 +5,11 @@ No gateway connection and no Discord token; it replies through the dispatcher po
 Configure with:
     general.dispatch_http_url — Dispatcher pod URL; every reply goes through it (required —
                                 raises DiscordBotException if missing)
-    general.database_http_url — discord-db pod URL; the markov commands read and write through it
-                                (required — raises DiscordBotException if missing)
+    general.database_http_url — discord-db pod URL; the markov and playlist commands read and write
+                                through it (required — raises DiscordBotException if missing)
     markov.server_reject_list — optional guild ids markov refuses to run for
+    music.playlist.server_playlist_max_size — most items a playlist holds (default 64; merge honours it)
+    music.general.message_delete_after — seconds before playlist replies are removed (default 300)
     general.commands_server   — {host, port} for the HTTP server (default 0.0.0.0:8086)
     general.monitoring        — optional OTLP / health-server config
 '''
@@ -22,6 +24,7 @@ from discord_core.cli._lib.common import (
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.clients.http_dispatch_client import HttpDispatchClient
 from discord_core.clients.http_markov_store import HttpMarkovStore
+from discord_core.clients.http_playlist_store import HttpPlaylistStore
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig
 
@@ -41,7 +44,8 @@ def main(config_file):
 
 
 async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, health_server=None,
-                    dispatcher: HttpDispatchClient | None = None, markov_store: HttpMarkovStore | None = None):
+                    dispatcher: HttpDispatchClient | None = None, markov_store: HttpMarkovStore | None = None,
+                    playlist_store: HttpPlaylistStore | None = None):
     '''Serve until SIGTERM/SIGINT, then drain the HTTP server, stop the executor and close the clients.'''
     logger = logging.getLogger('main')
     with shutdown_event_signals() as stop_event:
@@ -63,6 +67,8 @@ async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, 
             await dispatcher.close()
         if markov_store:
             await markov_store.close()
+        if playlist_store:
+            await playlist_store.close()
         logger.info('Main :: Shutdown complete')
 
 
@@ -78,8 +84,14 @@ def run(settings: dict, general_config: GeneralConfig):
     if not database_http_url:
         raise DiscordBotException('database_http_url required for the commands pod')
     markov_store = HttpMarkovStore(database_http_url, seam_contract=general_config.seam_contract)
+    playlist_store = HttpPlaylistStore(database_http_url, seam_contract=general_config.seam_contract)
     markov_reject_list = settings.get('markov', {}).get('server_reject_list', [])
-    executor = CommandExecutor(build_handlers(dispatcher_reply(dispatcher), logger, markov_store, markov_reject_list))
+    music = settings.get('music', {})
+    message_delete_after = music.get('general', {}).get('message_delete_after', 300)
+    server_playlist_max_size = music.get('playlist', {}).get('server_playlist_max_size', 64)
+    executor = CommandExecutor(build_handlers(
+        dispatcher_reply(dispatcher), logger, markov_store, markov_reject_list,
+        playlist_store, message_delete_after, server_playlist_max_size))
     cfg = settings.get('general', {}).get('commands_server', {})
     # bandit B104: '0.0.0.0' default is intentional — the gateway reaches this pod across the docker/k8s network; override via commands_server.host config
     http_server = CommandsHttpServer(
@@ -97,7 +109,7 @@ def run(settings: dict, general_config: GeneralConfig):
         )
 
     run_loop(main_loop(http_server, executor, health_server=health_server, dispatcher=dispatcher,
-                       markov_store=markov_store))
+                       markov_store=markov_store, playlist_store=playlist_store))
 
 
 if __name__ == '__main__':  # pragma: no cover
