@@ -43,7 +43,7 @@ from discord_gateway.clients.http_media_search_client import HttpMediaSearchClie
 from discord_gateway.clients.youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
-from discord_gateway.cogs.common import CogHelperBase, envelope_from_ctx
+from discord_gateway.cogs.common import CogHelperBase, build_commands_client, envelope_from_ctx
 from discord_gateway.command_logic.enqueue import MediaEnqueuer
 from discord_gateway.command_logic.music import MusicCommands
 from discord_gateway.command_logic.playlist import PlaylistCommands
@@ -269,6 +269,9 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             # fat-fingered is exactly the "looks applied, does nothing" failure this
             # project set out to remove — so a bad music config is fatal, not a skip.
             raise DiscordBotException(f'Invalid music config: {exc}') from exc
+
+        # The playlist commands that only touch the store run in the commands pod; see forward_command.
+        self.commands_client = build_commands_client(settings)
 
         self.players = {}
         self._cleanup_task = None
@@ -1213,11 +1216,10 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
     @property
     def playlist_logic(self) -> PlaylistCommands:
         '''
-        The playlist commands that only touch the store, built from this cog's current
-        dispatcher and store. It holds no state of its own, so it is rebuilt per use
-        rather than cached: replacing the dispatcher or store on the cog (as the tests do)
-        is picked up with nothing to keep in sync. The commands that need the player stay
-        on this cog and call into it for the shared lookups.
+        The playlist commands that need the player, the broker or the enqueuer (the rest run in the
+        commands pod), built from this cog's current dispatcher and store. It holds no state of its
+        own, so it is rebuilt per use rather than cached: replacing the dispatcher or store on the
+        cog (as the tests do) is picked up with nothing to keep in sync.
         '''
         return PlaylistCommands(
             self.dispatcher, self.playlist_store, self.logger,
@@ -1243,7 +1245,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         name: str [Required]
             Name of new playlist to create
         '''
-        await self.playlist_logic.create(envelope_from_ctx(ctx), name)
+        await self.forward_command(ctx, 'playlist.create', name=name)
 
     @playlist.command(name='list')
     @command_wrapper
@@ -1251,7 +1253,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         List playlists.
         '''
-        await self.playlist_logic.list_playlists(envelope_from_ctx(ctx))
+        await self.forward_command(ctx, 'playlist.list')
 
     @playlist.command(name='item-add')
     @command_wrapper
@@ -1279,7 +1281,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         video_index: integer [Required]
             ID of video to remove
         '''
-        await self.playlist_logic.item_remove(envelope_from_ctx(ctx), playlist_index, video_index)
+        await self.forward_command(ctx, 'playlist.item-remove', playlist_index=playlist_index, video_index=video_index)
 
     @playlist.command(name='show')
     @command_wrapper
@@ -1290,7 +1292,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         playlist_index: integer [Required]
             ID of playlist
         '''
-        await self.playlist_logic.show(envelope_from_ctx(ctx), playlist_index)
+        await self.forward_command(ctx, 'playlist.show', playlist_index=playlist_index)
 
     @playlist.command(name='delete')
     @command_wrapper
@@ -1301,7 +1303,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         playlist_index: integer [Required]
             ID of playlist
         '''
-        await self.playlist_logic.delete(envelope_from_ctx(ctx), playlist_index)
+        await self.forward_command(ctx, 'playlist.delete', playlist_index=playlist_index)
 
     @playlist.command(name='rename')
     @command_wrapper
@@ -1314,7 +1316,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         playlist_name: str [Required]
             New name of playlist
         '''
-        await self.playlist_logic.rename(envelope_from_ctx(ctx), playlist_index, playlist_name)
+        await self.forward_command(ctx, 'playlist.rename', playlist_index=playlist_index, playlist_name=playlist_name)
 
     @playlist.command(name='save-queue')
     @command_wrapper
@@ -1370,7 +1372,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         playlist_index_two: integer [Required]
             ID of playlist to be merged, will be deleted
         '''
-        await self.playlist_logic.merge(envelope_from_ctx(ctx), playlist_index_one, playlist_index_two)
+        await self.forward_command(ctx, 'playlist.merge', playlist_index_one=playlist_index_one, playlist_index_two=playlist_index_two)
 
     @command(name='random-play')
     @command_wrapper

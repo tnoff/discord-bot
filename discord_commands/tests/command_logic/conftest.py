@@ -15,8 +15,15 @@ def sent():
 
 
 @pytest.fixture
-def reply(sent):  #pylint:disable=redefined-outer-name
-    async def _reply(guild_id, channel_id, content):
+def delete_afters():
+    '''The delete_after each reply was sent with, in the order of ``sent``.'''
+    return []
+
+
+@pytest.fixture
+def reply(sent, delete_afters):  #pylint:disable=redefined-outer-name
+    async def _reply(guild_id, channel_id, content, delete_after=None):
         sent.append((guild_id, channel_id, content))
+        delete_afters.append(delete_after)
         return content
     return _reply

@@ -35,6 +35,11 @@ from tests.helpers import attach_in_process_download
 from tests.helpers import play_through_in_broker, queue_in_broker
 
 
+async def create_playlist(cog, fake_context, name):  #pylint:disable=redefined-outer-name
+    '''Create a playlist the way `!playlist create` does in the commands pod: through the store.'''
+    await cog.playlist_logic.create(envelope_from_ctx(fake_context['context']), name)
+
+
 def attach_playlist_store(cog, playlist=None, items=None):
     '''Give a database-less cog a playlist store with fixed answers.
 
@@ -70,35 +75,6 @@ def fake_playlist_items(count, start=0):
         for index in range(start, start + count)
     ]
 
-@pytest.mark.asyncio
-async def test_list_playlist(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
-    await cog.playlist_list.callback(cog, fake_context['context'])
-
-    # Index 0: playlist_create message; index 1: playlist_list message
-    assert cog.dispatcher.send_message.call_args_list[1][0][2] == 'Playlist List\n```ID || Playlist Name                                                   || Last Queued\n------------------------------------------------------------------------------------\n0  || Channel History                                                 || N/A\n1  || new-playlist                                                    || N/A```'
-
-
-@pytest.mark.asyncio
-async def test_list_playlist_with_history(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
-    await cog.playlist_list.callback(cog, fake_context['context'])
-
-    # Index 0: playlist_create message; index 1: playlist_list message
-    assert cog.dispatcher.send_message.call_args_list[1][0][2] == 'Playlist List\n```ID || Playlist Name                                                   || Last Queued\n------------------------------------------------------------------------------------\n0  || Channel History                                                 || N/A\n1  || new-playlist                                                    || N/A```'
-
 @pytest.mark.asyncio()
 async def test_playlist_add_item_invalid_history(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     s = fake_source_dict(fake_context)
@@ -128,7 +104,7 @@ async def test_playlsit_add_item_function(fake_engine, mocker, fake_context, fak
     cog.bot.loop = asyncio.get_running_loop()
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
+    await create_playlist(cog, fake_context, 'new-playlist')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     await search_driver.run_once(cog.bot_shutdown_event)
     await cog.process_search_results()
@@ -136,108 +112,6 @@ async def test_playlsit_add_item_function(fake_engine, mocker, fake_context, fak
     await cog.process_download_results()
     async with async_mock_session(fake_engine) as db_session:
         assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 1
-
-@pytest.mark.asyncio()
-async def test_playlist_remove_item(fake_engine, mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    s = fake_source_dict(fake_context)
-    sd = MediaDownload(None, {'webpage_url': 'https://foo.example'}, s)
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
-    search_driver = attach_in_process_search(cog)
-    cog.dispatcher = MagicMock()
-    cog.bot.loop = asyncio.get_running_loop()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
-    await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
-    await search_driver.run_once(cog.bot_shutdown_event)
-    await cog.process_search_results()
-    await cog.download_client.run(cog.bot_shutdown_event)
-    await cog.process_download_results()
-    await cog.playlist_item_remove.callback(cog, fake_context['context'], 1, 1)
-    async with async_mock_session(fake_engine) as db_session:
-        assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 0
-
-@pytest.mark.asyncio()
-async def test_playlist_show(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    s = fake_source_dict(fake_context)
-    sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
-    search_driver = attach_in_process_search(cog)
-    cog.dispatcher = MagicMock()
-    cog.bot.loop = asyncio.get_running_loop()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
-    await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
-    await search_driver.run_once(cog.bot_shutdown_event)
-    await cog.process_search_results()
-    await cog.download_client.run(cog.bot_shutdown_event)
-    await cog.process_download_results()
-
-    cog.dispatcher.reset_mock()
-    await cog.playlist_show.callback(cog, fake_context['context'], 1)
-    assert cog.dispatcher.send_message.call_args[0][2] == 'Playlist 1 Items\n```Pos|| Title                           || Uploader\n-------------------------------------------------\n1  || foo                             || foobar```'
-
-@pytest.mark.asyncio()
-async def test_playlist_delete(mocker, fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-
-    s = fake_source_dict(fake_context)
-    sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
-    search_driver = attach_in_process_search(cog)
-    cog.dispatcher = MagicMock()
-    cog.bot.loop = asyncio.get_running_loop()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
-    await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
-    await search_driver.run_once(cog.bot_shutdown_event)
-    await cog.process_search_results()
-    await cog.download_client.run(cog.bot_shutdown_event)
-    await cog.process_download_results()
-
-    await cog.playlist_delete.callback(cog, fake_context['context'], 1)
-    async with async_mock_session(fake_engine) as db_session:
-        assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 0
-        assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 0
-
-@pytest.mark.asyncio()
-async def test_playlist_delete_history(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-
-    s = fake_source_dict(fake_context)
-    sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.dispatcher = MagicMock()
-    await cog.playlist_delete.callback(cog, fake_context['context'], 0)
-    assert cog.dispatcher.send_message.call_args[0][2] == 'Cannot delete history playlist, is reserved'
-
-
-
-@pytest.mark.asyncio
-async def test_playlist_rename_history(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.dispatcher = MagicMock()
-    await cog.playlist_rename.callback(cog, fake_context['context'], 0, playlist_name='foo-bar-playlist')
-    assert cog.dispatcher.send_message.call_args[0][2] == 'Cannot rename history playlist, is reserved'
 
 @pytest.mark.asyncio
 async def test_history_save(mocker, fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
@@ -292,7 +166,7 @@ async def test_play_queue(mocker, fake_context, fake_stores):  #pylint:disable=r
     search_driver = attach_in_process_search(cog)
     cog.dispatcher = MagicMock()
     cog.bot.loop = asyncio.get_running_loop()
-    await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
+    await create_playlist(cog, fake_context, 'new-playlist')
     await cog.playlist_item_add.callback(cog, fake_context['context'], 1, search='https://foo.example')
     await search_driver.run_once(cog.bot_shutdown_event)
     await cog.process_search_results()
@@ -354,48 +228,6 @@ async def test_random_play_deletes_no_existent_video(mocker, fake_engine, fake_c
             async with async_mock_session(fake_engine) as db_session:
                 assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 1
                 assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 0
-
-@pytest.mark.asyncio()
-async def test_playlist_merge(mocker, fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    s = fake_source_dict(fake_context)
-    sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
-    search_driver = attach_in_process_search(cog)
-    cog.dispatcher = MagicMock()
-    cog.bot.loop = asyncio.get_running_loop()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
-    await cog.playlist_create.callback(cog, fake_context['context'], name='delete-me')
-    await cog.playlist_item_add.callback(cog, fake_context['context'], 2, search='https://foo.example')
-    await search_driver.run_once(cog.bot_shutdown_event)
-    await cog.process_search_results()
-    await cog.download_client.run(cog.bot_shutdown_event)
-    await cog.process_download_results()
-    await cog.playlist_merge.callback(cog, fake_context['context'], 1, 2)
-    async with async_mock_session(fake_engine) as db_session:
-        assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 1
-        assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 1
-
-@pytest.mark.asyncio()
-async def test_playlist_merge_history(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    s = fake_source_dict(fake_context)
-    sd = MediaDownload(None, {'webpage_url': 'https://foo.example', 'title': 'foo', 'uploader': 'foobar'}, s)
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    cog.dispatcher = MagicMock()
-    await cog.playlist_create.callback(cog, fake_context['context'], name='new-playlist')
-    await cog.playlist_merge.callback(cog, fake_context['context'], 0, 1)
-    # Index 0: playlist_create message; index 1: merge error message
-    assert cog.dispatcher.send_message.call_args_list[1][0][2] == 'Cannot merge history playlist, is reserved'
 
 @pytest.mark.asyncio
 async def test_playlist_insert_item_method(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
@@ -463,7 +295,7 @@ async def test_playlist_queue_with_shuffle_and_max_num(mocker, fake_context, fak
     playlist_queue_mock = mocker.patch.object(PlaylistCommands, 'queue_items', new_callable=AsyncMock)
 
     # Create a playlist first
-    await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
+    await create_playlist(cog, fake_context, 'test-playlist')
 
     # Test 1: shuffle followed by max_num
     await cog.playlist_queue.callback(cog, fake_context['context'], 1, 'shuffle', '16')
@@ -501,7 +333,7 @@ async def test_playlist_queue_with_only_shuffle(mocker, fake_context, fake_store
     playlist_queue_mock = mocker.patch.object(PlaylistCommands, 'queue_items', new_callable=AsyncMock)
 
     # Create a playlist first
-    await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
+    await create_playlist(cog, fake_context, 'test-playlist')
 
     # Test with only shuffle
     await cog.playlist_queue.callback(cog, fake_context['context'], 1, 'shuffle')
@@ -529,7 +361,7 @@ async def test_playlist_queue_with_only_max_num(mocker, fake_context, fake_store
     playlist_queue_mock = mocker.patch.object(PlaylistCommands, 'queue_items', new_callable=AsyncMock)
 
     # Create a playlist first
-    await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
+    await create_playlist(cog, fake_context, 'test-playlist')
 
     # Test with only max_num
     await cog.playlist_queue.callback(cog, fake_context['context'], 1, '25')
@@ -557,7 +389,7 @@ async def test_playlist_queue_with_no_arguments(mocker, fake_context, fake_store
     playlist_queue_mock = mocker.patch.object(PlaylistCommands, 'queue_items', new_callable=AsyncMock)
 
     # Create a playlist first
-    await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
+    await create_playlist(cog, fake_context, 'test-playlist')
 
     # Test with no additional arguments
     await cog.playlist_queue.callback(cog, fake_context['context'], 1)
@@ -585,7 +417,7 @@ async def test_playlist_queue_parameter_parsing_edge_cases(mocker, fake_context,
     playlist_queue_mock = mocker.patch.object(PlaylistCommands, 'queue_items', new_callable=AsyncMock)
 
     # Create a playlist first
-    await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist')
+    await create_playlist(cog, fake_context, 'test-playlist')
 
     # Test mixed order parameters with multiple numbers (should use first number found)
     await cog.playlist_queue.callback(cog, fake_context['context'], 1, 'shuffle', '25', '50')
@@ -661,8 +493,8 @@ async def test_playlist_queue_comprehensive_integration(mocker, fake_context, fa
 
     # Create player and playlists for comprehensive testing
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist-1')
-    await cog.playlist_create.callback(cog, fake_context['context'], name='test-playlist-2')
+    await create_playlist(cog, fake_context, 'test-playlist-1')
+    await create_playlist(cog, fake_context, 'test-playlist-2')
 
     # Mock the __playlist_queue method to capture all calls
     playlist_queue_calls = []
@@ -705,34 +537,6 @@ async def test_playlist_queue_comprehensive_integration(mocker, fake_context, fa
     assert len(regular_tests) >= 4, "Should test regular playlist functionality"
 
 @pytest.mark.asyncio
-async def test_playlist_show_empty_playlist_message_context_fix(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """Test that playlist show on empty playlist creates proper MessageContext (bug fix for 'str' object has no attribute 'function')"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-
-    # Create a player to ensure history playlist exists
-    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-
-    # Create an empty playlist
-    await cog.playlist_create.callback(cog, fake_context['context'], name='empty-playlist')
-
-    # Reset dispatcher to isolate playlist_show messages
-    cog.dispatcher.reset_mock()
-
-    # Show the empty playlist - this should not crash
-    await cog.playlist_show.callback(cog, fake_context['context'], 1)
-
-    # Verify message was sent via dispatcher
-    cog.dispatcher.send_message.assert_called_once()
-
-    # Verify the message content is correct
-    assert 'No items in playlist' in str(cog.dispatcher.send_message.call_args[0][2]), \
-           f"Message should contain 'No items in playlist', got: {cog.dispatcher.send_message.call_args[0][2]}"
-
-@pytest.mark.asyncio
 async def test_playlist_queue_empty_playlist_user_feedback(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     """Test that playlist queue on empty playlist provides helpful user feedback message"""
     fake_context['author'].voice = FakeVoiceClient()
@@ -748,7 +552,7 @@ async def test_playlist_queue_empty_playlist_user_feedback(mocker, fake_context,
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
     # Create an empty playlist
-    await cog.playlist_create.callback(cog, fake_context['context'], name='empty-playlist')
+    await create_playlist(cog, fake_context, 'empty-playlist')
 
     # Reset dispatcher to isolate playlist_queue messages
     cog.dispatcher.reset_mock()
@@ -1144,29 +948,6 @@ async def test_playlist_queue_playlist_not_found_cmd(mocker, fake_context, fake_
 
 
 @pytest.mark.asyncio
-async def test_playlist_merge_max_length(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_merge stops and sends 'already max size' when PlaylistMaxLength raised"""
-    config = music_config({'music': {'playlist': {'server_playlist_max_size': 1}}})
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    await cog.playlist_create.callback(cog, fake_context['context'], name='p1')
-    await cog.playlist_create.callback(cog, fake_context['context'], name='p2')
-    async with async_mock_session(fake_engine) as db_session:
-        playlists = (await db_session.execute(select(Playlist).where(Playlist.is_history == False))).scalars().all()  #pylint:disable=singleton-comparison
-    p1_id = playlists[0].id
-    p2_id = playlists[1].id
-    await cog.playlist_store.add_items(
-        p1_id, [PlaylistItemWrite(video_url='https://ex.com/a', title='A', uploader='up')], 1)
-    await cog.playlist_store.add_items(
-        p2_id, [PlaylistItemWrite(video_url='https://ex.com/b', title='B', uploader='up')], 1)
-    cog.dispatcher.reset_mock()
-    await cog.playlist_merge.callback(cog, fake_context['context'], '1', '2')
-    messages = [call[0][2] for call in cog.dispatcher.send_message.call_args_list]
-    assert any('already max size' in m for m in messages)
-
-
-@pytest.mark.asyncio
 async def test_playlist_random_play_no_voice(fake_context):  #pylint:disable=redefined-outer-name
     """playlist_random_play returns early when author is not in a voice channel"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
@@ -1353,21 +1134,25 @@ async def test_public_view_is_none_when_the_playlist_vanishes_mid_lookup(fake_co
     assert await cog.playlist_logic.get_playlist_public_view(7, fake_context['guild'].id) is None
 
 
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize('stub,args,kwargs,method,logic_args', [
-    ('playlist_create', (), {'name': 'mine'}, 'create', ('mine',)),
-    ('playlist_list', (), {}, 'list_playlists', ()),
-    ('playlist_show', (3,), {}, 'show', (3,)),
-    ('playlist_delete', (3,), {}, 'delete', (3,)),
-    ('playlist_rename', (3,), {'playlist_name': 'new'}, 'rename', (3, 'new')),
-    ('playlist_merge', ('1', '2'), {}, 'merge', ('1', '2')),
-    ('playlist_item_remove', (3, 4), {}, 'item_remove', (3, 4)),
+@pytest.mark.parametrize('stub,args,kwargs,command,forwarded', [
+    ('playlist_create', (), {'name': 'mine'}, 'playlist.create', {'name': 'mine'}),
+    ('playlist_list', (), {}, 'playlist.list', {}),
+    ('playlist_show', (3,), {}, 'playlist.show', {'playlist_index': 3}),
+    ('playlist_delete', (3,), {}, 'playlist.delete', {'playlist_index': 3}),
+    ('playlist_rename', (3,), {'playlist_name': 'new'}, 'playlist.rename', {'playlist_index': 3, 'playlist_name': 'new'}),
+    ('playlist_merge', ('1', '2'), {}, 'playlist.merge', {'playlist_index_one': '1', 'playlist_index_two': '2'}),
+    ('playlist_item_remove', (3, 4), {}, 'playlist.item-remove', {'playlist_index': 3, 'video_index': 4}),
 ])
-async def test_store_only_stubs_hand_the_envelope_to_the_logic(mocker, fake_context, stub, args, kwargs, method, logic_args):  #pylint:disable=redefined-outer-name
-    '''The behaviour of these commands is tested in tests/command_logic/test_playlist.py; this
-    checks only that each stub forwards the envelope and its parsed arguments.'''
+async def test_store_only_stubs_forward_to_the_commands_pod(fake_context, stub, args, kwargs, command, forwarded):  #pylint:disable=redefined-outer-name
+    '''The behaviour of these commands is tested in discord_commands; this checks only that each
+    stub forwards its command name and parsed arguments, and runs nothing itself.'''
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
-    handler = mocker.patch.object(PlaylistCommands, method, new_callable=AsyncMock)
+    cog.commands_client = AsyncMock()
     await getattr(cog, stub).callback(cog, fake_context['context'], *args, **kwargs)
-    handler.assert_awaited_once_with(envelope_from_ctx(fake_context['context']), *logic_args)
+    cog.commands_client.forward.assert_awaited_once()
+    forward_args = cog.commands_client.forward.await_args.args
+    assert (forward_args[0], forward_args[1], forward_args[2]) == (
+        command, envelope_from_ctx(fake_context['context']), forwarded)

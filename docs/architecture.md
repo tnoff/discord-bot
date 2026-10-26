@@ -49,7 +49,7 @@ flowchart LR
     BOT -->|dispatch| DISPATCHER
     BOT -->|forward commands| COMMANDS
     COMMANDS -->|replies| DISPATCHER
-    COMMANDS -->|markov| DB
+    COMMANDS -->|markov / playlists| DB
     BOT -->|media broker| BROKER
     BOT -->|source expansion, search queue| SEARCH
     BOT -->|download queue| DOWNLOADER
@@ -86,8 +86,8 @@ missing:
 - **Bot → DB** (`HttpPlaylistStore` / `HttpMarkovStore` /
   `HttpGuildAnalyticsStore`, all `HttpStoreBase` subclasses built by
   `build_http_stores()`): one store per db-backed cog. The markov loops still
-  run in the gateway and use the markov store; the markov *commands* use the
-  commands pod's own store.
+  run in the gateway and use the markov store; the markov *commands* and the
+  store-only playlist commands use the commands pod's own stores.
 - **Downloader → Broker**, **Search → Broker** (`HttpBrokerClient`):
   unconditional in both pods' `run()`.
 - **Broker → Dispatcher** (`HttpDispatchClient`): only if
@@ -148,6 +148,7 @@ composite app.
 | `discord-broker` | `discord-db` | database | `/database/video_cache` | `HttpVideoCacheStore` | 6 |
 | `discord-broker` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 8 |
 | `discord-commands` | `discord-db` | database | `/database/markov` | `HttpMarkovStore` | 9 |
+| `discord-commands` | `discord-db` | database | `/database/playlist` | `HttpPlaylistStore` | 16 |
 | `discord-commands` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 8 |
 | `discord-downloader` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
 | `discord-gateway` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
@@ -222,7 +223,8 @@ the gateway forward them, so a command is never served by neither pod:
 |---|---|
 | `hello`, `roll`, `meta`, `urban` | commands pod |
 | `markov on / off / list-channels / speak` | commands pod |
-| `play`, `skip`, `join`, `stop`, the queue and playlist commands, `music-stats`, `history`, `random-play` | gateway (not moved yet) |
+| `playlist create / list / show / delete / rename / item-remove / merge` | commands pod |
+| `play`, `skip`, `join`, `stop`, the queue commands, `playlist item-add / queue / save-queue / save-history`, `music-stats`, `history`, `random-play` | gateway (not moved yet; the playlist ones need the media enqueuer or the player) |
 | `role *` | gateway (not moved yet) |
 | markov and delete-messages loops, music result loops | gateway (not moved yet) |
 
@@ -335,18 +337,24 @@ process that opens Redis.
 ```yaml
 general:
   dispatch_http_url: "http://dispatcher:8082"   # every reply goes through it
-  database_http_url: "http://db:8085"           # markov commands read and write here
+  database_http_url: "http://db:8085"           # markov and playlist commands read and write here
   commands_server:
     host: 0.0.0.0
     port: 8086
 markov:
   server_reject_list: []                        # guild ids markov refuses to run for
+music:
+  general:
+    message_delete_after: 300                   # seconds before playlist replies are removed
+  playlist:
+    server_playlist_max_size: 64                # most items a playlist holds; merge honours it
 ```
 
 No `discord_token`, no `redis_url`. `discord_commands/cli/commands.py::run()`
 raises `DiscordBotException` at startup if `dispatch_http_url` or
-`database_http_url` is missing. `markov.server_reject_list` is read from this
-pod's config, since the markov commands run here.
+`database_http_url` is missing. `markov.server_reject_list` and the two `music.*` playlist
+settings above are read from this pod's config, since those commands run here
+(the pod has no `music` cog; it only reads these keys).
 
 ### Bot / cog pod
 

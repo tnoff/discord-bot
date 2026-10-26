@@ -7,7 +7,6 @@ from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
 from discord_core.types.command_envelope import CommandEnvelope
-from discord_core.types.playlist import PlaylistItemWrite
 
 from discord_db.database import Playlist
 from discord_gateway.command_logic.playlist import PlaylistCommands
@@ -90,17 +89,6 @@ async def test_create_playlist_message_with_none_public_id(mocker, fake_context,
 
     await logic.create(env, 'test-playlist')
     assert dispatcher.send_message.call_args[0][2] == 'Created playlist "test-playlist" with ID None'
-
-@pytest.mark.asyncio
-async def test_playlist_rename(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    logic, _ = make_logic(fake_stores)
-    env = make_env(fake_context)
-    await logic.create(env, 'new-playlist')
-    await logic.rename(env, 1, 'foo-bar-playlist')
-    async with async_mock_session(fake_engine) as db_session:
-        assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 1
-        item = (await db_session.execute(select(Playlist))).scalars().first()
-        assert item.name == 'foo-bar-playlist'
 
 @pytest.mark.asyncio
 async def test_get_playlist_public_view_history_playlist_returns_zero(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
@@ -453,40 +441,6 @@ async def test_playlist_create_no_db(fake_context):  #pylint:disable=redefined-o
 
 
 @pytest.mark.asyncio
-async def test_playlist_list_no_db(fake_context):  #pylint:disable=redefined-outer-name
-    """playlist_list returns early when db_engine is None"""
-    logic, dispatcher = make_logic(None)
-    env = make_env(fake_context)
-    await logic.list_playlists(env)
-    assert 'database is not enabled' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_list_no_playlists(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_list sends 'No playlists in database' when DB is empty"""
-    logic, dispatcher = make_logic(fake_stores)
-    env = make_env(fake_context)
-    await logic.list_playlists(env)
-    assert 'No playlists in database' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_list_with_last_queued(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_list formats last_queued date when set on a playlist"""
-    logic, dispatcher = make_logic(fake_stores)
-    env = make_env(fake_context)
-    await logic.create(env, 'dated-playlist')
-    async with async_mock_session(fake_engine) as db_session:
-        p = (await db_session.execute(select(Playlist).where(Playlist.is_history == False))).scalars().first()  #pylint:disable=singleton-comparison
-        p.last_queued = datetime(2024, 6, 15, 12, 0, 0, tzinfo=timezone.utc)
-        await db_session.commit()
-    dispatcher.reset_mock()
-    await logic.list_playlists(env)
-    output = dispatcher.send_message.call_args[0][2]
-    assert '2024-06-15 12:00:00' in output
-
-
-@pytest.mark.asyncio
 async def test_get_playlist_invalid_string_index(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     """__get_playlist sends error message and returns (None, False) for non-numeric index"""
     logic, dispatcher = make_logic(fake_stores)
@@ -514,178 +468,3 @@ async def test_get_playlist_history_not_found(fake_context, fake_stores):  #pyli
     result = await logic.get_playlist(0, env)
     assert result == (None, False)
     assert 'Invalid playlist index 0' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_item_remove_no_db(fake_context):  #pylint:disable=redefined-outer-name
-    """playlist_item_remove returns early when db_engine is None"""
-    logic, dispatcher = make_logic(None)
-    env = make_env(fake_context)
-    await logic.item_remove(env, 1, 1)
-    assert 'database is not enabled' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_item_remove_playlist_not_found(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_item_remove returns when __get_playlist returns None"""
-    logic, dispatcher = make_logic(fake_stores)
-    env = make_env(fake_context)
-    await logic.item_remove(env, 1, 1)
-    # __get_playlist sends "No playlists in database"; item_remove returns without further message
-    assert dispatcher.send_message.call_count == 1
-    assert 'No playlists in database' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_item_remove_invalid_video_index(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_item_remove sends error when video_index cannot be cast to int"""
-    logic, dispatcher = make_logic(fake_stores)
-    env = make_env(fake_context)
-    await logic.create(env, 'p')
-    dispatcher.reset_mock()
-    await logic.item_remove(env, 1, 'abc')
-    assert 'Invalid item index abc' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_item_remove_negative_video_index(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_item_remove sends error when video_index < 1"""
-    logic, dispatcher = make_logic(fake_stores)
-    env = make_env(fake_context)
-    await logic.create(env, 'p')
-    dispatcher.reset_mock()
-    await logic.item_remove(env, 1, 0)
-    assert 'Invalid item index 0' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_item_remove_item_not_found(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_item_remove sends 'Unable to find item' when no item at that index"""
-    logic, dispatcher = make_logic(fake_stores)
-    env = make_env(fake_context)
-    await logic.create(env, 'p')
-    dispatcher.reset_mock()
-    await logic.item_remove(env, 1, 1)
-    assert 'Unable to find item 1' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_show_no_db(fake_context):  #pylint:disable=redefined-outer-name
-    """playlist_show returns early when db_engine is None"""
-    logic, dispatcher = make_logic(None)
-    env = make_env(fake_context)
-    await logic.show(env, 1)
-    assert 'database is not enabled' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_show_not_found(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_show returns when __get_playlist returns None"""
-    logic, dispatcher = make_logic(fake_stores)
-    env = make_env(fake_context)
-    await logic.show(env, 1)
-    assert dispatcher.send_message.call_count == 1
-    assert 'No playlists in database' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_delete_no_db(fake_context):  #pylint:disable=redefined-outer-name
-    """playlist_delete returns early when db_engine is None"""
-    logic, dispatcher = make_logic(None)
-    env = make_env(fake_context)
-    await logic.delete(env, 1)
-    assert 'database is not enabled' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_delete_not_found(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_delete sends explicit 'Cannot delete' message when playlist not found"""
-    logic, dispatcher = make_logic(fake_stores)
-    env = make_env(fake_context)
-    await logic.delete(env, 1)
-    messages = [call[0][2] for call in dispatcher.send_message.call_args_list]
-    assert any('Cannot delete playlist' in m for m in messages)
-
-
-@pytest.mark.asyncio
-async def test_playlist_rename_no_db(fake_context):  #pylint:disable=redefined-outer-name
-    """playlist_rename returns early when db_engine is None"""
-    logic, dispatcher = make_logic(None)
-    env = make_env(fake_context)
-    await logic.rename(env, 1, 'new')
-    assert 'database is not enabled' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_rename_not_found(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_rename returns None when playlist_id not found and not history"""
-    logic, dispatcher = make_logic(fake_stores)
-    env = make_env(fake_context)
-    await logic.rename(env, 1, 'new')
-    # __get_playlist sends "No playlists in database", rename itself returns None
-    assert dispatcher.send_message.call_count == 1
-
-
-@pytest.mark.asyncio
-async def test_playlist_rename_invalid_name(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_rename rejects names containing PLAYHISTORY_PREFIX"""
-    logic, dispatcher = make_logic(fake_stores)
-    env = make_env(fake_context)
-    await logic.create(env, 'my-playlist')
-    dispatcher.reset_mock()
-    await logic.rename(env, 1, '__playhistory__bad')
-    assert 'cannot contain' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_merge_no_db(fake_context):  #pylint:disable=redefined-outer-name
-    """playlist_merge returns early when db_engine is None"""
-    logic, dispatcher = make_logic(None)
-    env = make_env(fake_context)
-    await logic.merge(env, '1', '2')
-    assert 'database is not enabled' in dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_playlist_merge_p1_not_found(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_merge sends 'Cannot find playlist' for p1 when not found"""
-    logic, dispatcher = make_logic(fake_stores)
-    env = make_env(fake_context)
-    await logic.merge(env, '1', '2')
-    messages = [call[0][2] for call in dispatcher.send_message.call_args_list]
-    assert any('Cannot find playlist' in m for m in messages)
-
-
-@pytest.mark.asyncio
-async def test_playlist_merge_p2_not_found(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_merge sends 'Cannot find playlist' for p2 when only p1 exists"""
-    logic, dispatcher = make_logic(fake_stores)
-    env = make_env(fake_context)
-    # Patch get_playlist so p1 is found but p2 is not
-    mocker.patch.object(PlaylistCommands, 'get_playlist', new_callable=AsyncMock,
-                        side_effect=[(42, False), (None, False)])
-    await logic.merge(env, '1', '2')
-    messages = [call[0][2] for call in dispatcher.send_message.call_args_list]
-    assert any('Cannot find playlist' in m for m in messages)
-
-
-@pytest.mark.asyncio
-async def test_playlist_merge_duplicate(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """playlist_merge sends 'likely already exists' for duplicate item across playlists"""
-    logic, dispatcher = make_logic(fake_stores)
-    env = make_env(fake_context)
-    await logic.create(env, 'p1')
-    await logic.create(env, 'p2')
-    async with async_mock_session(fake_engine) as db_session:
-        playlists = (await db_session.execute(select(Playlist).where(Playlist.is_history == False))).scalars().all()  #pylint:disable=singleton-comparison
-    first_id = playlists[0].id
-    second_id = playlists[1].id
-    max_size = logic.server_playlist_max_size
-    await logic.playlist_store.add_items(
-        first_id, [PlaylistItemWrite(video_url='https://ex.com/same', title='Same', uploader='up')], max_size)
-    await logic.playlist_store.add_items(
-        second_id, [PlaylistItemWrite(video_url='https://ex.com/same', title='Same', uploader='up')], max_size)
-    dispatcher.reset_mock()
-    await logic.merge(env, '1', '2')
-    messages = [call[0][2] for call in dispatcher.send_message.call_args_list]
-    assert any('likely already exists' in m for m in messages)
