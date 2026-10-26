@@ -1,6 +1,6 @@
 from asyncio import QueueFull
 from logging import Logger
-from typing import Callable
+from typing import Awaitable, Callable
 
 from opentelemetry.trace import SpanKind
 
@@ -33,6 +33,68 @@ ENQUEUE_DUPLICATE = 'duplicate'
 OTEL_SPAN_PREFIX = 'music'
 
 
+class TrackQueuer:
+    '''
+    The broker half of putting a track on a guild's play queue. It needs the broker and nothing
+    else, so a ``PlayerGateway`` with no player of its own (the commands pod's) can queue a cache
+    hit with it, and ``MediaEnqueuer`` shares the same copy.
+    '''
+
+    def __init__(self, broker_client: BrokerClient, logger: Logger, queue_max_size: int):
+        self.broker_client = broker_client
+        self.logger = logger
+        self.queue_max_size = queue_max_size
+
+    async def push_state(self, media_request: MediaRequest, event: LifecycleEvent, **details) -> None:
+        '''Send a lifecycle transition to the broker, which marks it and re-renders the bundle.'''
+        await self.broker_client.update_request_status(
+            str(media_request.uuid), LifecycleStatusUpdate(event=event, **details))
+
+    async def enqueue_download(self, media_download: MediaDownload, on_queued: Callable[[], Awaitable[None]]) -> bool:
+        '''
+        Queue a downloaded track in the broker for the guild's player.
+
+        media_download : Standard MediaDownload for post download
+        on_queued : Awaited once the broker has the track, before the request is marked completed
+            (the player's wake-up and prefetch)
+        '''
+        attributes = media_download_attributes(media_download)
+        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.add_source_to_player', kind=SpanKind.INTERNAL, attributes=attributes, links=span_links_from_context(media_download.media_request.span_context)):
+            media_uuid = str(media_download.media_request.uuid)
+            # Register with the broker BEFORE the track becomes visible in the queue. For a
+            # cache hit this is the only point the broker learns of the entry, and the
+            # player can claim the track the instant it is queued. If that race puts the
+            # claim ahead of registration the broker has no entry to check out, and the
+            # player would fall back to the raw S3 cache key (crashing on open()).
+            # Registering first closes the window.
+            await self.broker_client.register_download(media_download)
+            result = await self.broker_client.enqueue_track(
+                media_download.media_request.guild_id, media_uuid, self.queue_max_size)
+            if result == ENQUEUE_FULL:
+                self.logger.info(f'Play queue full, aborting download of item "{str(media_download.media_request)}"')
+                reason = (f'Cannot add item "{media_download.title}" to play queue, play queue is full'
+                          if media_download.media_request.bundle_uuid else None)
+                await self.push_state(media_download.media_request, LifecycleEvent.FAILED, failure_reason=reason)
+                await self.broker_client.discard(media_uuid)
+                return False
+                # Dont return to loop, file was downloaded so we can iterate on cache at least
+            if result == ENQUEUE_CLOSED:
+                self.logger.info(f'Queue closed in guild "{media_download.media_request.guild_id}", assuming shutdown')
+                await self.push_state(media_download.media_request, LifecycleEvent.DISCARDED)
+                await self.broker_client.discard(media_uuid)
+                return False
+            if result == ENQUEUE_DUPLICATE:
+                # Already queued, so the track will play; nothing to undo.
+                self.logger.warning(f'"{media_download.webpage_url}" was already queued in guild '
+                                    f'{media_download.media_request.guild_id}')
+            self.logger.info(f'Adding "{media_download.webpage_url}" '
+                             f'to queue in guild {media_download.media_request.guild_id}')
+            await on_queued()
+            await self.push_state(media_download.media_request, LifecycleEvent.COMPLETED)
+            return True
+
+
+
 class MediaEnqueuer:
     '''
     Turns a search into media requests and routes them: to the search queue, to the download
@@ -62,6 +124,7 @@ class MediaEnqueuer:
         self.server_playlist_max_size = server_playlist_max_size
         self.message_delete_after = message_delete_after
         self.server_queue_priority = server_queue_priority
+        self.queuer = TrackQueuer(broker_client, logger, queue_max_size)
 
     def _send(self, env: CommandEnvelope, content: str) -> None:
         self.dispatcher.send_message(env.guild_id, env.channel_id, content,
@@ -69,8 +132,7 @@ class MediaEnqueuer:
 
     async def push_state(self, media_request: MediaRequest, event: LifecycleEvent, **details) -> None:
         '''Send a lifecycle transition to the broker, which marks it and re-renders the bundle.'''
-        await self.broker_client.update_request_status(
-            str(media_request.uuid), LifecycleStatusUpdate(event=event, **details))
+        await self.queuer.push_state(media_request, event, **details)
 
     async def add_playlist_item(self, request: PlaylistAddRequest, result: PlaylistAddResult) -> None:
         '''
@@ -131,48 +193,9 @@ class MediaEnqueuer:
         await self.player_gateway.add_cached(media_request.guild_id, media_download)
         return True
 
-    async def enqueue_download(self, media_download: MediaDownload, on_queued: Callable[[], None]) -> bool:
-        '''
-        Queue a downloaded track in the broker for the guild's player.
-
-        media_download : Standard MediaDownload for post download
-        on_queued : Called once the broker has the track, before the request is marked completed
-            (the player's wake-up and prefetch)
-        '''
-        attributes = media_download_attributes(media_download)
-        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.add_source_to_player', kind=SpanKind.INTERNAL, attributes=attributes, links=span_links_from_context(media_download.media_request.span_context)):
-            media_uuid = str(media_download.media_request.uuid)
-            # Register with the broker BEFORE the track becomes visible in the queue. For a
-            # cache hit this is the only point the broker learns of the entry, and the
-            # player can claim the track the instant it is queued. If that race puts the
-            # claim ahead of registration the broker has no entry to check out, and the
-            # player would fall back to the raw S3 cache key (crashing on open()).
-            # Registering first closes the window.
-            await self.broker_client.register_download(media_download)
-            result = await self.broker_client.enqueue_track(
-                media_download.media_request.guild_id, media_uuid, self.queue_max_size)
-            if result == ENQUEUE_FULL:
-                self.logger.info(f'Play queue full, aborting download of item "{str(media_download.media_request)}"')
-                reason = (f'Cannot add item "{media_download.title}" to play queue, play queue is full'
-                          if media_download.media_request.bundle_uuid else None)
-                await self.push_state(media_download.media_request, LifecycleEvent.FAILED, failure_reason=reason)
-                await self.broker_client.discard(media_uuid)
-                return False
-                # Dont return to loop, file was downloaded so we can iterate on cache at least
-            if result == ENQUEUE_CLOSED:
-                self.logger.info(f'Queue closed in guild "{media_download.media_request.guild_id}", assuming shutdown')
-                await self.push_state(media_download.media_request, LifecycleEvent.DISCARDED)
-                await self.broker_client.discard(media_uuid)
-                return False
-            if result == ENQUEUE_DUPLICATE:
-                # Already queued, so the track will play; nothing to undo.
-                self.logger.warning(f'"{media_download.webpage_url}" was already queued in guild '
-                                    f'{media_download.media_request.guild_id}')
-            self.logger.info(f'Adding "{media_download.webpage_url}" '
-                             f'to queue in guild {media_download.media_request.guild_id}')
-            on_queued()
-            await self.push_state(media_download.media_request, LifecycleEvent.COMPLETED)
-            return True
+    async def enqueue_download(self, media_download: MediaDownload, on_queued: Callable[[], Awaitable[None]]) -> bool:
+        '''Queue a downloaded track in the broker for the guild's player; see ``TrackQueuer``.'''
+        return await self.queuer.enqueue_download(media_download, on_queued)
 
     async def enqueue_media_requests(self, env: CommandEnvelope, entries: list[MediaRequest],
                                      bundle_uuid: str) -> bool:

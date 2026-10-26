@@ -674,7 +674,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         media_download : Standard MediaDownload for post download
         player : MusicPlayer
         '''
-        def wake_player():
+        async def wake_player():
             player.notify_enqueued()
             player.trigger_prefetch()
         return await self.enqueue_logic.enqueue_download(media_download, wake_player)
