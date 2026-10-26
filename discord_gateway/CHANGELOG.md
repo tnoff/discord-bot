@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.7.0] - 2026-10-26
+
+### Changed
+
+- The `playlist create`, `list`, `show`, `delete`, `rename`, `item-remove` and `merge` commands no longer run here (#1030, Phase 2): their stubs forward to the `discord-commands` pod. Deploy the commands pod first: until it serves them the gateway sends a request the old pod answers with 501. The music cog now needs `general.commands_http_url` like the other forwarding cogs (the gateway already required it). `playlist item-add`, `queue`, `save-queue` and `save-history` still run here, as do their helpers.
+
 ## [3.6.2] - 2026-10-25
 
 ### Changed
