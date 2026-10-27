@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.9] - 2026-10-27
+
+### Changed
+
+- Docstring only: `http_history_stores` points at the shared playlist and analytics stores in `discord_core`.
+
 ## [3.5.8] - 2026-10-25
 
 ### Changed

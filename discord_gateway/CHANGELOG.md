@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.7.1] - 2026-10-27
+
+### Changed
+
+- The HTTP clients, `SearchClient`, the `PlayerGateway` Protocol, `PlaylistAddResult` and `MediaEnqueuer` are imported from `discord_core` instead of this package (#1030, Phase 2). `MusicResultsLoop` no longer takes `queue_max_size`, and its `enqueue_download` is now `MediaEnqueuer.enqueue_download`. **This image imports core 3.12.0 while pinned to 3.11.0, so it does not start: do not deploy the gateway bump from this merge, deploy the one from the pin bump that follows.**
+
 ## [3.7.0] - 2026-10-26
 
 ### Changed
