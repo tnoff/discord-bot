@@ -8,8 +8,8 @@ from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.interfaces.database_protocols import GuildAnalyticsStore
 from discord_core.types.command_envelope import CommandEnvelope
 
-from discord_gateway.command_logic.enqueue import MediaEnqueuer
-from discord_gateway.command_logic.player_gateway import PlayerGateway, PlayerStatus
+from discord_core.utils.media_enqueuer import MediaEnqueuer
+from discord_core.interfaces.player_gateway import PlayerGateway, PlayerStatus
 from discord_gateway.command_logic.playlist import PlaylistCommands
 
 # The broker's answer to a skip it recorded (SkipTrackResponse.result); the others are

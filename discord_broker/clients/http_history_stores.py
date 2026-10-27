@@ -1,10 +1,10 @@
 '''
 The db-pod calls the history worker makes, as HTTP store clients.
 
-The gateway has its own clients for both groups (discord_core/clients/http_playlist_store, shared
-with the commands pod, and discord_gateway/clients/http_guild_analytics_store), but the broker
-cannot import the gateway package and wants narrower ones. Recording a played
-track moved to the broker with the queue, so these calls live here and not on the gateway's
+discord_core has clients for both groups (clients/http_playlist_store and
+clients/http_guild_analytics_store, shared by the gateway and the commands pod), but the broker
+wants narrower ones. Recording a
+played track moved to the broker with the queue, so these calls live here and not on the gateway's
 clients. (`get_playlist_size` is still served by the db pod but has no client.)
 
 Same shape and same envelope handling as the gateway's (they share HttpStoreBase), including

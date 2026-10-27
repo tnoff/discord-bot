@@ -1,5 +1,4 @@
 from logging import getLogger
-from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -24,33 +23,8 @@ def make_loop(enqueue_result='ok', live_player=True):
     gateway.add_cached = AsyncMock(return_value=True)
     store = MagicMock()
     store.delete_item = AsyncMock()
-    loop = MusicResultsLoop(getLogger('test'), broker, MagicMock(), enqueue, gateway, store, 5, {})
+    loop = MusicResultsLoop(getLogger('test'), broker, MagicMock(), enqueue, gateway, store, {})
     return loop, broker, enqueue, gateway, store, events
-
-
-@pytest.mark.asyncio
-async def test_enqueue_download_wakes_the_player_before_completing(fake_context):  #pylint:disable=redefined-outer-name
-    loop, broker, _, _, _, events = make_loop()
-    on_queued = MagicMock(side_effect=lambda: events.append('woken'))
-    with TemporaryDirectory() as tmp_dir:
-        with fake_media_download(tmp_dir, fake_context=fake_context) as download:
-            assert await loop.enqueue_download(download, on_queued) is True
-    assert events == ['woken', LifecycleEvent.COMPLETED]
-    broker.register_download.assert_awaited_once()
-    broker.discard.assert_not_called()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize('answer,event', [('full', LifecycleEvent.FAILED), ('closed', LifecycleEvent.DISCARDED)])
-async def test_enqueue_download_refused(fake_context, answer, event):  #pylint:disable=redefined-outer-name
-    loop, broker, _, _, _, events = make_loop(enqueue_result=answer)
-    on_queued = MagicMock()
-    with TemporaryDirectory() as tmp_dir:
-        with fake_media_download(tmp_dir, fake_context=fake_context) as download:
-            assert await loop.enqueue_download(download, on_queued) is False
-    assert events == [event]
-    broker.discard.assert_awaited_once_with(str(download.media_request.uuid))
-    on_queued.assert_not_called()
 
 
 @pytest.mark.asyncio

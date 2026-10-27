@@ -16,17 +16,16 @@ from discord_core.exceptions import YoutubeMusicRetryException
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
-
 from discord_core.types.queue import PutsBlocked
 from discord_core.utils.failure_queue import FailureStatus
+from discord_core.utils.media_enqueuer import MediaEnqueuer
 
 from discord_gateway.cogs.common import envelope_from_ctx
 from discord_gateway.cogs.music import Music
-from discord_gateway.command_logic.enqueue import MediaEnqueuer
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG
-from discord_search.workers.youtube_music_search_driver import SEARCH_BACKOFF_SLICE_SECONDS
 
+from discord_search.workers.youtube_music_search_driver import SEARCH_BACKOFF_SLICE_SECONDS
 from discord_broker.workers.media_bundle import BundleRenderer
 
 from tests.helpers import attach_in_process_search, fake_media_download

@@ -161,12 +161,14 @@ hand-maintained list here):
   cogs. `cli/bot.py` is the entrypoint; `cli/_lib/cog_registry.py` holds
   `POSSIBLE_COGS`. `cogs/` holds every cog (`common.py` is `CogHelperBase`);
   `cogs/music_helpers/` holds the gateway-side pieces of the music
-  subsystem (`music_player.py`, `search_client.py` — download, search,
-  broker and db-side pieces live in their own pods below). `clients/` holds
-  this pod's own HTTP client wrappers for talking to the other pods
-  (`http_download_client.py`, `http_guild_analytics_store.py`, etc.; the markov
-  and playlist stores are in `discord_core/clients/` because the commands pod
-  builds them too). Commands are forwarding stubs in `cogs/` for the groups that have
+  subsystem (`music_player.py` — download, search, broker and db-side pieces
+  live in their own pods below). The HTTP clients for talking to the other
+  pods (`http_download_client.py`, `http_media_search_client.py`,
+  `http_youtube_music_search_client.py`, `http_guild_analytics_store.py`, the
+  markov and playlist stores, `search_client.py`) are in `discord_core/clients/`
+  because the commands pod builds them too, and so is the `MediaEnqueuer`
+  (`discord_core/utils/media_enqueuer.py`). `clients/` here keeps only what is
+  the gateway's own. Commands are forwarding stubs in `cogs/` for the groups that have
   moved to the commands pod; `command_logic/` holds the logic of those that
   have not.
 - **`discord_dispatcher/`** — the `discord-dispatcher` pod. `workers/message_dispatcher.py`

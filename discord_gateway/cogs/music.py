@@ -37,21 +37,21 @@ from discord_core.interfaces.download_client_protocol import (
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.types.player_session import PlayerSession
 from discord_core.clients.dispatch_client_base import DispatchClientBase
-
-from discord_gateway.clients.http_download_client import HttpDownloadClient
-from discord_gateway.clients.http_media_search_client import HttpMediaSearchClient
-from discord_gateway.clients.youtube_music_search_client import (
+from discord_core.utils.media_enqueuer import MediaEnqueuer
+from discord_core.clients.search_client import SearchClient
+from discord_core.clients.http_download_client import HttpDownloadClient
+from discord_core.clients.http_media_search_client import HttpMediaSearchClient
+from discord_core.clients.http_youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
+
 from discord_gateway.cogs.common import CogHelperBase, build_commands_client, envelope_from_ctx
-from discord_gateway.command_logic.enqueue import MediaEnqueuer
 from discord_gateway.command_logic.music import MusicCommands
 from discord_gateway.command_logic.playlist import PlaylistCommands
 from discord_gateway.loop_logic.gateway_intents import GatewayIntentsLoop
 from discord_gateway.loop_logic.music_results import MusicResultsLoop
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
-from discord_gateway.clients.search_client import SearchClient
 from discord_gateway.types.cleanup_reason import CleanupReason
 from discord_gateway.utils.bot_metrics import BotMetricNaming
 from discord_gateway.utils.otel_command import command_wrapper
@@ -668,16 +668,16 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Queue a downloaded track for the guild's player.
 
-        The broker half is results_logic.enqueue_download; what stays here is waking the player
+        The broker half is enqueue_logic.enqueue_download; what stays here is waking the player
         once the broker has the track.
 
         media_download : Standard MediaDownload for post download
         player : MusicPlayer
         '''
-        def wake_player():
+        async def wake_player():
             player.notify_enqueued()
             player.trigger_prefetch()
-        return await self.results_logic.enqueue_download(media_download, wake_player)
+        return await self.enqueue_logic.enqueue_download(media_download, wake_player)
 
     async def process_search_results(self):
         '''
@@ -1210,8 +1210,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         return MusicResultsLoop(
             self.logger, self.broker_client, self.download_client, self.enqueue_logic,
-            CogPlayerGateway(self), self.playlist_store, self.config.player.queue_max_size,
-            self.server_queue_priority)
+            CogPlayerGateway(self), self.playlist_store, self.server_queue_priority)
 
     @property
     def playlist_logic(self) -> PlaylistCommands:

@@ -15,9 +15,9 @@ from discord_core.exceptions import ExitEarlyException
 from discord_core.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
+from discord_core.utils.media_enqueuer import MediaEnqueuer
 
 from discord_gateway.cogs.music import Music
-from discord_gateway.command_logic.enqueue import MediaEnqueuer
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG, yield_download_worker_download_exception, yield_fake_download_worker, yield_download_worker_download_error
 from discord_downloader.interfaces import download_protocols

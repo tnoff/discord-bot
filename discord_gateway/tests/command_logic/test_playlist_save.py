@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from discord_core.types.playlist import PlaylistItemAddStatus
-from discord_gateway.command_logic.player_gateway import PlayerStatus
+from discord_core.interfaces.player_gateway import PlayerStatus
 from discord_gateway.command_logic.playlist import PlaylistCommands
 
 

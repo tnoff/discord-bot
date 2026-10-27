@@ -1,6 +1,5 @@
 from asyncio import QueueFull
 from logging import Logger
-from typing import Callable
 
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
@@ -9,23 +8,18 @@ from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.interfaces.database_protocols import PlaylistStore
 from discord_core.interfaces.download_client_protocol import DownloadClient
 from discord_core.types.download import LifecycleEvent, is_rejection
-from discord_core.types.media_download import MediaDownload, media_download_attributes
+from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import media_request_attributes
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.queue import PutsBlocked
 from discord_core.types.search_resolution import SearchResolution
 from discord_core.utils.otel import async_otel_span_wrapper, span_links_from_context
 
-from discord_gateway.command_logic.enqueue import MediaEnqueuer
-from discord_gateway.command_logic.player_gateway import PlayerGateway
-from discord_gateway.types.playlist_add_result import PlaylistAddResult
+from discord_core.utils.media_enqueuer import MediaEnqueuer
+from discord_core.interfaces.player_gateway import PlayerGateway
+from discord_core.types.playlist_add_result import PlaylistAddResult
 
 OTEL_SPAN_PREFIX = 'music'
-
-# What enqueue_track answers when it does not accept a track (the broker's own spellings).
-ENQUEUE_FULL = 'full'
-ENQUEUE_CLOSED = 'closed'
-ENQUEUE_DUPLICATE = 'duplicate'
 
 
 class MusicResultsLoop:
@@ -41,7 +35,7 @@ class MusicResultsLoop:
 
     def __init__(self, logger: Logger, broker_client: BrokerClient, download_client: DownloadClient,
                  enqueue: MediaEnqueuer, player_gateway: PlayerGateway,
-                 playlist_store: PlaylistStore | None, queue_max_size: int,
+                 playlist_store: PlaylistStore | None,
                  server_queue_priority: dict[int, int]):
         self.logger = logger
         self.broker_client = broker_client
@@ -49,51 +43,7 @@ class MusicResultsLoop:
         self.enqueue = enqueue
         self.player_gateway = player_gateway
         self.playlist_store = playlist_store
-        self.queue_max_size = queue_max_size
         self.server_queue_priority = server_queue_priority
-
-    async def enqueue_download(self, media_download: MediaDownload, on_queued: Callable[[], None]) -> bool:
-        '''
-        Queue a downloaded track in the broker for the guild's player.
-
-        media_download : Standard MediaDownload for post download
-        on_queued : Called once the broker has the track, before the request is marked completed
-            (the player's wake-up and prefetch)
-        '''
-        attributes = media_download_attributes(media_download)
-        async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.add_source_to_player', kind=SpanKind.INTERNAL, attributes=attributes, links=span_links_from_context(media_download.media_request.span_context)):
-            media_uuid = str(media_download.media_request.uuid)
-            # Register with the broker BEFORE the track becomes visible in the queue. For a
-            # cache hit this is the only point the broker learns of the entry, and the
-            # player can claim the track the instant it is queued. If that race puts the
-            # claim ahead of registration the broker has no entry to check out, and the
-            # player would fall back to the raw S3 cache key (crashing on open()).
-            # Registering first closes the window.
-            await self.broker_client.register_download(media_download)
-            result = await self.broker_client.enqueue_track(
-                media_download.media_request.guild_id, media_uuid, self.queue_max_size)
-            if result == ENQUEUE_FULL:
-                self.logger.info(f'Play queue full, aborting download of item "{str(media_download.media_request)}"')
-                reason = (f'Cannot add item "{media_download.title}" to play queue, play queue is full'
-                          if media_download.media_request.bundle_uuid else None)
-                await self.enqueue.push_state(media_download.media_request, LifecycleEvent.FAILED, failure_reason=reason)
-                await self.broker_client.discard(media_uuid)
-                return False
-                # Dont return to loop, file was downloaded so we can iterate on cache at least
-            if result == ENQUEUE_CLOSED:
-                self.logger.info(f'Queue closed in guild "{media_download.media_request.guild_id}", assuming shutdown')
-                await self.enqueue.push_state(media_download.media_request, LifecycleEvent.DISCARDED)
-                await self.broker_client.discard(media_uuid)
-                return False
-            if result == ENQUEUE_DUPLICATE:
-                # Already queued, so the track will play; nothing to undo.
-                self.logger.warning(f'"{media_download.webpage_url}" was already queued in guild '
-                                    f'{media_download.media_request.guild_id}')
-            self.logger.info(f'Adding "{media_download.webpage_url}" '
-                             f'to queue in guild {media_download.media_request.guild_id}')
-            on_queued()
-            await self.enqueue.push_state(media_download.media_request, LifecycleEvent.COMPLETED)
-            return True
 
     async def requeue_search_result(self, resolution: SearchResolution) -> None:
         '''

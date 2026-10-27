@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from discord_gateway.command_logic.music import MusicCommands
-from discord_gateway.command_logic.player_gateway import EnsureResult, PlayerStatus
+from discord_core.interfaces.player_gateway import EnsureResult, PlayerStatus
 
 IN_VOICE = {'author_voice_channel_id': 55, 'author_voice_channel_name': 'music', 'author_voice_guild_id': 11}
 NOT_PLAYING = 'I am not currently playing anything'

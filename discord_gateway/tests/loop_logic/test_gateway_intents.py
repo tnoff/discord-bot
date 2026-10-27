@@ -6,7 +6,7 @@ import pytest
 
 from discord_core.types.gateway_intents import GatewayIntent, IntentKind
 
-from discord_gateway.command_logic.player_gateway import EnsureResult
+from discord_core.interfaces.player_gateway import EnsureResult
 from discord_gateway.loop_logic.gateway_intents import INTERNAL_ERROR, GatewayIntentsLoop
 
 
