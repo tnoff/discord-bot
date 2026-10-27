@@ -11,16 +11,24 @@ Nothing here knows about discord — these retry aiohttp failures. The
 discord-specific helper stays in utils/discord_retry, which the gateway and
 dispatcher import directly.
 '''
+import sys
 from asyncio import sleep as async_sleep
+from time import monotonic
 from typing import Awaitable, Callable
 
-from aiohttp.client_exceptions import ClientConnectionError, ClientResponseError
+from aiohttp.client_exceptions import ClientConnectionError, ClientOSError, ClientResponseError
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
 
 from discord_core.utils.otel import async_otel_span_wrapper, async_untraced_span, AttributeNaming
 
 OTEL_SPAN_PREFIX = 'utils'
+
+# How long a refused or reset connection is retried. A pod that is rolling
+# (the db is Recreate: old pod gone, new one still starting) refuses for longer
+# than the 1/2/4s backoff covers, and every caller of it loses the request.
+CONNECT_RETRY_BUDGET = 60.0   # seconds
+CONNECT_RETRY_MAX_DELAY = 8.0  # seconds, cap on a single backoff
 
 
 def _as_tuple(exceptions):
@@ -101,8 +109,12 @@ async def async_retry_broker_command(func: Callable[[], Awaitable], max_retries:
                                     traced: bool = True):
     '''
     Retry broker HTTP calls with per-exception handling:
-      - ClientConnectionError (includes ServerDisconnectedError, ServerTimeoutError): exponential backoff retry
-      - ClientResponseError 5xx: exponential backoff retry
+      - ClientOSError (refused or reset connection, includes ClientConnectorError):
+        capped exponential backoff for CONNECT_RETRY_BUDGET seconds, so a pod roll
+        is ridden out rather than failing the call. Only when traced: see below
+      - other ClientConnectionError (ServerDisconnectedError, ServerTimeoutError):
+        exponential backoff, max_retries times
+      - ClientResponseError 5xx: exponential backoff, max_retries times
       - ClientResponseError 4xx: propagate immediately (client error, won't change on retry)
 
     traced=False starts no span.  Reserved for fixed-interval background pollers,
@@ -110,16 +122,36 @@ async def async_retry_broker_command(func: Callable[[], Awaitable], max_retries:
     per client this span was ~99% of the bot's total span volume, and every tick
     against a restarting worker pod also landed as an ERROR span for a failure
     the poller already tolerates.  Callers that lose work when the call fails
-    stay traced.
+    stay traced.  The same split applies to the connection budget: a poller
+    tolerates a failed tick, so it keeps the short retry instead of blocking
+    for a minute.
     '''
+    connect_started = None
+    failures = 0
+
     def _handle(ex, retry):
+        nonlocal connect_started, failures
         if isinstance(ex, ClientResponseError) and ex.status < 500:
             return PROPAGATE
+        if traced and isinstance(ex, ClientOSError):
+            now = monotonic()
+            if connect_started is None:
+                connect_started = now
+            if now - connect_started >= CONNECT_RETRY_BUDGET:
+                return PROPAGATE
+            delay = min(2 ** retry, CONNECT_RETRY_MAX_DELAY)
+            return min(delay, CONNECT_RETRY_BUDGET - (now - connect_started))
+        # run_retry_loop counts every attempt, connection refusals included, so
+        # the fixed budget for everything else is counted here instead.
+        if failures >= max_retries:
+            return PROPAGATE
+        failures += 1
         return 2 ** retry
 
     span_cm = (async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.retry_broker_command', kind=SpanKind.CLIENT)
                if traced else async_untraced_span())
+    # The loop's own count is lifted out of the way: ``_handle`` decides when to stop.
     return await run_retry_loop(
-        span_cm, func, max_retries,
+        span_cm, func, sys.maxsize,
         (ClientConnectionError, ClientResponseError), _handle,
     )

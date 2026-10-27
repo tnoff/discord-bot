@@ -154,6 +154,15 @@ the generated `op.*` calls — autogenerate doesn't catch every change. Alembic
 itself, and the schema it manages, belong only to the `discord_db` pod — no
 other package has a database connection.
 
+The db pod rolls with the old pod still serving while the new one migrates, so
+the old code briefly runs against the new schema. Keep a revision additive (new
+table, nullable column, index). Anything that drops, renames or `alter_column`s
+what the previous release still uses must be split: release N adds the new
+schema and uses it, release N+1 removes the old one. That second revision sets
+`CONTRACT_STEP = '<why it is safe>'`, and for that one release discord-db's
+strategy goes back to `Recreate`. `discord_db/tests/test_migration_guard.py`
+fails a new revision that does this without the marker.
+
 ## Adding a new cog
 
 Cogs live only in `discord_gateway` now — there is no dispatcher-only cog
