@@ -78,8 +78,15 @@ class PlaylistItemRemoveArgs(_Args):
 
 
 class PlaylistIndexArgs(_Args):
-    '''playlist.show, playlist.delete, playlist.queue'''
+    '''playlist.show, playlist.delete'''
     playlist_index: int
+
+
+class PlaylistQueueArgs(_Args):
+    '''playlist.queue. ``args`` is the rest of the line, which the logic reads for ``shuffle`` and a
+    count in either order.'''
+    playlist_index: int
+    args: list[str] = []
 
 
 class PlaylistRenameArgs(_Args):
@@ -139,7 +146,7 @@ COMMAND_ARGS: dict[str, type[_Args]] = {
     'playlist.rename': PlaylistRenameArgs,
     'playlist.save-queue': PlaylistSaveArgs,
     'playlist.save-history': PlaylistSaveArgs,
-    'playlist.queue': PlaylistIndexArgs,
+    'playlist.queue': PlaylistQueueArgs,
     'playlist.merge': PlaylistMergeArgs,
     'role.list': NoArgs,
     'role.users': RoleUsersArgs,
