@@ -30,6 +30,21 @@ jobs:
   # deny-list of "things that feel unimportant": a list that grows by feel is one
   # somebody eventually adds a file to that did matter.
   #
+  # A second, narrower answer gates only `tox`: a PR that changes nothing but
+  # documentation no test reads (see tests/cli/_skippable_changes.py) skips the
+  # three-version test matrix. The secret scan, the version and pin checks and the
+  # workflow-contract check still run on it -- seconds each, and prose is where an
+  # example token gets pasted. The list is still an allow-list, now with a test
+  # (test_skippable_changes.py) that fails if a test starts reading a doc on it:
+  # docs/architecture.md, configuration.md and two under monitoring/ are compared
+  # against the code, and docs/openapi/ is generated, so those are inputs. The
+  # exception is a hand edit to one of the four that leaves its GENERATED blocks
+  # byte-identical, which the comparison cannot see.
+  #
+  # The filter lives in that module rather than in shell here, for the reason
+  # `changes` below does: it has edge cases (a rename out of a package into docs/)
+  # that deserve tests, which shell in a workflow cannot have.
+  #
   # An empty or unreadable diff yields false, which runs everything.
   metadata:
     name: Detect metadata-only change
@@ -38,6 +53,7 @@ jobs:
       contents: read
     outputs:
       only: ${{ steps.filter.outputs.only }}
+      tests_skippable: ${{ steps.filter.outputs.tests_skippable }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -51,16 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --no-tags --quiet origin "${BASE_REF}"
-          FILES="$(git diff --name-only "origin/${BASE_REF}...HEAD")"
-          ONLY=false
-          if [ -n "${FILES}" ]; then
-            OTHER="$(printf '%s\n' "${FILES}" | grep -vE '^(catalog-info\.yaml|renovate\.json)$' || true)"
-            [ -z "${OTHER}" ] && ONLY=true
-          fi
-          echo "changed files:"
-          printf '%s\n' "${FILES}" | sed -n 's/^/  /p'
-          echo "metadata-only: ${ONLY}"
-          echo "only=${ONLY}" >> "$GITHUB_OUTPUT"
+          python3 -m tests.cli._skippable_changes --base "origin/${BASE_REF}" >> "$GITHUB_OUTPUT"
 
   secrets:
     name: Scan for secrets
@@ -71,7 +78,9 @@ jobs:
   tox:
     name: Tox
     needs: metadata
-    if: needs.metadata.outputs.only != 'true'
+    # `tests_skippable` is a superset of `only`, so this also skips on a
+    # metadata-only PR.
+    if: needs.metadata.outputs.tests_skippable != 'true'
     uses: tnoff/github-workflows/.github/workflows/tox.yml@fd3bbf52e18c2edfa3d6fe015bed6f7056cfa777  # tox-v1.0.2
     with:
       # ffmpeg is NOT optional here, unlike the other repos ported from the same
