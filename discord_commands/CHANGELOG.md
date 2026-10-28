@@ -1,4 +1,10 @@
 # Changelog
+## [0.4.2] - 2026-10-28
+
+### Changed
+
+- Bump the `discord_core` pin to core-v3.13.0 (#1030): `playlist.queue` carries its shuffle and count arguments (`PlaylistQueueArgs`).
+
 ## [0.4.1] - 2026-10-27
 
 ### Changed
