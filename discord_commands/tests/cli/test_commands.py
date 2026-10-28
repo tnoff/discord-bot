@@ -14,6 +14,17 @@ from discord_commands.cli import commands as commands_cli
 DISPATCH_URL = 'http://dispatcher:8082'
 DATABASE_URL = 'http://db:8085'
 GENERAL = {'dispatch_http_url': DISPATCH_URL, 'database_http_url': DATABASE_URL}
+MUSIC = {
+    'broker_client': {'url': 'http://broker:8081'},
+    'download_client': {'url': 'http://downloader:8083'},
+    'youtube_music_search_client': {'url': 'http://search:8084'},
+    'media_search_client': {'url': 'http://search:8084'},
+}
+
+
+def settings_with(music=None, **sections):
+    '''Settings with the required sections; ``music`` is merged over the required music peers.'''
+    return {'general': GENERAL, 'music': {**MUSIC, **(music or {})}, **sections}
 
 
 def general_config(health=False):
@@ -31,14 +42,16 @@ def fixture_run_loop(mocker):
 
 
 def test_run_builds_the_server_on_the_configured_port(run_loop):
-    commands_cli.run({'general': {**GENERAL, 'commands_server': {'host': '127.0.0.1', 'port': 9999}}}, general_config())
+    settings = settings_with()
+    settings['general'] = {**GENERAL, 'commands_server': {'host': '127.0.0.1', 'port': 9999}}
+    commands_cli.run(settings, general_config())
     (http_server, executor), kwargs = run_loop.call_args.args[0]
     assert (http_server._host, http_server._port) == ('127.0.0.1', 9999)  # pylint: disable=protected-access
     assert http_server._executor is executor  # pylint: disable=protected-access
     assert kwargs['health_server'] is None
     assert kwargs['dispatcher']._base_url == DISPATCH_URL  # pylint: disable=protected-access
-    assert kwargs['markov_store']._base_url == DATABASE_URL  # pylint: disable=protected-access
-    assert kwargs['playlist_store']._base_url == DATABASE_URL  # pylint: disable=protected-access
+    assert len(kwargs['closers']) == 7
+    assert kwargs['download_client']._base_url == 'http://downloader:8083'  # pylint: disable=protected-access
 
 
 def test_run_requires_a_dispatcher_url(run_loop):
@@ -55,7 +68,7 @@ def test_run_requires_a_database_url(run_loop):
 
 def test_run_gives_the_markov_reject_list_to_the_handlers(run_loop, mocker):
     build = mocker.patch.object(commands_cli, 'build_handlers', return_value={})
-    commands_cli.run({'general': GENERAL, 'markov': {'server_reject_list': [5, 6]}}, general_config())
+    commands_cli.run(settings_with(markov={'server_reject_list': [5, 6]}), general_config())
     assert build.call_args.args[3] == [5, 6]
     run_loop.assert_called_once()
 
@@ -63,33 +76,51 @@ def test_run_gives_the_markov_reject_list_to_the_handlers(run_loop, mocker):
 @pytest.mark.usefixtures('run_loop')
 def test_run_defaults_to_an_empty_markov_reject_list(mocker):
     build = mocker.patch.object(commands_cli, 'build_handlers', return_value={})
-    commands_cli.run({'general': GENERAL}, general_config())
+    commands_cli.run(settings_with(), general_config())
     assert build.call_args.args[3] == []
 
 
-def test_run_gives_the_playlist_settings_to_the_handlers(run_loop, mocker):
+def test_run_gives_the_music_settings_to_the_logic(run_loop, mocker):
     build = mocker.patch.object(commands_cli, 'build_handlers', return_value={})
-    music = {'general': {'message_delete_after': 60}, 'playlist': {'server_playlist_max_size': 512}}
-    commands_cli.run({'general': GENERAL, 'music': music}, general_config())
-    assert build.call_args.args[5:] == (60, 512)
+    music = {'general': {'message_delete_after': 60}, 'playlist': {'server_playlist_max_size': 512},
+             'player': {'queue_max_size': 9},
+             'download': {'server_queue_priority': [{'server_id': '5', 'priority': 2}]}}
+    commands_cli.run(settings_with(music), general_config())
+    playlist, music_commands = build.call_args.args[4:]
+    assert (playlist.message_delete_after, playlist.server_playlist_max_size) == (60, 512)
+    assert music_commands.message_delete_after == 60
+    enqueuer = music_commands.enqueuer
+    assert (enqueuer.queue_max_size, enqueuer.server_queue_priority) == (9, {5: 2})
+    assert enqueuer.player_gateway.queuer.queue_max_size == 9
     run_loop.assert_called_once()
 
 
 @pytest.mark.usefixtures('run_loop')
-def test_run_defaults_the_playlist_settings(mocker):
+def test_run_defaults_the_music_settings(mocker):
     build = mocker.patch.object(commands_cli, 'build_handlers', return_value={})
-    commands_cli.run({'general': GENERAL}, general_config())
-    assert build.call_args.args[5:] == (300, 64)
+    commands_cli.run(settings_with(), general_config())
+    playlist, music_commands = build.call_args.args[4:]
+    assert (playlist.message_delete_after, playlist.server_playlist_max_size) == (300, 64)
+    enqueuer = music_commands.enqueuer
+    assert (enqueuer.queue_max_size, enqueuer.server_queue_priority) == (128, {})
+
+
+@pytest.mark.parametrize('client', list(MUSIC))
+def test_run_requires_the_music_peers(run_loop, client):
+    music = {key: value for key, value in MUSIC.items() if key != client}
+    with pytest.raises(DiscordBotException, match=f'music.{client}.url'):
+        commands_cli.run({'general': GENERAL, 'music': music}, general_config())
+    run_loop.assert_not_called()
 
 
 def test_run_defaults_to_all_interfaces_on_8086(run_loop):
-    commands_cli.run({'general': GENERAL}, general_config())
+    commands_cli.run(settings_with(), general_config())
     (http_server, _), _ = run_loop.call_args.args[0]
     assert (http_server._host, http_server._port) == ('0.0.0.0', 8086)  # pylint: disable=protected-access
 
 
 def test_run_adds_a_health_server_when_monitoring_enables_one(run_loop):
-    commands_cli.run({'general': GENERAL}, general_config(health=True))
+    commands_cli.run(settings_with(), general_config(health=True))
     _, kwargs = run_loop.call_args.args[0]
     assert (kwargs['health_server'].port, kwargs['health_server'].bind_address) == (18080, '127.0.0.1')
 
@@ -114,20 +145,24 @@ async def test_main_loop_serves_until_stopped_then_drains_before_closing_the_exe
     health_server.serve = AsyncMock(side_effect=lambda: order.append('health'))
     dispatcher = MagicMock()
     dispatcher.close = AsyncMock(side_effect=lambda: order.append('dispatcher'))
-    markov_store = MagicMock()
-    markov_store.close = AsyncMock(side_effect=lambda: order.append('store'))
+    download_client = MagicMock()
+    download_client.start = AsyncMock(side_effect=lambda: order.append('download-start'))
 
-    playlist_store = MagicMock()
-    playlist_store.close = AsyncMock(side_effect=lambda: order.append('playlist'))
+    async def close_store():
+        order.append('store')
+
+    async def close_playlist():
+        order.append('playlist')
 
     loop_task = asyncio.create_task(commands_cli.main_loop(
-        http_server, executor, health_server, dispatcher, markov_store, playlist_store))
+        http_server, executor, health_server, dispatcher, [close_store, close_playlist], download_client))
     await asyncio.sleep(0.01)
     assert not loop_task.done()
     stop_event.set()
     await loop_task
     assert order[-5:] == ['drain', 'close', 'dispatcher', 'store', 'playlist']
-    assert {'serve', 'health', 'seams'} <= set(order)
+    assert {'serve', 'health', 'seams', 'download-start'} <= set(order)
+    assert order.index('seams') < order.index('download-start')
 
 
 @pytest.mark.asyncio

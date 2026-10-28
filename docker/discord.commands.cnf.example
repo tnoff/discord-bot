@@ -14,9 +14,21 @@ general:
     health_server:
       enabled: true
       port: 8080
-# Read by the playlist commands (the same keys the gateway reads for the commands it still runs).
+# Read by the music and playlist commands (the same keys the gateway reads).
 music:
   general:
     message_delete_after: 300
   playlist:
     server_playlist_max_size: 64
+  player:
+    queue_max_size: 128
+  # The pods the music commands reach: the play queue and gateway intents (broker), downloads
+  # (downloader) and search (search pod, which serves both search clients).
+  broker_client:
+    url: http://broker:8081
+  download_client:
+    url: http://downloader-host:8083
+  youtube_music_search_client:
+    url: http://search:8084
+  media_search_client:
+    url: http://search:8084

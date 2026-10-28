@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import select
@@ -19,7 +20,8 @@ MAX_SIZE = 64
 
 
 def _logic(reply, fake_stores, max_size=MAX_SIZE):  #pylint:disable=redefined-outer-name
-    return PlaylistCommands(reply, logging.getLogger('test'), fake_stores.playlist, DELETE_AFTER, max_size)
+    return PlaylistCommands(reply, logging.getLogger('test'), fake_stores.playlist, DELETE_AFTER, max_size,
+                            AsyncMock(), AsyncMock(), AsyncMock())
 
 
 def _item(name):

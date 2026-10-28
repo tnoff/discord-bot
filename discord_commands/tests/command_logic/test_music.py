@@ -1,12 +1,13 @@
 import logging
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from discord_gateway.command_logic.music import MusicCommands
 from discord_core.interfaces.player_gateway import EnsureResult, PlayerStatus
+
+from discord_commands.command_logic.music import MusicCommands
 
 IN_VOICE = {'author_voice_channel_id': 55, 'author_voice_channel_name': 'music', 'author_voice_guild_id': 11}
 NOT_PLAYING = 'I am not currently playing anything'
@@ -44,15 +45,20 @@ class FakePlayerGateway:
 
 
 def make_logic(gateway, analytics=None, broker=None, enqueuer=None, playlist=None):
-    dispatcher = MagicMock()
-    logic = MusicCommands(dispatcher, broker or AsyncMock(), analytics, gateway,
+    replies = []
+
+    async def reply(guild_id, channel_id, content, delete_after=None):
+        replies.append((guild_id, channel_id, content, delete_after))
+        return content
+
+    logic = MusicCommands(reply, broker or AsyncMock(), analytics or AsyncMock(), gateway,
                           logging.getLogger('test'), 300, enqueuer or AsyncMock(), playlist or AsyncMock())
-    return logic, dispatcher
+    return logic, replies
 
 
-def sent(dispatcher):
+def sent(replies):
     '''(channel_id, content, delete_after) for each message sent.'''
-    return [(c.args[1], c.args[2], c.kwargs.get('delete_after', 'unset')) for c in dispatcher.send_message.call_args_list]
+    return [(channel_id, content, delete_after) for _, channel_id, content, delete_after in replies]
 
 
 @pytest.fixture
@@ -62,57 +68,49 @@ def voiced(envelope):  #pylint:disable=redefined-outer-name
 
 @pytest.mark.asyncio
 async def test_voice_check_not_in_voice(envelope):  #pylint:disable=redefined-outer-name
-    logic, dispatcher = make_logic(FakePlayerGateway())
+    logic, replies = make_logic(FakePlayerGateway())
     assert await logic.check_author_voice_chat(envelope) is None
-    assert sent(dispatcher) == [(22, 'Tyler not in voice chat channel. Please join one and try again', 300)]
+    assert sent(replies) == [(22, 'Tyler not in voice chat channel. Please join one and try again', 300)]
 
 
 @pytest.mark.asyncio
 async def test_voice_check_other_guild(voiced):  #pylint:disable=redefined-outer-name
-    logic, dispatcher = make_logic(FakePlayerGateway())
+    logic, replies = make_logic(FakePlayerGateway())
     other = voiced.model_copy(update={'author_voice_guild_id': 99})
     assert await logic.check_author_voice_chat(other) is None
-    assert sent(dispatcher) == [(22, 'User not joined to channel bot is in, ignoring command', 300)]
+    assert sent(replies) == [(22, 'User not joined to channel bot is in, ignoring command', 300)]
     # join does not care which guild the channel is in
     assert await logic.check_author_voice_chat(other, check_voice_chats=False) == 55
 
 
 @pytest.mark.asyncio
 async def test_voice_check_passes(voiced):  #pylint:disable=redefined-outer-name
-    logic, dispatcher = make_logic(FakePlayerGateway())
+    logic, replies = make_logic(FakePlayerGateway())
     assert await logic.check_author_voice_chat(voiced) == 55
-    dispatcher.send_message.assert_not_called()
+    assert not replies
 
 
 @pytest.mark.asyncio
 async def test_player_active_gate(envelope):  #pylint:disable=redefined-outer-name
     '''No player answers in the command's channel; a stalled one in the player's own channel'''
-    logic, dispatcher = make_logic(FakePlayerGateway(PlayerStatus(exists=False)))
+    logic, replies = make_logic(FakePlayerGateway(PlayerStatus(exists=False)))
     assert await logic.check_player_active(envelope) is None
-    assert sent(dispatcher) == [(22, NOT_PLAYING, 300)]
+    assert sent(replies) == [(22, NOT_PLAYING, 300)]
 
     for status in (PlayerStatus(exists=True, voice_connected=False, text_channel_id=77),
                    PlayerStatus(exists=True, voice_connected=True, is_playing=False, text_channel_id=77)):
-        logic, dispatcher = make_logic(FakePlayerGateway(status))
+        logic, replies = make_logic(FakePlayerGateway(status))
         assert await logic.check_player_active(envelope) is None
-        assert sent(dispatcher) == [(77, NOT_PLAYING, 300)]
+        assert sent(replies) == [(77, NOT_PLAYING, 300)]
 
 
 @pytest.mark.asyncio
 async def test_player_active_gate_passes(envelope):  #pylint:disable=redefined-outer-name
     for status in (PlayerStatus(exists=True, voice_connected=True, is_playing=True, text_channel_id=77),
                    PlayerStatus(exists=True, voice_connected=True, pending_downloads=2, text_channel_id=77)):
-        logic, dispatcher = make_logic(FakePlayerGateway(status))
+        logic, replies = make_logic(FakePlayerGateway(status))
         assert await logic.check_player_active(envelope) == status
-        dispatcher.send_message.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_music_stats_without_store(envelope):  #pylint:disable=redefined-outer-name
-    logic, dispatcher = make_logic(FakePlayerGateway())
-    await logic.music_stats(envelope)
-    # No delete timer, as it has always been
-    assert sent(dispatcher) == [(22, 'Functionality not available, database is not enabled', 'unset')]
+        assert not replies
 
 
 @pytest.mark.asyncio
@@ -121,9 +119,9 @@ async def test_music_stats(envelope):  #pylint:disable=redefined-outer-name
     analytics.get_analytics.return_value = SimpleNamespace(
         total_duration_seconds=3725, total_plays=9, cached_plays=4, total_duration_days=0,
         created_at=datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc))
-    logic, dispatcher = make_logic(FakePlayerGateway(), analytics=analytics)
+    logic, replies = make_logic(FakePlayerGateway(), analytics=analytics)
     await logic.music_stats(envelope)
-    assert sent(dispatcher) == [(22, '```Music Stats for Server\nTotal Plays: 9\nCached Plays: 4\n'
+    assert sent(replies) == [(22, '```Music Stats for Server\nTotal Plays: 9\nCached Plays: 4\n'
                                  'Total Time Played: 0 days, 1 hours, 2 minutes, and 5 seconds\n'
                                  'Tracked Since: 2026-01-02 03:04:05 UTC\n```', 300)]
 
@@ -132,15 +130,15 @@ async def test_music_stats(envelope):  #pylint:disable=redefined-outer-name
 async def test_history(voiced):  #pylint:disable=redefined-outer-name
     broker = AsyncMock()
     broker.get_guild_history.return_value = []
-    logic, dispatcher = make_logic(FakePlayerGateway(), broker=broker)
+    logic, replies = make_logic(FakePlayerGateway(), broker=broker)
     await logic.history(voiced)
-    assert sent(dispatcher) == [(22, 'There have been no videos played.', 300)]
+    assert sent(replies) == [(22, 'There have been no videos played.', 300)]
 
     broker.get_guild_history.return_value = [{'title': 'one', 'uploader': 'up'}, {'title': 'two'}]
-    logic, dispatcher = make_logic(FakePlayerGateway(), broker=broker)
+    logic, replies = make_logic(FakePlayerGateway(), broker=broker)
     await logic.history(voiced)
-    assert sent(dispatcher)[0][1].startswith('History\n```Pos|| Title')
-    assert 'one' in sent(dispatcher)[0][1] and 'two' in sent(dispatcher)[0][1]
+    assert sent(replies)[0][1].startswith('History\n```Pos|| Title')
+    assert 'one' in sent(replies)[0][1] and 'two' in sent(replies)[0][1]
 
 
 @pytest.mark.asyncio
@@ -154,13 +152,13 @@ async def test_history_needs_voice(envelope):  #pylint:disable=redefined-outer-n
 @pytest.mark.asyncio
 async def test_join(voiced, envelope):  #pylint:disable=redefined-outer-name
     gateway = FakePlayerGateway()
-    logic, dispatcher = make_logic(gateway)
+    logic, replies = make_logic(gateway)
     await logic.join(voiced)
     assert gateway.calls == [('ensure', 11, 55, 22)]
-    assert sent(dispatcher) == [(22, 'Connected to: music', 300)]
+    assert sent(replies) == [(22, 'Connected to: music', 300)]
 
     gateway = FakePlayerGateway()
-    logic, dispatcher = make_logic(gateway)
+    logic, replies = make_logic(gateway)
     await logic.join(envelope)
     assert not gateway.calls
 
@@ -168,9 +166,9 @@ async def test_join(voiced, envelope):  #pylint:disable=redefined-outer-name
 @pytest.mark.asyncio
 async def test_join_failure_still_says_connected(voiced):  #pylint:disable=redefined-outer-name
     '''The error is shown, then the connected message anyway, as it has always been'''
-    logic, dispatcher = make_logic(FakePlayerGateway(ensure=EnsureResult(ok=False, error='Bot cannot join channel music')))
+    logic, replies = make_logic(FakePlayerGateway(ensure=EnsureResult(ok=False, error='Bot cannot join channel music')))
     await logic.join(voiced)
-    assert [content for _, content, _ in sent(dispatcher)] == ['Bot cannot join channel music', 'Connected to: music']
+    assert [content for _, content, _ in sent(replies)] == ['Bot cannot join channel music', 'Connected to: music']
 
 
 def broker_playing(title='Song', uuid='u-1', skip_result='ok', download=True):
@@ -189,18 +187,18 @@ PLAYING = PlayerStatus(exists=True, voice_connected=True, is_playing=True, text_
 async def test_skip_asks_the_broker_to_skip_the_playing_track(voiced):  #pylint:disable=redefined-outer-name
     gateway = FakePlayerGateway(PLAYING)
     broker = broker_playing()
-    logic, dispatcher = make_logic(gateway, broker=broker)
+    logic, replies = make_logic(gateway, broker=broker)
     await logic.skip(voiced)
     broker.skip_track.assert_awaited_once_with(11, 'u-1')
     assert gateway.calls == [('status', 11)]
-    assert sent(dispatcher) == [(22, 'Skipping video "Song"', 300)]
+    assert sent(replies) == [(22, 'Skipping video "Song"', 300)]
 
 
 @pytest.mark.asyncio
 async def test_skip_names_the_track_even_when_its_entry_expired(voiced):  #pylint:disable=redefined-outer-name
-    logic, dispatcher = make_logic(FakePlayerGateway(PLAYING), broker=broker_playing(download=False))
+    logic, replies = make_logic(FakePlayerGateway(PLAYING), broker=broker_playing(download=False))
     await logic.skip(voiced)
-    assert sent(dispatcher) == [(22, 'Skipping current video', 300)]
+    assert sent(replies) == [(22, 'Skipping current video', 300)]
 
 
 @pytest.mark.asyncio
@@ -209,19 +207,19 @@ async def test_skip_with_nothing_playing_is_silent(voiced):  #pylint:disable=red
     pending = PlayerStatus(exists=True, voice_connected=True, is_playing=False, pending_downloads=1, text_channel_id=22)
     broker = AsyncMock()
     broker.get_guild_queue.return_value = SimpleNamespace(playing=None)
-    logic, dispatcher = make_logic(FakePlayerGateway(pending), broker=broker)
+    logic, replies = make_logic(FakePlayerGateway(pending), broker=broker)
     await logic.skip(voiced)
     broker.skip_track.assert_not_called()
-    dispatcher.send_message.assert_not_called()
+    assert not replies
 
 
 @pytest.mark.asyncio
 async def test_skip_the_broker_refused_is_silent(voiced):  #pylint:disable=redefined-outer-name
     '''The track ended (or was already skipped) between reading the queue and the skip'''
     for result in ('not_current', 'no_player'):
-        logic, dispatcher = make_logic(FakePlayerGateway(PLAYING), broker=broker_playing(skip_result=result))
+        logic, replies = make_logic(FakePlayerGateway(PLAYING), broker=broker_playing(skip_result=result))
         await logic.skip(voiced)
-        dispatcher.send_message.assert_not_called()
+        assert not replies
 
 
 @pytest.mark.asyncio
@@ -265,9 +263,9 @@ async def test_move_messages_already_there(voiced):  #pylint:disable=redefined-o
     broker = AsyncMock()
     status = PlayerStatus(exists=True, voice_connected=True, is_playing=True, text_channel_id=22)
     gateway = FakePlayerGateway(status)
-    logic, dispatcher = make_logic(gateway, broker=broker)
+    logic, replies = make_logic(gateway, broker=broker)
     await logic.move_messages(voiced)
-    assert sent(dispatcher) == [(22, 'I am already sending messages to channel general', 300)]
+    assert sent(replies) == [(22, 'I am already sending messages to channel general', 300)]
     broker.open_guild.assert_not_called()
     assert ('move_messages', 11, 22) not in gateway.calls
 
@@ -307,14 +305,14 @@ QUEUE_COMMANDS = [
 @pytest.mark.parametrize('run', QUEUE_COMMANDS)
 async def test_queue_commands_need_voice_and_an_active_player(run, envelope, voiced):  #pylint:disable=redefined-outer-name
     gateway = FakePlayerGateway(ACTIVE)
-    logic, dispatcher = make_logic(gateway, broker=queue_broker('a'))
+    logic, replies = make_logic(gateway, broker=queue_broker('a'))
     await run(logic, envelope)
-    assert sent(dispatcher) == [(22, 'Tyler not in voice chat channel. Please join one and try again', 300)]
+    assert sent(replies) == [(22, 'Tyler not in voice chat channel. Please join one and try again', 300)]
 
     gateway = FakePlayerGateway(PlayerStatus(exists=False))
-    logic, dispatcher = make_logic(gateway, broker=queue_broker('a'))
+    logic, replies = make_logic(gateway, broker=queue_broker('a'))
     await run(logic, voiced)
-    assert sent(dispatcher) == [(22, NOT_PLAYING, 300)]
+    assert sent(replies) == [(22, NOT_PLAYING, 300)]
 
 
 @pytest.mark.asyncio
@@ -322,9 +320,9 @@ async def test_queue_commands_need_voice_and_an_active_player(run, envelope, voi
 async def test_queue_commands_with_nothing_queued(run, voiced):  #pylint:disable=redefined-outer-name
     gateway = FakePlayerGateway(ACTIVE)
     broker = queue_broker()
-    logic, dispatcher = make_logic(gateway, broker=broker)
+    logic, replies = make_logic(gateway, broker=broker)
     await run(logic, voiced)
-    assert sent(dispatcher) == [(22, 'There are currently no more queued videos.', 300)]
+    assert sent(replies) == [(22, 'There are currently no more queued videos.', 300)]
     assert [c[0] for c in gateway.calls] == ['status']
     broker.clear_queue.assert_not_called()
 
@@ -333,22 +331,22 @@ async def test_queue_commands_with_nothing_queued(run, voiced):  #pylint:disable
 async def test_clear(voiced):  #pylint:disable=redefined-outer-name
     gateway = FakePlayerGateway(ACTIVE)
     broker = queue_broker('a', 'b')
-    logic, dispatcher = make_logic(gateway, broker=broker)
+    logic, replies = make_logic(gateway, broker=broker)
     await logic.clear(voiced)
     broker.clear_queue.assert_awaited_once_with(11)
     assert gateway.calls == [('status', 11)]
-    assert sent(dispatcher) == [(22, 'Cleared player queue', 300)]
+    assert sent(replies) == [(22, 'Cleared player queue', 300)]
 
 
 @pytest.mark.asyncio
 async def test_shuffle(voiced):  #pylint:disable=redefined-outer-name
     gateway = FakePlayerGateway(ACTIVE)
     broker = queue_broker('a', 'b')
-    logic, dispatcher = make_logic(gateway, broker=broker)
+    logic, replies = make_logic(gateway, broker=broker)
     await logic.shuffle(voiced)
     broker.shuffle_queue.assert_awaited_once_with(11)
     assert gateway.calls == [('status', 11)]
-    dispatcher.send_message.assert_not_called()
+    assert not replies
 
 
 @pytest.mark.asyncio
@@ -356,10 +354,10 @@ async def test_remove(voiced):  #pylint:disable=redefined-outer-name
     gateway = FakePlayerGateway(ACTIVE)
     broker = queue_broker('a', 'b')
     broker.remove_queued_track.return_value = SimpleNamespace(title='b')
-    logic, dispatcher = make_logic(gateway, broker=broker)
+    logic, replies = make_logic(gateway, broker=broker)
     await logic.remove(voiced, '2')
     broker.remove_queued_track.assert_awaited_once_with(11, 'u-b')
-    assert sent(dispatcher) == [(22, 'Removed item b from queue', 300)]
+    assert sent(replies) == [(22, 'Removed item b from queue', 300)]
     assert gateway.calls == [('status', 11)]
 
 
@@ -368,10 +366,10 @@ async def test_bump(voiced):  #pylint:disable=redefined-outer-name
     gateway = FakePlayerGateway(ACTIVE)
     broker = queue_broker('a', 'b')
     broker.bump_queued_track.return_value = SimpleNamespace(title='b')
-    logic, dispatcher = make_logic(gateway, broker=broker)
+    logic, replies = make_logic(gateway, broker=broker)
     await logic.bump(voiced, '2')
     broker.bump_queued_track.assert_awaited_once_with(11, 'u-b')
-    assert sent(dispatcher) == [(22, 'Bumped item "b" to top of queue', 300)]
+    assert sent(replies) == [(22, 'Bumped item "b" to top of queue', 300)]
     assert gateway.calls == [('status', 11)]
 
 
@@ -380,9 +378,9 @@ async def test_bump(voiced):  #pylint:disable=redefined-outer-name
 async def test_index_that_is_not_a_number(verb, voiced):  #pylint:disable=redefined-outer-name
     gateway = FakePlayerGateway(ACTIVE)
     broker = queue_broker('a')
-    logic, dispatcher = make_logic(gateway, broker=broker)
+    logic, replies = make_logic(gateway, broker=broker)
     await getattr(logic, verb)(voiced, 'abc')
-    assert sent(dispatcher) == [(22, 'Invalid queue index abc', 300)]
+    assert sent(replies) == [(22, 'Invalid queue index abc', 300)]
     assert [c[0] for c in gateway.calls] == ['status']
 
 
@@ -392,9 +390,9 @@ async def test_index_that_is_not_a_number(verb, voiced):  #pylint:disable=redefi
 async def test_index_outside_the_queue_never_reaches_the_broker(verb, index, voiced):  #pylint:disable=redefined-outer-name
     gateway = FakePlayerGateway(ACTIVE)
     broker = queue_broker('a', 'b')
-    logic, dispatcher = make_logic(gateway, broker=broker)
+    logic, replies = make_logic(gateway, broker=broker)
     await getattr(logic, verb)(voiced, index)
-    assert sent(dispatcher) == [(22, f'Unable to {verb} queue index {index}', 300)]
+    assert sent(replies) == [(22, f'Unable to {verb} queue index {index}', 300)]
     getattr(broker, 'remove_queued_track' if verb == 'remove' else 'bump_queued_track').assert_not_called()
 
 
@@ -405,18 +403,18 @@ async def test_track_that_moved_since_the_user_looked(verb, voiced):  #pylint:di
     broker = queue_broker('a')
     broker.remove_queued_track.return_value = None
     broker.bump_queued_track.return_value = None
-    logic, dispatcher = make_logic(gateway, broker=broker)
+    logic, replies = make_logic(gateway, broker=broker)
     await getattr(logic, verb)(voiced, '1')
-    assert sent(dispatcher) == [(22, f'Unable to {verb} queue index 1', 300)]
+    assert sent(replies) == [(22, f'Unable to {verb} queue index 1', 300)]
     assert [c[0] for c in gateway.calls] == ['status']
 
 
 @pytest.mark.asyncio
 async def test_play_needs_voice(envelope):  #pylint:disable=redefined-outer-name
     enqueuer = AsyncMock()
-    logic, dispatcher = make_logic(FakePlayerGateway(), enqueuer=enqueuer)
+    logic, replies = make_logic(FakePlayerGateway(), enqueuer=enqueuer)
     await logic.play(envelope, 'song')
-    assert sent(dispatcher) == [(22, 'Tyler not in voice chat channel. Please join one and try again', 300)]
+    assert sent(replies) == [(22, 'Tyler not in voice chat channel. Please join one and try again', 300)]
     enqueuer.generate_media_requests_from_search.assert_not_called()
 
 
@@ -424,18 +422,18 @@ async def test_play_needs_voice(envelope):  #pylint:disable=redefined-outer-name
 async def test_play_stops_when_the_player_cannot_be_ensured(voiced):  #pylint:disable=redefined-outer-name
     enqueuer = AsyncMock()
     gateway = FakePlayerGateway(ensure=EnsureResult(ok=False, error='Bot cannot join channel music'))
-    logic, dispatcher = make_logic(gateway, enqueuer=enqueuer)
+    logic, replies = make_logic(gateway, enqueuer=enqueuer)
     await logic.play(voiced, 'song')
-    assert sent(dispatcher) == [(22, 'Bot cannot join channel music', 300)]
+    assert sent(replies) == [(22, 'Bot cannot join channel music', 300)]
     enqueuer.generate_media_requests_from_search.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_play_stops_quietly_when_the_player_already_explained(voiced):  #pylint:disable=redefined-outer-name
     enqueuer = AsyncMock()
-    logic, dispatcher = make_logic(FakePlayerGateway(ensure=EnsureResult(ok=False)), enqueuer=enqueuer)
+    logic, replies = make_logic(FakePlayerGateway(ensure=EnsureResult(ok=False)), enqueuer=enqueuer)
     await logic.play(voiced, 'song')
-    dispatcher.send_message.assert_not_called()
+    assert not replies
     enqueuer.generate_media_requests_from_search.assert_not_called()
 
 
@@ -449,10 +447,9 @@ async def test_play_searches(voiced):  #pylint:disable=redefined-outer-name
     enqueuer.generate_media_requests_from_search.assert_awaited_once_with(voiced, 'song')
 
 
-def playlist_commands(playlist_id=5, is_history=False, database=True):
+def playlist_commands(playlist_id=5, is_history=False):
     playlist = AsyncMock()
-    playlist.check_database_session.return_value = database
-    playlist.get_playlist.return_value = (playlist_id, is_history)
+    playlist.find.return_value = (playlist_id, is_history)
     return playlist
 
 
@@ -469,7 +466,7 @@ async def test_playlist_queue_parses_its_arguments(args, shuffle, max_num, voice
     playlist = playlist_commands(is_history=True)
     logic, _ = make_logic(FakePlayerGateway(), playlist=playlist)
     await logic.playlist_queue(voiced, 3, args)
-    playlist.get_playlist.assert_awaited_once_with(3, voiced)
+    playlist.find.assert_awaited_once_with(voiced, 3)
     playlist.queue_items.assert_awaited_once_with(voiced, 5, shuffle, max_num, is_history=True)
 
 
@@ -477,24 +474,16 @@ async def test_playlist_queue_parses_its_arguments(args, shuffle, max_num, voice
 async def test_playlist_queue_gates(envelope, voiced):  #pylint:disable=redefined-outer-name
     # not in voice
     playlist = playlist_commands()
-    logic, dispatcher = make_logic(FakePlayerGateway(), playlist=playlist)
+    logic, replies = make_logic(FakePlayerGateway(), playlist=playlist)
     await logic.playlist_queue(envelope, 1, ())
-    assert len(sent(dispatcher)) == 1
-    playlist.check_database_session.assert_not_called()
-
-    # no database: asked before the player is touched
-    playlist = playlist_commands(database=False)
-    gateway = FakePlayerGateway()
-    logic, _ = make_logic(gateway, playlist=playlist)
-    await logic.playlist_queue(voiced, 1, ())
-    assert not gateway.calls
-    playlist.queue_items.assert_not_called()
+    assert len(sent(replies)) == 1
+    playlist.find.assert_not_called()
 
     # player cannot be ensured
     playlist = playlist_commands()
     logic, _ = make_logic(FakePlayerGateway(ensure=EnsureResult(ok=False)), playlist=playlist)
     await logic.playlist_queue(voiced, 1, ())
-    playlist.get_playlist.assert_not_called()
+    playlist.find.assert_not_called()
 
     # unknown playlist
     playlist = playlist_commands(playlist_id=None)
@@ -508,7 +497,7 @@ async def test_random_play(voiced):  #pylint:disable=redefined-outer-name
     playlist = playlist_commands(playlist_id=9, is_history=True)
     logic, _ = make_logic(FakePlayerGateway(), playlist=playlist)
     await logic.random_play(voiced)
-    playlist.get_playlist.assert_awaited_once_with(0, voiced)
+    playlist.find.assert_awaited_once_with(voiced, 0)
     playlist.queue_items.assert_awaited_once_with(voiced, 9, shuffle=True, max_num=32, is_history=True)
 
 
@@ -519,15 +508,10 @@ async def test_random_play_gates(envelope, voiced):  #pylint:disable=redefined-o
     await logic.random_play(envelope)
     playlist.queue_items.assert_not_called()
 
-    playlist = playlist_commands(database=False)
-    logic, _ = make_logic(FakePlayerGateway(), playlist=playlist)
-    await logic.random_play(voiced)
-    playlist.queue_items.assert_not_called()
-
     playlist = playlist_commands()
     logic, _ = make_logic(FakePlayerGateway(ensure=EnsureResult(ok=False)), playlist=playlist)
     await logic.random_play(voiced)
-    playlist.get_playlist.assert_not_called()
+    playlist.find.assert_not_called()
 
     playlist = playlist_commands(playlist_id=None)
     logic, _ = make_logic(FakePlayerGateway(), playlist=playlist)

@@ -183,7 +183,9 @@ metadata:
     Runs the logic behind the gateway's commands (#1030). No gateway connection and no Discord
     token: the gateway parses a command, forwards it here over HTTP and gets a 202, and this
     pod runs it, one at a time per guild, replying through the dispatcher. Command groups move
-    here one at a time; a command whose group has not moved still runs in the gateway.
+    here one at a time; a command whose group has not moved still runs in the gateway. The
+    music commands reach the player through the broker, whose gateway intents the gateway
+    carries out, and queue tracks through the search and downloader pods.
   # Deployment label `tier: commands`, Service port 8086
 spec:
   type: service
@@ -191,13 +193,20 @@ spec:
   lifecycle: production
   system: discord
   dependsOn:
+    - component:default/discord-broker
     - component:default/discord-db
     - component:default/discord-dispatcher
+    - component:default/discord-downloader
+    - component:default/discord-search
   providesApis:
     - api:default/commands
   consumesApis:
+    - api:default/broker
     - api:default/database
     - api:default/dispatch
+    - api:default/media-search
+    - api:default/queue-worker-downloads
+    - api:default/queue-worker-ytmusic
 
 ---
 # The seven API entities, one per SERVED SURFACE, and the OpenAPI documents behind

@@ -127,9 +127,11 @@ async def test_move_messages_without_a_player_does_nothing():
 async def test_wake_notifies_the_guilds_player():
     player = make_player()
     player.notify_enqueued = MagicMock()
+    player.trigger_prefetch = MagicMock()
     gateway, _ = make_gateway({11: player})
     await gateway.wake(11)
     player.notify_enqueued.assert_called_once_with()
+    player.trigger_prefetch.assert_called_once_with()
 
 
 @pytest.mark.asyncio

@@ -187,8 +187,14 @@ Configure with:
     general.database_http_url — discord-db pod URL; the markov and playlist commands read and write
                                 through it (required — raises DiscordBotException if missing)
     markov.server_reject_list — optional guild ids markov refuses to run for
-    music.playlist.server_playlist_max_size — most items a playlist holds (default 64; merge honours it)
-    music.general.message_delete_after — seconds before playlist replies are removed (default 300)
+    music.playlist.server_playlist_max_size — most items a playlist holds (default 64; merge and save honour it)
+    music.general.message_delete_after — seconds before music and playlist replies are removed (default 300)
+    music.broker_client.url — broker pod URL: the play queue and history, gateway intents (required)
+    music.download_client.url — downloader pod URL (required)
+    music.youtube_music_search_client.url — search pod URL, for the search queue (required)
+    music.media_search_client.url — search pod URL, for expanding Spotify and YouTube links (required)
+    music.player.queue_max_size — longest play queue (default 128)
+    music.download.server_queue_priority — [{server_id, priority}] download priority per guild
     general.commands_server   — {host, port} for the HTTP server (default 0.0.0.0:8086)
     general.monitoring        — optional OTLP / health-server config
 ```

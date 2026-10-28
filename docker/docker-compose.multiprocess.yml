@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
 
   # Runs the logic behind the commands the gateway forwards. No Discord token: it replies through
-  # the dispatcher. Only the command groups that have moved run here (#1030).
+  # the dispatcher, and reaches the player through the broker (#1030).
   commands:
     build:
       context: ..
@@ -87,6 +87,10 @@ services:
     depends_on:
       dispatcher:
         condition: service_healthy
+      broker:
+        condition: service_started
+      search:
+        condition: service_started
     restart: unless-stopped
 
   broker:
