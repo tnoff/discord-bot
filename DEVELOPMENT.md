@@ -140,6 +140,32 @@ pytest across py313–py315:
 tox
 ```
 
+## What CI skips
+
+`ci.yml`'s `metadata` job runs `tests/cli/_skippable_changes.py` over the PR's
+diff and skips work a change cannot affect:
+
+| The PR changes only | Skipped |
+|---|---|
+| `catalog-info.yaml`, `renovate.json` | everything |
+| the above, root prose (`README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `DEVELOPMENT.md`, `CHANGELOG.md`, `LICENSE`) or `docs/` | the tox matrix |
+
+A docs-only PR still runs the secret scan, the version and pin checks and the
+workflow-contract check, which take seconds. The image build is separately
+conditional on the images a change reaches.
+
+It is an allow-list: a path not named in the module runs everything. Four docs
+and `docs/openapi/` are deliberately **not** on it, because tests compare them
+against the code (`docs/architecture.md`, `docs/configuration.md`,
+`docs/monitoring/metrics_reference.md`, `docs/monitoring/trace_linking.md`); editing
+one by hand can fail a test. The exception is an edit to one of those four that
+leaves every `<!-- BEGIN GENERATED(...) -->` block byte-identical: the test splices a
+regenerated body into those blocks and compares, so prose around them cannot change
+the result, and that edit skips tox. A new or deleted doc, or any change inside a
+block, runs it. `test_no_test_reads_a_file_that_skips_tox` fails if a test starts
+reading a doc that is on the list. Prose inside a package, including its
+`changelog.d/`, is that package changing and is never skipped.
+
 ## Alembic migrations
 
 Alembic reads `DATABASE_URL` from the environment.
