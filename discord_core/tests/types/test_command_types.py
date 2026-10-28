@@ -1,7 +1,9 @@
 import pytest
 from pydantic import ValidationError
 
-from discord_core.types.command_args import COMMAND_ARGS, MarkovOnArgs, MarkovSpeakArgs, NoArgs, PlaylistItemAddArgs
+from discord_core.types.command_args import (
+    COMMAND_ARGS, MarkovOnArgs, MarkovSpeakArgs, NoArgs, PlaylistItemAddArgs, PlaylistQueueArgs,
+)
 from discord_core.types.command_envelope import CommandEnvelope
 from discord_core.types.command_wire import (
     CommandAcceptedResponse, CommandRequestBody, UnknownCommand, parse_args,
@@ -95,3 +97,11 @@ def test_a_request_body_needs_an_envelope_and_a_request_id():
 
 def test_the_accepted_response_defaults_to_not_a_duplicate():
     assert CommandAcceptedResponse().model_dump() == {'status': 'ok', 'duplicate': False}
+
+
+def test_playlist_queue_carries_the_rest_of_the_line():
+    """`!playlist queue 3 shuffle 16` is the index and the words after it, read by the logic in either order."""
+    queue = parse_args('playlist.queue', {'playlist_index': 3, 'args': ['shuffle', '16']})
+    assert isinstance(queue, PlaylistQueueArgs)
+    assert queue.args == ['shuffle', '16']
+    assert parse_args('playlist.queue', {'playlist_index': 3}).args == []
