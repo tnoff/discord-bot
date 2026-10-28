@@ -241,7 +241,8 @@ command has now moved except `role *`:
 | `playlist create / list / show / delete / rename / item-remove / merge` | commands pod |
 | `play`, `join`, `stop`, `skip`, `clear`, `shuffle`, `remove`, `bump`, `move-messages`, `history`, `random-play`, `music-stats`, `playlist item-add / queue / save-queue / save-history` | commands pod |
 | `role *` | gateway (not moved yet) |
-| markov and delete-messages loops, music result loops | gateway (not moved yet) |
+| music result loops (`process_search_results`, `process_download_results`) | commands pod |
+| markov and delete-messages loops | gateway (not moved yet) |
 
 A command whose group has not moved still runs in the gateway; the commands
 pod answers 501 for a known command it has no handler for, and the gateway
@@ -269,6 +270,15 @@ through `BrokerPlayerGateway`, the pod's implementation of the
   and `wake` are asked and not awaited.
 - **Cache hits.** A track found in the cache is registered and queued on the
   broker by the pod (`TrackQueuer`), then the player is woken.
+
+The pod also runs the two **result loops** (`discord_commands/workers/result_loops.py`).
+`process_search_results` pops a resolved search from the broker, cache-checks it
+and submits the download; `process_download_results` pops a finished download
+and queues it for the guild's player through `BrokerPlayerGateway.add_cached`,
+which wakes the player with an intent. Both pops are destructive, so on shutdown
+the pod lets an iteration in flight finish before it cancels the loops. Their
+heartbeat series (`process_search_results`, `process_download_results`) are
+published by `discord-commands`, not the gateway.
 
 Because the executor runs a guild's commands one at a time, a `play` that is
 still searching a large playlist holds up that guild's next command (a

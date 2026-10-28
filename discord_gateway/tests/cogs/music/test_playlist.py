@@ -1,6 +1,4 @@
-import asyncio
 from datetime import datetime
-from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, AsyncMock
 
 import pytest
@@ -9,8 +7,6 @@ from sqlalchemy.sql.functions import count as sql_count
 
 from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.types.download import LifecycleEvent
-from discord_core.types.media_download import MediaDownload
-from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 from discord_core.types.playlist import PlaylistItemWrite
@@ -18,90 +14,16 @@ from discord_core.utils.media_enqueuer import MediaEnqueuer
 from discord_core.types.playlist_add_result import PlaylistAddResult
 
 from discord_gateway.cogs.music import Music
-from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.cogs.common import envelope_from_ctx
-from discord_gateway.tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG, yield_fake_download_worker, yield_fake_search_client, yield_download_worker_download_exception
+from discord_gateway.tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG
 
 from discord_db.database import Playlist, PlaylistItem
 
-from tests.helpers import async_mock_session, fake_source_dict, fake_media_download
+from tests.helpers import async_mock_session, fake_source_dict
 from tests.helpers import fake_engine, fake_context, fake_stores #pylint:disable=unused-import
-from tests.helpers import FakeVoiceClient
 from tests.helpers import attach_in_process_broker
 from tests.helpers import attach_in_process_search
-from tests.helpers import attach_in_process_download
 
-
-async def create_playlist(cog, fake_context, name):  #pylint:disable=redefined-outer-name
-    '''Create a playlist the way `!playlist create` does in the commands pod: through the store.'''
-    return (await cog.playlist_store.create_playlist(fake_context['guild'].id, name)).id
-
-
-@pytest.mark.asyncio()
-async def test_playlsit_add_item_function(fake_engine, mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    s = fake_source_dict(fake_context)
-    sd = MediaDownload(None, {'webpage_url': 'https://foo.example'}, s)
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_fake_search_client(s))
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog, worker_cls=yield_fake_download_worker(sd))
-    search_driver = attach_in_process_search(cog)
-    cog.dispatcher = MagicMock()
-    cog.bot.loop = asyncio.get_running_loop()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    playlist_id = await create_playlist(cog, fake_context, 'new-playlist')
-    # What `!playlist item-add` does in the commands pod once it has found the playlist.
-    await cog.enqueue_logic.generate_media_requests_from_search(
-        envelope_from_ctx(fake_context['context']), 'https://foo.example', add_to_playlist=playlist_id)
-    await search_driver.run_once(cog.bot_shutdown_event)
-    await cog.process_search_results()
-    await cog.download_client.run(cog.bot_shutdown_event)
-    await cog.process_download_results()
-    async with async_mock_session(fake_engine) as db_session:
-        assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 1
-
-@pytest.mark.asyncio
-async def test_random_play_deletes_no_existent_video(mocker, fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    fake_context['author'].voice = FakeVoiceClient()
-    fake_context['author'].voice.channel = fake_context['channel']
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    with TemporaryDirectory() as tmp_dir:
-        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
-            cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-            attach_in_process_broker(cog)
-            attach_in_process_download(cog, worker_cls=yield_download_worker_download_exception())
-            search_driver = attach_in_process_search(cog)
-            cog.dispatcher = MagicMock()
-            cog.bot.loop = asyncio.get_running_loop()
-            await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-            # The broker's history worker records plays now; seed the history playlist directly.
-            history_playlist_id = await cog.playlist_store.ensure_history_playlist(fake_context['guild'].id)
-            await cog.playlist_store.record_history_item(
-                history_playlist_id,
-                PlaylistItemWrite(video_url=sd.webpage_url, title=sd.title, uploader=sd.uploader), 64)
-
-            # What `!playlist queue 0` does in the commands pod: one request per history item.
-            history_items = await cog.playlist_store.list_items(history_playlist_id)
-            bundle_uuid = await cog.broker_client.create_bundle(
-                fake_context['guild'].id, fake_context['channel'].id, input_string='Channel History', has_search_banner=True)
-            await cog.enqueue_logic.enqueue_media_requests(
-                envelope_from_ctx(fake_context['context']),
-                [MediaRequest(guild_id=fake_context['guild'].id, channel_id=fake_context['channel'].id,
-                              requester_name='tyler', requester_id=1,
-                              search_result=SearchResult(search_type=SearchType.YOUTUBE, raw_search_string=item.video_url,
-                                                         proper_name=item.title),
-                              added_from_history=True, history_playlist_item_id=item.id)
-                 for item in history_items],
-                bundle_uuid)
-            await search_driver.run_once(cog.bot_shutdown_event)
-            await cog.process_search_results()
-            await cog.download_client.run(cog.bot_shutdown_event)
-            await cog.process_download_results()
-            async with async_mock_session(fake_engine) as db_session:
-                assert (await db_session.execute(select(sql_count()).select_from(Playlist))).scalar() == 1
-                assert (await db_session.execute(select(sql_count()).select_from(PlaylistItem))).scalar() == 0
 
 @pytest.mark.asyncio
 async def test_playlist_insert_item_method(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name

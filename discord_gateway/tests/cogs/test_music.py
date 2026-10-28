@@ -1,6 +1,5 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import List
 from unittest.mock import patch, Mock, AsyncMock
 
 import asyncio
@@ -11,10 +10,6 @@ from aiohttp import ClientConnectionError
 
 from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException
-from discord_core.types.download import DownloadErrorType, DownloadResult, DownloadStatus
-from discord_core.types.media_download import MediaDownload
-from discord_core.types.media_request import MediaRequest
-from discord_core.types.search import SearchResult, SearchCollection
 from discord_core.utils.common import is_peer_unavailable
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import loop_heartbeat_observations
@@ -23,13 +18,9 @@ from discord_core.clients.http_download_client import HttpDownloadClient
 from discord_core.clients.http_media_search_client import HttpMediaSearchClient
 from discord_core.clients.http_youtube_music_search_client import HttpYoutubeMusicSearchClient
 
-from discord_core.clients.search_client import SearchException
-
 from discord_gateway.cogs import music as music_module
 from discord_gateway.cogs.common import envelope_from_ctx
-from discord_gateway.cogs.music import (Music, LOOP_CLEANUP_PLAYERS,
-                                    LOOP_PROCESS_DOWNLOAD_RESULTS, LOOP_PROCESS_GATEWAY_INTENTS,
-                                    LOOP_PROCESS_SEARCH_RESULTS)
+from discord_gateway.cogs.music import Music, LOOP_CLEANUP_PLAYERS, LOOP_PROCESS_GATEWAY_INTENTS
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 
 from discord_gateway.types.cleanup_reason import CleanupReason
@@ -39,7 +30,9 @@ from discord_downloader.interfaces.download_protocols import ClearGuildResult
 from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
 from tests.fakes.asyncio_download_client import AsyncioDownloadClient
 from tests.fakes.asyncio_youtube_music_search_client import AsyncioYoutubeMusicSearchClient
-from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
+from tests.fakes.pipeline_fakes import (yield_search_client_check_source,
+                                        yield_search_client_check_source_raises,
+                                        yield_search_client_check_source_raises_transport)
 from tests.helpers import fake_source_dict, fake_media_download
 from tests.helpers import fake_engine, fake_context, async_mock_session, fake_stores #pylint:disable=unused-import
 from tests.helpers import FakeVoiceClient, FakeChannel
@@ -101,138 +94,6 @@ def music_config(*overrides: dict) -> dict:
                 merged[key] = value
     return merged
 
-def yield_fake_search_client(media_request: MediaRequest = None):
-    class FakeSearchClient():
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        async def check_source(self, *_args, **_kwargs):
-            if media_request:
-                # Convert MediaRequest to SearchResult
-                search_result = SearchResult(
-                    search_type=media_request.search_result.search_type,
-                    raw_search_string=media_request.search_result.raw_search_string
-                )
-                return SearchCollection(search_results=[search_result])
-            return SearchCollection(search_results=[])
-
-    return FakeSearchClient
-
-def yield_fake_download_worker(media_download: MediaDownload):
-
-    class FakeDownloadWorker(AsyncioDownloadWorker):
-        def __init__(self, *_args, **kwargs):
-            super().__init__(
-                None,
-                Path('/tmp'),
-                failure_queue=kwargs.get('failure_queue'),
-                wait_period_minimum=kwargs.get('wait_period_minimum', 30),
-                wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
-                broker=kwargs.get('broker'),
-            )
-
-        async def create_source(self, media_request, *_args, **_kwargs):
-            if media_download is None:
-                result = DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.UNAVAILABLE, user_message='No result'), media_request=media_request, ytdlp_data=None, file_name=None)
-            else:
-                ytdlp_data = {
-                    'id': media_download.id,
-                    'title': media_download.title,
-                    'webpage_url': media_download.webpage_url,
-                    'uploader': media_download.uploader,
-                    'duration': media_download.duration,
-                    'extractor': media_download.extractor,
-                }
-                result = DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=ytdlp_data, file_name=media_download.file_path)
-            await self.update_tracking(result)
-            return result
-
-    return FakeDownloadWorker
-
-def yield_download_worker_download_exception():
-    class FakeDownloadWorker(AsyncioDownloadWorker):
-        def __init__(self, *_args, **kwargs):
-            super().__init__(
-                None,
-                Path('/tmp'),
-                failure_queue=kwargs.get('failure_queue'),
-                wait_period_minimum=kwargs.get('wait_period_minimum', 30),
-                wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
-                broker=kwargs.get('broker'),
-            )
-
-        async def create_source(self, media_request, *_args, **_kwargs):
-            result = DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.UNAVAILABLE, user_message='whoopsie'), media_request=media_request, ytdlp_data=None, file_name=None)
-            await self.update_tracking(result)
-            return result
-
-    return FakeDownloadWorker
-
-def yield_download_worker_download_error():
-    class FakeDownloadWorker(AsyncioDownloadWorker):
-        def __init__(self, *_args, **kwargs):
-            super().__init__(
-                None,
-                Path('/tmp'),
-                failure_queue=kwargs.get('failure_queue'),
-                wait_period_minimum=kwargs.get('wait_period_minimum', 30),
-                wait_period_max_variance=kwargs.get('wait_period_max_variance', 10),
-                broker=kwargs.get('broker'),
-            )
-
-        async def create_source(self, media_request, *_args, **_kwargs):
-            result = DownloadResult(status=DownloadStatus(success=False, error_type=DownloadErrorType.RETRYABLE), media_request=media_request, ytdlp_data=None, file_name=None)
-            await self.update_tracking(result)
-            return result
-
-    return FakeDownloadWorker
-
-def yield_search_client_check_source(source_dict_list: List[MediaRequest]):
-    class FakeSearchClient():
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        async def check_source(self, *_args, **_kwargs):
-            # Convert MediaRequest list to SearchResult list
-            search_results = []
-            for media_request in source_dict_list:
-                search_result = SearchResult(
-                    search_type=media_request.search_result.search_type,
-                    raw_search_string=media_request.search_result.raw_search_string
-                )
-                search_results.append(search_result)
-            return SearchCollection(search_results=search_results)
-
-    return FakeSearchClient
-
-def yield_search_client_check_source_raises():
-    class FakeSearchClient():
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        async def check_source(self, *_args, **_kwargs):
-            raise SearchException('foo', user_message='woopsie')
-
-    return FakeSearchClient
-
-def yield_search_client_check_source_raises_transport():
-    '''
-    check_source failing the way the search pod failing looks.
-
-    Not a SearchException: since the media_search cutover check_source is an HTTP
-    round trip, so a pod that is rolling, draining or gone raises out of aiohttp
-    instead, which is the exact class of failure the SearchException clause was
-    never written to catch.
-    '''
-    class FakeSearchClient():
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        async def check_source(self, *_args, **_kwargs):
-            raise ClientConnectionError('search pod is not accepting connections')
-
-    return FakeSearchClient
-
 @pytest.mark.asyncio
 async def test_guild_cleanup(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
@@ -287,33 +148,6 @@ async def test_get_player_join_voice_timeout(mocker, fake_context, fake_stores):
     assert result is None
     cog.dispatcher.send_message.assert_called_once()
     assert 'Timed out connecting to voice channel' in cog.dispatcher.send_message.call_args[0][2]
-
-@pytest.mark.asyncio()
-async def test_play_called_basic(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    fake_context['author'].voice = FakeVoiceClient()
-    fake_context['author'].voice.channel = fake_context['channel']
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    s = fake_source_dict(fake_context)
-    s1 = fake_source_dict(fake_context)
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s, s1]))
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    search_driver = attach_in_process_search(cog)
-    cog.dispatcher = Mock()
-    await cog.enqueue_logic.generate_media_requests_from_search(envelope_from_ctx(fake_context['context']), 'foo bar')
-    await search_driver.run_once(cog.bot_shutdown_event)
-    await cog.process_search_results()
-    await search_driver.run_once(cog.bot_shutdown_event)
-    await cog.process_search_results()
-    item0 = await cog.download_client.local_worker.get_input_nowait()
-    item1 = await cog.download_client.local_worker.get_input_nowait()
-    # Compare key properties since SearchClient refactoring creates new MediaRequest objects
-    assert item0.search_result.raw_search_string == s.search_result.raw_search_string
-    assert item0.search_result.search_type == s.search_result.search_type
-    assert item1.search_result.raw_search_string == s1.search_result.raw_search_string
-    assert item1.search_result.search_type == s1.search_result.search_type
 
 @pytest.mark.asyncio()
 async def test_play_called_downloads_blocked(mocker, fake_context):  #pylint:disable=redefined-outer-name
@@ -408,75 +242,6 @@ async def test_play_tears_down_the_bundle_when_the_search_pod_is_unreachable(moc
     cog.dispatcher.send_message.assert_called()
     assert cog.dispatcher.send_message.call_args[0][2] == 'Error searching input "foo bar", the search backend is unavailable'
     assert await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id) == []
-
-@pytest.mark.asyncio()
-async def test_process_search_results_requeues_when_the_downloader_is_unreachable(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    '''
-    next_search_result is a destructive pop, so a failed submit must put it back.
-
-    The downloader deploys under Recreate -- one Mullvad key means no rolling
-    overlap is possible -- so a hard gap on its Service is routine, not exotic.
-    Every resolution popped during that gap used to be destroyed outright.
-    '''
-    fake_context['author'].voice = FakeVoiceClient()
-    fake_context['author'].voice.channel = fake_context['channel']
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    s = fake_source_dict(fake_context)
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s]))
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    search_driver = attach_in_process_search(cog)
-    cog.dispatcher = Mock()
-    await cog.enqueue_logic.generate_media_requests_from_search(envelope_from_ctx(fake_context['context']), 'foo bar')
-    await search_driver.run_once(cog.bot_shutdown_event)
-
-    mocker.patch.object(cog.download_client, 'submit',
-                        side_effect=ClientConnectionError('downloader is not accepting connections'))
-    with pytest.raises(ClientConnectionError):
-        await cog.process_search_results()
-
-    # Still on the queue: a later pass, once the new downloader pod is up, finds
-    # it and can hand it off. This is the assertion the whole fix exists for.
-    requeued = await cog.broker_client.next_search_result()
-    assert requeued is not None
-    assert requeued.media_request.search_result.raw_search_string == s.search_result.raw_search_string
-
-@pytest.mark.asyncio()
-async def test_process_search_results_requeue_failure_does_not_mask_the_original(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    '''
-    When the requeue also fails the request really is lost -- report why honestly.
-
-    The broker being down too is the one case with nowhere to put the resolution.
-    It is logged as a loss, and the *submit* failure is what propagates, because
-    a traceback naming the requeue would point at the second-order symptom.
-    '''
-    fake_context['author'].voice = FakeVoiceClient()
-    fake_context['author'].voice.channel = fake_context['channel']
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    s = fake_source_dict(fake_context)
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s]))
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    search_driver = attach_in_process_search(cog)
-    cog.dispatcher = Mock()
-    await cog.enqueue_logic.generate_media_requests_from_search(envelope_from_ctx(fake_context['context']), 'foo bar')
-    await search_driver.run_once(cog.bot_shutdown_event)
-
-    mocker.patch.object(cog.download_client, 'submit',
-                        side_effect=ClientConnectionError('downloader is not accepting connections'))
-    requeue = mocker.patch.object(cog.broker_client, 'register_search_result',
-                                  side_effect=ClientConnectionError('broker is not accepting connections'))
-    with pytest.raises(ClientConnectionError) as exc_info:
-        await cog.process_search_results()
-
-    # Asserted, not implied: without it this test passes on the unfixed code,
-    # where submit's exception propagates because nothing tried to requeue at all.
-    requeue.assert_called_once()
-    assert 'downloader is not accepting connections' in str(exc_info.value)
 
 @pytest.mark.asyncio()
 async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
@@ -639,22 +404,6 @@ async def test_cog_unload_basic(mocker, fake_context):  #pylint:disable=redefine
 
 
 @pytest.mark.asyncio()
-async def test_cog_unload_cancels_search_result_task(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    """cog_unload cancels the process_search_results task when one is running."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    cog._cleanup_task = None  # pylint: disable=protected-access
-    search_task = mocker.Mock()
-    cog._search_result_task = search_task  # pylint: disable=protected-access
-
-    mocker.patch('pathlib.Path.exists', return_value=False)
-    mocker.patch('discord_gateway.cogs.music.rm_tree')
-
-    await cog.cog_unload()
-
-    search_task.cancel.assert_called_once()
-
-
-@pytest.mark.asyncio()
 async def test_cog_unload_cancels_the_intent_task_and_closes_its_logic(mocker, fake_context):  #pylint:disable=redefined-outer-name
     """cog_unload cancels the process_gateway_intents task and stops the per-guild intent workers."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
@@ -706,8 +455,8 @@ def test_every_loop_the_cog_registers_has_a_heartbeat_gauge(mocker, fake_context
     Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     described = {call.args[2].args[0] for call in gauge.call_args_list
                  if call.args[1] == 'heartbeat'}
-    assert described == {LOOP_CLEANUP_PLAYERS, LOOP_PROCESS_DOWNLOAD_RESULTS,
-                         LOOP_PROCESS_SEARCH_RESULTS, LOOP_PROCESS_GATEWAY_INTENTS}
+    # The result loops run in the commands pod, so the gateway describes none of them.
+    assert described == {LOOP_CLEANUP_PLAYERS, LOOP_PROCESS_GATEWAY_INTENTS}
 
 
 def test_music_heartbeat_callbacks_report_loop_health(fake_context):  #pylint:disable=redefined-outer-name
@@ -717,26 +466,25 @@ def test_music_heartbeat_callbacks_report_loop_health(fake_context):  #pylint:di
 
     # Nothing has started yet: no series at all, rather than a 0 that would read
     # as "the loop died" for a loop that simply isn't running in this process.
-    for job_name in (LOOP_CLEANUP_PLAYERS, DOWNLOAD_LOOP_NAME, LOOP_PROCESS_DOWNLOAD_RESULTS,
-                     LOOP_PROCESS_SEARCH_RESULTS, SEARCH_LOOP_NAME):
+    for job_name in (LOOP_CLEANUP_PLAYERS, DOWNLOAD_LOOP_NAME, LOOP_PROCESS_GATEWAY_INTENTS, SEARCH_LOOP_NAME):
         assert not loop_heartbeat_observations(job_name)
 
-    health = LOOP_HEALTH.register(LOOP_PROCESS_SEARCH_RESULTS, stale_after_seconds=60)
-    observations = loop_heartbeat_observations(LOOP_PROCESS_SEARCH_RESULTS)
+    health = LOOP_HEALTH.register(LOOP_PROCESS_GATEWAY_INTENTS, stale_after_seconds=60)
+    observations = loop_heartbeat_observations(LOOP_PROCESS_GATEWAY_INTENTS)
     assert len(observations) == 1
     assert observations[0].value == 1
-    assert observations[0].attributes == {'background_job': 'process_search_results'}
+    assert observations[0].attributes == {'background_job': 'process_gateway_intents'}
 
     # This is the incident's shape: the loop keeps erroring against an
     # un-upgraded peer. It stays alive (so it can recover) and, once the window
     # passes with no success, honestly reports unhealthy.
     for _ in range(5):
         health.record_error()
-    assert loop_heartbeat_observations(LOOP_PROCESS_SEARCH_RESULTS)[0].value == 1
+    assert loop_heartbeat_observations(LOOP_PROCESS_GATEWAY_INTENTS)[0].value == 1
     health._last_success -= 61  #pylint:disable=protected-access
-    assert loop_heartbeat_observations(LOOP_PROCESS_SEARCH_RESULTS)[0].value == 0
+    assert loop_heartbeat_observations(LOOP_PROCESS_GATEWAY_INTENTS)[0].value == 0
     health.record_success()
-    assert loop_heartbeat_observations(LOOP_PROCESS_SEARCH_RESULTS)[0].value == 1
+    assert loop_heartbeat_observations(LOOP_PROCESS_GATEWAY_INTENTS)[0].value == 1
 
 def test_music_cache_filestats_callbacks(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test cache filesystem stats callback methods"""
@@ -1067,11 +815,9 @@ async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint
 
     # Create mock tasks
     mock_cleanup_task = Mock()
-    mock_result_task = Mock()
 
     # Set mock tasks  #pylint:disable=protected-access
     cog._cleanup_task = mock_cleanup_task
-    cog._result_task = mock_result_task
 
     # Mock other cleanup methods
     mocker.patch('pathlib.Path.unlink')
@@ -1085,7 +831,6 @@ async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint
 
     # Verify all tasks were cancelled
     mock_cleanup_task.cancel.assert_called_once()
-    mock_result_task.cancel.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_directory_cleanup_during_shutdown(fake_context, mocker):  #pylint:disable=redefined-outer-name
@@ -1574,9 +1319,9 @@ async def test_cog_load_starts_poller_in_ha(fake_context):  #pylint:disable=rede
     cog.dispatcher = Mock()
     await cog.cog_load()
     cog.download_client.start.assert_awaited_once()
-    # peer wait + cleanup + init + result + search_result + intents only — the download and
-    # search loops both live in their own pods now, and no broker server is configured.
-    assert mock_loop.create_task.call_count == 6
+    # peer wait + cleanup + init + intents only — the download and search loops live in their
+    # own pods, the result loops in the commands pod, and no broker server is configured.
+    assert mock_loop.create_task.call_count == 4
 
 
 @pytest.mark.asyncio
@@ -1592,7 +1337,7 @@ async def test_cog_load_loops_tolerate_peer_outage(fake_context, mocker):  #pyli
     cog.bot.loop = Mock()
     cog.dispatcher = Mock()
     await cog.cog_load()
-    assert runner.call_count == 4
+    assert runner.call_count == 2
     assert all(call.kwargs['peer_unavailable'] is is_peer_unavailable for call in runner.call_args_list)
 
 
@@ -1753,9 +1498,9 @@ async def test_cog_load_starts_the_search_poller_in_ha(fake_context):  #pylint:d
     cog.dispatcher = Mock()
     await cog.cog_load()
     cog.youtube_music_search_client.start.assert_awaited_once()
-    # peer wait + cleanup + init + result + search_result + intents = 6. Neither the download nor the
-    # search loop is among them; the cog has neither to spawn.
-    assert mock_loop.create_task.call_count == 6
+    # peer wait + cleanup + init + intents = 4. Neither the download nor the search loop is among
+    # them; the cog has neither to spawn, and the result loops run in the commands pod.
+    assert mock_loop.create_task.call_count == 4
 
 
 @pytest.mark.asyncio

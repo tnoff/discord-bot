@@ -9,6 +9,7 @@ from click.testing import CliRunner
 from discord_core.exceptions import DiscordBotException
 
 from discord_commands.cli import commands as commands_cli
+from discord_commands.workers.result_loops import ResultLoops
 
 
 DISPATCH_URL = 'http://dispatcher:8082'
@@ -52,6 +53,7 @@ def test_run_builds_the_server_on_the_configured_port(run_loop):
     assert kwargs['dispatcher']._base_url == DISPATCH_URL  # pylint: disable=protected-access
     assert len(kwargs['closers']) == 7
     assert kwargs['download_client']._base_url == 'http://downloader:8083'  # pylint: disable=protected-access
+    assert isinstance(kwargs['result_loops'], ResultLoops)
 
 
 def test_run_requires_a_dispatcher_url(run_loop):
@@ -147,6 +149,9 @@ async def test_main_loop_serves_until_stopped_then_drains_before_closing_the_exe
     dispatcher.close = AsyncMock(side_effect=lambda: order.append('dispatcher'))
     download_client = MagicMock()
     download_client.start = AsyncMock(side_effect=lambda: order.append('download-start'))
+    result_loops = MagicMock()
+    result_loops.start = MagicMock(side_effect=lambda event: order.append(('loops-start', event is stop_event)))
+    result_loops.stop = AsyncMock(side_effect=lambda: order.append('loops-stop'))
 
     async def close_store():
         order.append('store')
@@ -155,7 +160,8 @@ async def test_main_loop_serves_until_stopped_then_drains_before_closing_the_exe
         order.append('playlist')
 
     loop_task = asyncio.create_task(commands_cli.main_loop(
-        http_server, executor, health_server, dispatcher, [close_store, close_playlist], download_client))
+        http_server, executor, health_server, dispatcher, [close_store, close_playlist], download_client,
+        result_loops))
     await asyncio.sleep(0.01)
     assert not loop_task.done()
     stop_event.set()
@@ -163,6 +169,10 @@ async def test_main_loop_serves_until_stopped_then_drains_before_closing_the_exe
     assert order[-5:] == ['drain', 'close', 'dispatcher', 'store', 'playlist']
     assert {'serve', 'health', 'seams', 'download-start'} <= set(order)
     assert order.index('seams') < order.index('download-start')
+    # The loops start once the clients they use are up, and stop first: a popped result is not
+    # dropped while the dispatcher and the other clients close under it.
+    assert order.index('download-start') < order.index(('loops-start', True))
+    assert order.index('loops-stop') < order.index('drain')
 
 
 @pytest.mark.asyncio

@@ -111,7 +111,7 @@ the commands pod.
 - Pull queued search requests (per-guild Redis work, not an in-process queue)
 - Query YouTube Music API for best match
 - Convert search results to YouTube video URLs
-- Hand off resolved requests to the broker, for the bot to pick up via `process_search_results`
+- Hand off resolved requests to the broker, for the commands pod to pick up via `process_search_results`
 
 **Rate-limit backoff**: A 429 arms a backoff window of `youtube_wait_period_minimum
 * 2**failures`. The loop waits that window out **before** popping, and only for
@@ -139,10 +139,10 @@ the commands pod.
 
 ### 3. **Process Search Results Loop** (`process_search_results()`)
 
-**Where it runs**: the bot (gateway) pod — this is the bot-side tail of
-search resolution: cache-check then download submit, which can only run
-where the download client and cache live. Mirrors Process Download Results
-Loop below.
+**Where it runs**: the commands pod (`discord_commands/workers/result_loops.py`;
+it ran in the gateway until #1030's cleanup) — this is the tail of search
+resolution: cache-check then download submit, which runs wherever the download
+client and cache are reachable. Mirrors Process Download Results Loop below.
 
 **Purpose**: Pick up resolved YouTube Music searches from the broker and
 either serve them from cache or hand them to the download pipeline.
@@ -160,11 +160,15 @@ either serve them from cache or hand them to the download pipeline.
   loop runner's backoff applies rather than busy-spinning against a pod
   that is still down
 
-**Shutdown Behavior**: Raises `ExitEarlyException` when the shutdown flag is set
+**Shutdown Behavior**: Raises `ExitEarlyException` when the pod's stop event is set;
+the pod waits a few seconds for an iteration in flight, since a popped result is not
+recoverable, then cancels what is left
 
 ### 4. **Process Download Results Loop** (`process_download_results()`)
 
-**Where it runs**: the bot (gateway) pod.
+**Where it runs**: the commands pod (it ran in the gateway until #1030's cleanup).
+The player is reached through `BrokerPlayerGateway`: the track is queued in
+the broker and the gateway is woken with an intent.
 
 **Purpose**: Pick up completed (or permanently failed) downloads from the
 broker and route them to a player or a playlist handler.
@@ -417,8 +421,8 @@ Each loop reports its health through an OpenTelemetry observable gauge
 |---|---|
 | `cleanup_players` | Inactive player cleanup |
 | `download_files` | Audio downloads — **downloader pod only**; the cog registers no such loop and emits no series |
-| `process_download_results` | Download result routing |
-| `process_search_results` | Resolved-search consumer |
+| `process_download_results` | Download result routing — **commands pod** |
+| `process_search_results` | Resolved-search consumer — **commands pod** |
 | `process_gateway_intents` | Gateway intent inbox consumer |
 | `youtube_music_search` | YouTube Music search — **search pod only**; the cog registers no such loop |
 | `history_worker` | Play history/analytics recording — **broker pod only**; the cog registers no such loop |
