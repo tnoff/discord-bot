@@ -62,9 +62,10 @@ Each cog performs specific cleanup during `cog_unload()`:
 - Cleans up all active guilds first — terminates state machines, sends a
   shutdown message, cancels player tasks (each guild's play queue stays in
   the broker for the next gateway to pick up)
-- Cancels its own loop-health-tracked loops: `cleanup_players`,
-  `process_download_results`, `process_search_results`, plus internal
-  init/cleanup tasks (including the one-shot session resume)
+- Cancels its own loop-health-tracked loops: `cleanup_players` and
+  `process_gateway_intents`, plus internal init/cleanup tasks (including the
+  one-shot session resume). The result loops (`process_download_results`,
+  `process_search_results`) run in the commands pod, not here
 - There is no message-sending loop or download-file loop to cancel any
   more — dispatch is HTTP-based (see
   [Message dispatcher](message_dispatcher.md)) and downloads run in the

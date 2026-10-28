@@ -47,9 +47,11 @@ from discord_commands.command_logic.music import MusicCommands
 from discord_commands.command_logic.playlist import PlaylistCommands
 from discord_commands.command_logic.reply import dispatcher_reply
 from discord_commands.handlers import build_handlers
+from discord_commands.loop_logic.music_results import MusicResultsLoop
 from discord_commands.servers.commands_health_server import CommandsHealthServer
 from discord_commands.servers.commands_server import CommandsHttpServer
 from discord_commands.workers.command_executor import CommandExecutor
+from discord_commands.workers.result_loops import ResultLoops
 
 
 @click.command()
@@ -63,13 +65,16 @@ def main(config_file):
 async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, health_server=None,
                     dispatcher: HttpDispatchClient | None = None,
                     closers: list[Callable[[], Awaitable]] | None = None,
-                    download_client: HttpDownloadClient | None = None):
+                    download_client: HttpDownloadClient | None = None,
+                    result_loops: ResultLoops | None = None):
     '''
     Serve until SIGTERM/SIGINT, then drain the HTTP server, stop the executor and close the clients.
 
     closers : each client's close (or stop), awaited in order after the executor.
     download_client : started here, in the first async context, for the status poller that its
         queue_size reads from.
+    result_loops : the search-result and download-result loops, started here and stopped first on
+        shutdown so no popped result is dropped while the clients they use are closing.
     '''
     logger = logging.getLogger('main')
     with shutdown_event_signals() as stop_event:
@@ -81,8 +86,13 @@ async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, 
         start_seam_checks()
         if download_client:
             await download_client.start()
+        if result_loops:
+            result_loops.start(stop_event)
         logger.info('Main :: commands running')
         await stop_event.wait()
+        if result_loops:
+            logger.info('Main :: Stopping result loops...')
+            await result_loops.stop()
         # Drain the HTTP server first so nothing is accepted after the executor stops, which would
         # be a 202 for a command that is never run.
         logger.info('Main :: Draining commands server...')
@@ -147,6 +157,11 @@ def run(settings: dict, general_config: GeneralConfig):
         message_delete_after, server_queue_priority)
     playlist = PlaylistCommands(reply, logger, playlist_store, message_delete_after, server_playlist_max_size,
                                 broker_client, player_gateway, enqueuer)
+    result_loops = ResultLoops(
+        broker_client,
+        MusicResultsLoop(logger, broker_client, download_client, enqueuer, player_gateway, playlist_store,
+                         server_queue_priority),
+        logger)
     music_commands = MusicCommands(reply, broker_client, analytics_store, player_gateway, logger,
                                    message_delete_after, enqueuer, playlist)
     executor = CommandExecutor(build_handlers(reply, logger, markov_store, markov_reject_list,
@@ -170,7 +185,7 @@ def run(settings: dict, general_config: GeneralConfig):
     closers = [markov_store.close, playlist_store.close, analytics_store.close, broker_client.close,
                download_client.stop, youtube_music_search_client.close, media_search_client.close]
     run_loop(main_loop(http_server, executor, health_server=health_server, dispatcher=dispatcher,
-                       closers=closers, download_client=download_client))
+                       closers=closers, download_client=download_client, result_loops=result_loops))
 
 
 if __name__ == '__main__':  # pragma: no cover

@@ -5,7 +5,7 @@ import pytest
 
 from discord_core.types.download import DownloadErrorType, DownloadResult, DownloadStatus, LifecycleEvent
 
-from discord_gateway.loop_logic.music_results import MusicResultsLoop
+from discord_commands.loop_logic.music_results import MusicResultsLoop
 from tests.helpers import fake_context, fake_media_download, fake_source_dict  #pylint:disable=unused-import
 
 

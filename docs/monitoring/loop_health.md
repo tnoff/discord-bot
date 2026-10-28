@@ -77,9 +77,10 @@ Size it to comfortably clear the transients a restart cannot fix:
 |---|---|
 | Rolling deploy skew | ~20 s |
 | Broker pod roll | ~30 s |
-| Redis sentinel failover | ~60 s |
+| Redis pod reschedule (single instance) | minutes: 6.5 min on 2026-10-28, while the pod sat unschedulable |
 
-The 300 s default leaves generous headroom over all three. Widening it makes the
+The 300 s default leaves generous headroom over the first two, but not over a Redis
+reschedule that has to wait for capacity. Widening it makes the
 bot more tolerant of long peer outages at the cost of noticing a real wedge
 later; narrowing it does the reverse. Note the probe's own
 `failureThreshold × periodSeconds` stacks on top of this window.

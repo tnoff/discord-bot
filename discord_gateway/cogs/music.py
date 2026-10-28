@@ -47,7 +47,6 @@ from discord_core.clients.http_youtube_music_search_client import (
 
 from discord_gateway.cogs.common import CogHelperBase, build_commands_client
 from discord_gateway.loop_logic.gateway_intents import GatewayIntentsLoop
-from discord_gateway.loop_logic.music_results import MusicResultsLoop
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.cogs.music_helpers.player_gateway import CogPlayerGateway
 from discord_gateway.types.cleanup_reason import CleanupReason
@@ -207,9 +206,6 @@ class MusicConfig(BaseModel):
 #
 
 OTEL_SPAN_PREFIX = 'music'
-# Idle backoff for process_download_results when the broker has no finished
-# result ready — this paces the remote GET /results/next poll.
-_BROKER_POLL_INTERVAL_SECONDS = 1.0
 # Idle backoff for the process_search_results loop when its queue is empty. Sleeping ONLY on
 # the empty path (not every iteration) keeps busy work back-to-back while cutting idle
 # allocation churn (OOM fix).
@@ -233,8 +229,6 @@ RESUME_BROKER_POLL_SECONDS = 10.0
 # heartbeat gauge's background_job attribute, so the metric series and the health
 # server's `loops` payload name the same loop the same way.
 LOOP_CLEANUP_PLAYERS = 'cleanup_players'
-LOOP_PROCESS_DOWNLOAD_RESULTS = 'process_download_results'
-LOOP_PROCESS_SEARCH_RESULTS = 'process_search_results'
 LOOP_PROCESS_GATEWAY_INTENTS = 'process_gateway_intents'
 
 #
@@ -281,8 +275,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
 
         self.players = {}
         self._cleanup_task = None
-        self._result_task = None
-        self._search_result_task = None
         self._intent_task = None
         self._init_task = None
         self._peers_ready_task = None
@@ -403,8 +395,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # rather than a permanent 0 that would trip the stalled-loop alert.
         for job_name, description in (
                 (LOOP_CLEANUP_PLAYERS, 'Cleanup player loop heartbeat'),
-                (LOOP_PROCESS_DOWNLOAD_RESULTS, 'Download result processing loop heartbeat'),
-                (LOOP_PROCESS_SEARCH_RESULTS, 'Search result processing loop heartbeat'),
                 (LOOP_PROCESS_GATEWAY_INTENTS, 'Gateway intent processing loop heartbeat'),
         ):
             create_observable_gauge(METER_PROVIDER, MetricNaming.HEARTBEAT.value,
@@ -531,18 +521,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # client's status poller. The bot registers no download loop and emits no
         # download_files heartbeat; the downloader pod publishes that series.
         await self.download_client.start(self.bot, self.bot_shutdown_event)
-        self._result_task = self.bot.loop.create_task(
-            self._after_peers_ready(return_loop_runner(
-                self.process_download_results, self.bot, self.logger,
-                health=LOOP_HEALTH.register(LOOP_PROCESS_DOWNLOAD_RESULTS),
-                peer_unavailable=is_peer_unavailable))
-        )
-        self._search_result_task = self.bot.loop.create_task(
-            self._after_peers_ready(return_loop_runner(
-                self.process_search_results, self.bot, self.logger,
-                health=LOOP_HEALTH.register(LOOP_PROCESS_SEARCH_RESULTS),
-                peer_unavailable=is_peer_unavailable))
-        )
         self._intent_task = self.bot.loop.create_task(
             self._after_peers_ready(return_loop_runner(
                 self.process_gateway_intents, self.bot, self.logger,
@@ -583,8 +561,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             # Cancelling a task never runs the loop runner's exit path, so mark
             # these stopped here: a cancelled loop is a deliberate shutdown, not
             # a wedge, and must not fail the liveness probe while the pod drains.
-            LOOP_HEALTH.mark_stopped(LOOP_CLEANUP_PLAYERS, LOOP_PROCESS_DOWNLOAD_RESULTS,
-                                     LOOP_PROCESS_SEARCH_RESULTS, LOOP_PROCESS_GATEWAY_INTENTS)
+            LOOP_HEALTH.mark_stopped(LOOP_CLEANUP_PLAYERS, LOOP_PROCESS_GATEWAY_INTENTS)
             if self._peers_ready_task:
                 self._peers_ready_task.cancel()
             if self._init_task:
@@ -596,10 +573,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             await self.download_client.stop()
             # No bot-side search loop to cancel — just the poller + session.
             await self.youtube_music_search_client.stop()
-            if self._result_task:
-                self._result_task.cancel()
-            if self._search_result_task:
-                self._search_result_task.cancel()
             if self._intent_task:
                 self._intent_task.cancel()
             await self.intents_logic.close()
@@ -681,23 +654,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             player.trigger_prefetch()
         return await self.enqueue_logic.enqueue_download(media_download, wake_player)
 
-    async def process_search_results(self):
-        '''
-        Search-result consumer: pops one resolved search and hands it to results_logic.
-        Mirrors process_download_results.
-        '''
-        if self.bot_shutdown_event.is_set():
-            raise ExitEarlyException('Bot shutdown called, exiting early')
-
-        resolution = await self.broker_client.next_search_result()
-        if resolution is None:
-            # Idle — no resolved search ready right now.  Sleep before the loop
-            # runner re-calls so we don't busy-spin the broker (a remote
-            # GET /search-results/next poll).
-            await sleep(_BROKER_POLL_INTERVAL_SECONDS)
-            return
-        await self.results_logic.process_search_result(resolution)
-
     async def process_gateway_intents(self):
         '''
         Intent consumer: claims what other pods asked this gateway to do and hands it to
@@ -708,22 +664,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
 
         if await self.intents_logic.poll() == 0:
             await sleep(_INTENT_POLL_INTERVAL_SECONDS)
-
-    async def process_download_results(self):
-        '''
-        Result consumer: pops one completed DownloadResult and hands it to results_logic.
-        '''
-        if self.bot_shutdown_event.is_set():
-            raise ExitEarlyException('Bot shutdown called, exiting early')
-
-        result = await self.broker_client.next_result()
-        if result is None:
-            # Idle — the broker has no finished result for us right now.  Sleep
-            # before the loop runner re-calls so we don't busy-spin the broker
-            # (a remote GET /results/next poll).
-            await sleep(_BROKER_POLL_INTERVAL_SECONDS)
-            return
-        await self.results_logic.process_download_result(result)
 
     async def __get_history_playlist(self, guild_id: int):
         '''
@@ -1218,16 +1158,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             self.download_client, self.playlist_store, CogPlayerGateway(self), self.dispatcher,
             self.logger, self.config.player.queue_max_size, self.config.playlist.server_playlist_max_size,
             self.config.general.message_delete_after, self.server_queue_priority)
-
-    @property
-    def results_logic(self) -> MusicResultsLoop:
-        '''
-        What happens to one search result and one download result, built from this cog's current
-        clients. Stateless and rebuilt per use, like the other logic properties.
-        '''
-        return MusicResultsLoop(
-            self.logger, self.broker_client, self.download_client, self.enqueue_logic,
-            CogPlayerGateway(self), self.playlist_store, self.server_queue_priority)
 
     @group(name='playlist', invoke_without_command=False)
     async def playlist(self, ctx):
