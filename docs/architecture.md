@@ -49,7 +49,10 @@ flowchart LR
     BOT -->|dispatch| DISPATCHER
     BOT -->|forward commands| COMMANDS
     COMMANDS -->|replies| DISPATCHER
-    COMMANDS -->|markov / playlists| DB
+    COMMANDS -->|markov / playlists / analytics| DB
+    COMMANDS -->|play queue, gateway intents| BROKER
+    COMMANDS -->|source expansion, search queue| SEARCH
+    COMMANDS -->|download queue| DOWNLOADER
     BOT -->|media broker| BROKER
     BOT -->|source expansion, search queue| SEARCH
     BOT -->|download queue| DOWNLOADER
