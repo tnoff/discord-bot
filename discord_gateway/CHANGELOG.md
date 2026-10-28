@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.8.0] - 2026-10-28
+
+### Changed
+
+- The music commands (`join`, `play`, `skip`, `stop`, `clear`, `shuffle`, `remove`, `bump`, `history`, `move-messages`, `random-play`, `music-stats`, and `playlist item-add`, `playlist queue`, `playlist save-queue`, `playlist save-history`) are forwarding stubs now (#1030, Phase 2); their logic runs in the commands pod, which needs `music.broker_client`, `music.download_client`, `music.youtube_music_search_client` and `music.media_search_client` in its own config before this is deployed. `playlist queue` forwards the words after the index as `args`. The `wake` gateway intent now also starts the prefetch, as queueing a track in the gateway does. The cog no longer builds the guild analytics store, which only `music-stats` used.
+
 ## [3.7.3] - 2026-10-28
 
 ### Changed
