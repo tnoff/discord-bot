@@ -77,17 +77,23 @@ missing:
   raises at startup if `commands_http_url` is missing. One attempt per
   command, no retry; see [The commands pod](#the-commands-pod).
 - **Commands → Dispatcher** (`HttpDispatchClient`) and **Commands → DB**
-  (`HttpMarkovStore`): both hard-required — the commands pod raises at
-  startup if `dispatch_http_url` or `database_http_url` is missing. Every
-  reply a command makes goes out through the dispatcher.
+  (`HttpMarkovStore` / `HttpPlaylistStore` / `HttpGuildAnalyticsStore`): both
+  hard-required — the commands pod raises at startup if `dispatch_http_url`
+  or `database_http_url` is missing. Every reply a command makes goes out
+  through the dispatcher.
+- **Commands → Broker / Search / Downloader** (`HttpBrokerClient`,
+  `HttpMediaSearchClient` + `HttpYoutubeMusicSearchClient`,
+  `HttpDownloadClient`): the music commands. All four `music.*_client.url`
+  keys are hard-required by the commands pod. The broker is how the pod sees
+  a guild's player and how it asks the gateway to act on it.
 - **Bot → Broker / Search / Downloader** (`HttpBrokerClient`,
   `HttpMediaSearchClient` + `HttpYoutubeMusicSearchClient`,
   `HttpDownloadClient`): constructed by the music cog only.
 - **Bot → DB** (`HttpPlaylistStore` / `HttpMarkovStore` /
   `HttpGuildAnalyticsStore`, all `HttpStoreBase` subclasses built by
   `build_http_stores()`): one store per db-backed cog. The markov loops still
-  run in the gateway and use the markov store; the markov *commands* and the
-  store-only playlist commands use the commands pod's own stores.
+  run in the gateway and use the markov store; the markov, playlist and
+  music-stats *commands* use the commands pod's own stores.
 - **Downloader → Broker**, **Search → Broker** (`HttpBrokerClient`):
   unconditional in both pods' `run()`.
 - **Broker → Dispatcher** (`HttpDispatchClient`): only if
@@ -147,9 +153,14 @@ composite app.
 | `discord-broker` | `discord-db` | database | `/database/guild_analytics` | `HttpPlayAnalyticsStore` | 2 |
 | `discord-broker` | `discord-db` | database | `/database/video_cache` | `HttpVideoCacheStore` | 6 |
 | `discord-broker` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 8 |
+| `discord-commands` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
+| `discord-commands` | `discord-db` | database | `/database/guild_analytics` | `HttpGuildAnalyticsStore` | 2 |
 | `discord-commands` | `discord-db` | database | `/database/markov` | `HttpMarkovStore` | 9 |
 | `discord-commands` | `discord-db` | database | `/database/playlist` | `HttpPlaylistStore` | 16 |
 | `discord-commands` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 8 |
+| `discord-commands` | `discord-search` | media_search | — | `HttpMediaSearchClient` | 2 |
+| `discord-commands` | `discord-downloader` | queue_worker | `/downloads` | `HttpDownloadClient` | 4 |
+| `discord-commands` | `discord-search` | queue_worker | `/search/ytmusic` | `HttpYoutubeMusicSearchClient` | 4 |
 | `discord-downloader` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
 | `discord-gateway` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
 | `discord-gateway` | `discord-commands` | commands | — | `HttpCommandsClient` | 1 |
@@ -166,12 +177,12 @@ composite app.
 
 | seam | served by | called by | routes |
 |---|---|---|---|
-| broker | `discord-broker` | `discord-downloader`, `discord-gateway`, `discord-search` | 39 |
+| broker | `discord-broker` | `discord-commands`, `discord-downloader`, `discord-gateway`, `discord-search` | 39 |
 | commands | `discord-commands` | `discord-gateway` | 1 |
 | database | `discord-db` | `discord-broker`, `discord-commands`, `discord-gateway` | 33 |
 | dispatch | `discord-dispatcher` | `discord-broker`, `discord-commands`, `discord-gateway` | 8 |
-| media_search | `discord-search` | `discord-gateway` | 2 |
-| queue_worker | `discord-downloader`, `discord-search` | `discord-gateway` | 8 |
+| media_search | `discord-search` | `discord-commands`, `discord-gateway` | 2 |
+| queue_worker | `discord-downloader`, `discord-search` | `discord-commands`, `discord-gateway` | 8 |
 
 #### Images that call no seam
 
@@ -217,14 +228,15 @@ The seam is protected by a NetworkPolicy in the deployment repo rather than a
 shared secret: only the gateway may reach the commands port.
 
 Command groups move to the pod one at a time, in the same change that makes
-the gateway forward them, so a command is never served by neither pod:
+the gateway forward them, so a command is never served by neither pod. Every
+command has now moved except `role *`:
 
 | Group | Where it runs |
 |---|---|
 | `hello`, `roll`, `meta`, `urban` | commands pod |
 | `markov on / off / list-channels / speak` | commands pod |
 | `playlist create / list / show / delete / rename / item-remove / merge` | commands pod |
-| `play`, `skip`, `join`, `stop`, the queue commands, `playlist item-add / queue / save-queue / save-history`, `music-stats`, `history`, `random-play` | gateway (not moved yet; the playlist ones need the media enqueuer or the player) |
+| `play`, `join`, `stop`, `skip`, `clear`, `shuffle`, `remove`, `bump`, `move-messages`, `history`, `random-play`, `music-stats`, `playlist item-add / queue / save-queue / save-history` | commands pod |
 | `role *` | gateway (not moved yet) |
 | markov and delete-messages loops, music result loops | gateway (not moved yet) |
 
@@ -236,8 +248,28 @@ Two small things cross the boundary that the commands pod cannot look up
 itself. `markov on` sends `channel_is_text_or_voice`, because the gateway
 knows the type of the channel the command was typed in. The gateway also
 polls the broker for **gateway intents**, the inbox through which other pods
-ask it to do something only it can (join voice, wake a player); the gateway
-never receives a call from the commands pod, so the pod graph stays acyclic.
+ask it to do something only it can (join voice, stop, move the status
+messages, wake a player); the gateway never receives a call from the commands
+pod, so the pod graph stays acyclic.
+
+The music commands have no player in the commands pod, so they reach it
+through `BrokerPlayerGateway`, the pod's implementation of the
+`PlayerGateway` Protocol (`discord_core/interfaces/player_gateway.py`):
+
+- **Reading the player.** A guild has a player when the broker holds an open
+  play queue for it (`GuildQueueSnapshot`: a text channel and not closed). It
+  is playing when the broker has a playing track, and has pending downloads
+  when the downloader reports a queue.
+- **Asking it to act.** `join` submits a `join` intent and waits for the
+  gateway to complete it (up to 35 s, past the 30 s an intent lives
+  unclaimed), then reports its error to the channel. `stop`, `move_messages`
+  and `wake` are asked and not awaited.
+- **Cache hits.** A track found in the cache is registered and queued on the
+  broker by the pod (`TrackQueuer`), then the player is woken.
+
+Because the executor runs a guild's commands one at a time, a `play` that is
+still searching a large playlist holds up that guild's next command (a
+`skip`, say) until it finishes enqueuing.
 
 ---
 

@@ -7,6 +7,7 @@ from discord_core.types.command_args import COMMAND_ARGS
 from discord_core.types.command_envelope import CommandEnvelope
 from discord_core.types.command_wire import parse_args
 
+from discord_commands.command_logic.music import MusicCommands
 from discord_commands.command_logic.playlist import PlaylistCommands
 from discord_commands.handlers import build_handlers
 
@@ -53,14 +54,14 @@ def fixture_handlers(sent, store):
     async def reply(guild_id, channel_id, content):
         sent.append((guild_id, channel_id, content))
         return content
-    return build_handlers(reply, logging.getLogger('test'), store, [], MagicMock(), 300, 64)
+    logger = logging.getLogger('test')
+    playlist = PlaylistCommands(reply, logger, MagicMock(), 300, 64, MagicMock(), MagicMock(), MagicMock())
+    music = MusicCommands(reply, MagicMock(), MagicMock(), MagicMock(), logger, 300, MagicMock(), playlist)
+    return build_handlers(reply, logger, store, [], playlist, music)
 
 
-def test_the_general_urban_and_markov_commands_are_served(handlers):
-    assert set(handlers) == {'hello', 'roll', 'meta', 'urban',
-                             'markov.on', 'markov.off', 'markov.list-channels', 'markov.speak',
-                             'playlist.create', 'playlist.list', 'playlist.item-remove', 'playlist.show',
-                             'playlist.delete', 'playlist.rename', 'playlist.merge'}
+def test_every_command_but_the_role_ones_is_served(handlers):
+    assert set(handlers) == set(COMMAND_ARGS) - {'role.list', 'role.users', 'role.available', 'role.add', 'role.remove'}
 
 
 def test_every_handler_is_a_command_the_contract_knows(handlers):
@@ -132,3 +133,39 @@ async def test_playlist_commands_pass_their_arguments_through(handlers, mocker, 
     logic = mocker.patch.object(PlaylistCommands, method, new_callable=AsyncMock)
     await handlers[command](ENVELOPE, parse_args(command, wire))
     logic.assert_awaited_once_with(ENVELOPE, *call_args)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('command,wire,method,call_args', [
+    ('join', {}, 'join', ()),
+    ('play', {'search': 'a song'}, 'play', ('a song',)),
+    ('skip', {}, 'skip', ()),
+    ('clear', {}, 'clear', ()),
+    ('history', {}, 'history', ()),
+    ('shuffle', {}, 'shuffle', ()),
+    ('remove', {'queue_index': '3'}, 'remove', ('3',)),
+    ('bump', {'queue_index': '3'}, 'bump', ('3',)),
+    ('stop', {}, 'stop', ()),
+    ('move-messages', {}, 'move_messages', ()),
+    ('random-play', {}, 'random_play', ()),
+    ('music-stats', {}, 'music_stats', ()),
+    ('playlist.queue', {'playlist_index': 3, 'args': ['shuffle', '16']}, 'playlist_queue', (3, ['shuffle', '16'])),
+    ('playlist.queue', {'playlist_index': 3}, 'playlist_queue', (3, [])),
+])
+async def test_music_commands_pass_their_arguments_through(handlers, mocker, command, wire, method, call_args):
+    logic = mocker.patch.object(MusicCommands, method, new_callable=AsyncMock)
+    await handlers[command](ENVELOPE, parse_args(command, wire))
+    logic.assert_awaited_once_with(ENVELOPE, *call_args)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('command,wire,method,call_args,call_kwargs', [
+    ('playlist.item-add', {'playlist_index': '2', 'search': 'a song'}, 'item_add', ('2', 'a song'), {}),
+    ('playlist.save-queue', {'name': 'mine'}, 'save', ('mine',), {}),
+    ('playlist.save-history', {'name': 'mine'}, 'save', ('mine',), {'is_history': True}),
+])
+async def test_playlist_commands_that_need_the_player_pass_their_arguments_through(
+        handlers, mocker, command, wire, method, call_args, call_kwargs):
+    logic = mocker.patch.object(PlaylistCommands, method, new_callable=AsyncMock)
+    await handlers[command](ENVELOPE, parse_args(command, wire))
+    logic.assert_awaited_once_with(ENVELOPE, *call_args, **call_kwargs)

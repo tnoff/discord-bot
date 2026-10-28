@@ -54,6 +54,8 @@ See [terminology.md](./terminology.md) for definitions of all components, types,
 
 ## The Two Main Entry Points
 
+Both commands run in the commands pod, not the gateway: the gateway stub forwards the parsed command (see [The commands pod](../architecture.md#the-commands-pod)). The pod joins voice by asking the gateway for a `join` intent through the broker, and puts the resulting requests on the search and download queues. Everything after the download result (the result loops, the player) runs in the gateway.
+
 ### 1. **`!play` Command** - Direct Play
 
 User types: `!play <search>`

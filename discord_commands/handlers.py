@@ -9,15 +9,16 @@ groups that have moved, never asks for it.
 from logging import Logger
 
 from discord_core.clients.http_markov_store import HttpMarkovStore
-from discord_core.clients.http_playlist_store import HttpPlaylistStore
 from discord_core.types.command_args import (
-    MarkovOnArgs, MarkovSpeakArgs, PlaylistCreateArgs, PlaylistIndexArgs, PlaylistItemRemoveArgs,
-    PlaylistMergeArgs, PlaylistRenameArgs, RollArgs, UrbanArgs,
+    MarkovOnArgs, MarkovSpeakArgs, PlayArgs, PlaylistCreateArgs, PlaylistIndexArgs,
+    PlaylistItemAddArgs, PlaylistItemRemoveArgs, PlaylistMergeArgs, PlaylistQueueArgs,
+    PlaylistRenameArgs, PlaylistSaveArgs, QueueIndexArgs, RollArgs, UrbanArgs,
 )
 from discord_core.types.command_envelope import CommandEnvelope
 
 from discord_commands.command_logic.general import GeneralCommands
 from discord_commands.command_logic.markov import MarkovCommands
+from discord_commands.command_logic.music import MusicCommands
 from discord_commands.command_logic.playlist import PlaylistCommands
 from discord_commands.command_logic.reply import Reply
 from discord_commands.command_logic.urban import UrbanCommands
@@ -25,13 +26,11 @@ from discord_commands.workers.command_executor import Handler
 
 
 def build_handlers(reply: Reply, logger: Logger, markov_store: HttpMarkovStore, markov_reject_list: list[int],
-                   playlist_store: HttpPlaylistStore, message_delete_after: int,
-                   server_playlist_max_size: int) -> dict[str, Handler]:
+                   playlist: PlaylistCommands, music: MusicCommands) -> dict[str, Handler]:
     '''The handler registry the executor is built with.'''
     general = GeneralCommands(reply)
     urban = UrbanCommands(reply, logger)
     markov = MarkovCommands(reply, logger, markov_store, markov_reject_list)
-    playlist = PlaylistCommands(reply, logger, playlist_store, message_delete_after, server_playlist_max_size)
 
     async def hello(env: CommandEnvelope, _args) -> None:
         await general.hello(env)
@@ -78,6 +77,54 @@ def build_handlers(reply: Reply, logger: Logger, markov_store: HttpMarkovStore, 
     async def playlist_merge(env: CommandEnvelope, args: PlaylistMergeArgs) -> None:
         await playlist.merge(env, args.playlist_index_one, args.playlist_index_two)
 
+    async def join(env: CommandEnvelope, _args) -> None:
+        await music.join(env)
+
+    async def play(env: CommandEnvelope, args: PlayArgs) -> None:
+        await music.play(env, args.search)
+
+    async def skip(env: CommandEnvelope, _args) -> None:
+        await music.skip(env)
+
+    async def clear(env: CommandEnvelope, _args) -> None:
+        await music.clear(env)
+
+    async def history(env: CommandEnvelope, _args) -> None:
+        await music.history(env)
+
+    async def shuffle(env: CommandEnvelope, _args) -> None:
+        await music.shuffle(env)
+
+    async def remove(env: CommandEnvelope, args: QueueIndexArgs) -> None:
+        await music.remove(env, args.queue_index)
+
+    async def bump(env: CommandEnvelope, args: QueueIndexArgs) -> None:
+        await music.bump(env, args.queue_index)
+
+    async def stop(env: CommandEnvelope, _args) -> None:
+        await music.stop(env)
+
+    async def move_messages(env: CommandEnvelope, _args) -> None:
+        await music.move_messages(env)
+
+    async def random_play(env: CommandEnvelope, _args) -> None:
+        await music.random_play(env)
+
+    async def music_stats(env: CommandEnvelope, _args) -> None:
+        await music.music_stats(env)
+
+    async def playlist_item_add(env: CommandEnvelope, args: PlaylistItemAddArgs) -> None:
+        await playlist.item_add(env, args.playlist_index, args.search)
+
+    async def playlist_save_queue(env: CommandEnvelope, args: PlaylistSaveArgs) -> None:
+        await playlist.save(env, args.name)
+
+    async def playlist_save_history(env: CommandEnvelope, args: PlaylistSaveArgs) -> None:
+        await playlist.save(env, args.name, is_history=True)
+
+    async def playlist_queue(env: CommandEnvelope, args: PlaylistQueueArgs) -> None:
+        await music.playlist_queue(env, args.playlist_index, args.args)
+
     return {
         'hello': hello,
         'roll': roll,
@@ -94,4 +141,20 @@ def build_handlers(reply: Reply, logger: Logger, markov_store: HttpMarkovStore, 
         'playlist.delete': playlist_delete,
         'playlist.rename': playlist_rename,
         'playlist.merge': playlist_merge,
+        'join': join,
+        'play': play,
+        'skip': skip,
+        'clear': clear,
+        'history': history,
+        'shuffle': shuffle,
+        'remove': remove,
+        'bump': bump,
+        'stop': stop,
+        'move-messages': move_messages,
+        'random-play': random_play,
+        'music-stats': music_stats,
+        'playlist.item-add': playlist_item_add,
+        'playlist.save-queue': playlist_save_queue,
+        'playlist.save-history': playlist_save_history,
+        'playlist.queue': playlist_queue,
     }

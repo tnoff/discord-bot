@@ -169,8 +169,8 @@ hand-maintained list here):
   because the commands pod builds them too, and so is the `MediaEnqueuer`
   (`discord_core/utils/media_enqueuer.py`). `clients/` here keeps only what is
   the gateway's own. Commands are forwarding stubs in `cogs/` for the groups that have
-  moved to the commands pod; `command_logic/` holds the logic of those that
-  have not.
+  moved to the commands pod (all but `role`); `command_logic/` holds the logic of
+  the `role` commands.
 - **`discord_dispatcher/`** — the `discord-dispatcher` pod. `workers/message_dispatcher.py`
   is the `MessageDispatcher` worker (Redis-backed, per-guild); `servers/`
   serves its HTTP API.
@@ -195,8 +195,10 @@ hand-maintained list here):
   FIFO with `request_id` dedup; `handlers.py` is the command registry. The
   logic of a command group moves into `command_logic/` in the same change that
   makes the gateway stub forward it, one group at a time: so far `hello`,
-  `roll`, `meta`, `urban`, the `markov` commands and the store-only `playlist` commands
-  (create, list, show, delete, rename, item-remove, merge).
+  `roll`, `meta`, `urban`, the `markov` commands, the `playlist` commands and all the
+  music commands (everything but `role`). `command_logic/broker_player_gateway.py`
+  is the pod's `PlayerGateway`: it reads the player from the broker and asks the
+  gateway to act with gateway intents.
 
 Central `tests/`, `docs/`, `alembic/`, `docker/` sit alongside the eight
 packages at the repo root, shared across all of them.

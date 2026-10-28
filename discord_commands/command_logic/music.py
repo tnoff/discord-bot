@@ -2,15 +2,15 @@ from logging import Logger
 
 from dappertable import DapperTable, Columns, Column, PaginationLength
 
-from discord_core.clients.dispatch_client_base import DispatchClientBase
+from discord_core.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
 from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_core.interfaces.broker_client_protocol import BrokerClient
-from discord_core.interfaces.database_protocols import GuildAnalyticsStore
-from discord_core.types.command_envelope import CommandEnvelope
-
-from discord_core.utils.media_enqueuer import MediaEnqueuer
 from discord_core.interfaces.player_gateway import PlayerGateway, PlayerStatus
-from discord_gateway.command_logic.playlist import PlaylistCommands
+from discord_core.types.command_envelope import CommandEnvelope
+from discord_core.utils.media_enqueuer import MediaEnqueuer
+
+from discord_commands.command_logic.playlist import PlaylistCommands
+from discord_commands.command_logic.reply import Reply
 
 # The broker's answer to a skip it recorded (SkipTrackResponse.result); the others are
 # 'no_player' and 'not_current', which both mean there was nothing to skip.
@@ -19,18 +19,18 @@ SKIP_OK = 'ok'
 
 class MusicCommands:
     '''
-    The music commands that reach the player only through ``PlayerGateway``. Discord-free: see
-    ``command_logic.envelope``.
+    The music commands. They reach the player only through ``PlayerGateway``, which in this pod
+    is the broker. Discord-free: see ``discord_core.types.command_envelope``.
 
-    ``check_author_voice_chat`` and ``check_player_active`` are public because the music commands
-    that still live on the cog call them too.
+    Annotated against the concrete HTTP analytics store, not the ``GuildAnalyticsStore`` Protocol:
+    the Protocol's module imports types that need discord.py, which this pod does not install.
     '''
 
-    def __init__(self, dispatcher: DispatchClientBase, broker_client: BrokerClient,
-                 guild_analytics_store: GuildAnalyticsStore | None, player_gateway: PlayerGateway,
+    def __init__(self, reply: Reply, broker_client: BrokerClient,
+                 guild_analytics_store: HttpGuildAnalyticsStore, player_gateway: PlayerGateway,
                  logger: Logger, message_delete_after: int, enqueuer: MediaEnqueuer,
                  playlist: PlaylistCommands):
-        self.dispatcher = dispatcher
+        self.reply = reply
         self.broker_client = broker_client
         self.guild_analytics_store = guild_analytics_store
         self.player_gateway = player_gateway
@@ -39,9 +39,9 @@ class MusicCommands:
         self.enqueuer = enqueuer
         self.playlist = playlist
 
-    def _send(self, guild_id: int, channel_id: int, content: str) -> None:
-        self.dispatcher.send_message(guild_id, channel_id, content,
-                                     delete_after=self.message_delete_after)
+    async def _send(self, guild_id: int, channel_id: int, content: str) -> None:
+        '''Reply, and let Discord remove the message after ``message_delete_after`` seconds.'''
+        await self.reply(guild_id, channel_id, content, delete_after=self.message_delete_after)
 
     async def check_author_voice_chat(self, env: CommandEnvelope, check_voice_chats: bool = True) -> int | None:
         '''
@@ -51,7 +51,7 @@ class MusicCommands:
         when the check fails.
         '''
         if env.author_voice_channel_id is None:
-            self._send(env.guild_id, env.channel_id,
+            await self._send(env.guild_id, env.channel_id,
                        f'{env.author_display_name} not in voice chat channel. Please join one and try again')
             return None
 
@@ -59,7 +59,7 @@ class MusicCommands:
             return env.author_voice_channel_id
 
         if env.author_voice_guild_id != env.guild_id:
-            self._send(env.guild_id, env.channel_id, 'User not joined to channel bot is in, ignoring command')
+            await self._send(env.guild_id, env.channel_id, 'User not joined to channel bot is in, ignoring command')
             return None
         return env.author_voice_channel_id
 
@@ -70,12 +70,12 @@ class MusicCommands:
         '''
         status = await self.player_gateway.status(env.guild_id)
         if not status.exists:
-            self._send(env.guild_id, env.channel_id, 'I am not currently playing anything')
+            await self._send(env.guild_id, env.channel_id, 'I am not currently playing anything')
             return None
         if not status.voice_connected or (not status.is_playing and not status.pending_downloads):
             # The player's own channel, not the one the command came from: that is where this
             # message has always gone once a player exists.
-            self._send(env.guild_id, status.text_channel_id, 'I am not currently playing anything')
+            await self._send(env.guild_id, status.text_channel_id, 'I am not currently playing anything')
             return None
         return status
 
@@ -90,25 +90,20 @@ class MusicCommands:
             return None
         queue = await self.broker_client.get_guild_queue(env.guild_id)
         if not queue.items:
-            self._send(env.guild_id, env.channel_id, 'There are currently no more queued videos.')
+            await self._send(env.guild_id, env.channel_id, 'There are currently no more queued videos.')
             return None
         return queue.items
 
-    def _queue_index(self, env: CommandEnvelope, queue_index: str) -> int | None:
+    async def _queue_index(self, env: CommandEnvelope, queue_index: str) -> int | None:
         '''The index the user typed, or None after telling the channel it is not a number.'''
         try:
             return int(queue_index)
         except ValueError:
-            self._send(env.guild_id, env.channel_id, f'Invalid queue index {queue_index}')
+            await self._send(env.guild_id, env.channel_id, f'Invalid queue index {queue_index}')
             return None
 
     async def music_stats(self, env: CommandEnvelope) -> None:
         '''Show the guild's play totals.'''
-        if not self.guild_analytics_store:
-            self.dispatcher.send_message(env.guild_id, env.channel_id,
-                                         'Functionality not available, database is not enabled')
-            return
-
         # An entry, not a row: every read below happened inside the session
         # block that loaded it, which is exactly what could not survive the seam.
         guild_analytics = await self.guild_analytics_store.get_analytics(env.guild_id)
@@ -118,7 +113,7 @@ class MusicCommands:
         message = f'```Music Stats for Server\nTotal Plays: {guild_analytics.total_plays}\nCached Plays: {guild_analytics.cached_plays}\n' \
                 f'Total Time Played: {guild_analytics.total_duration_days} days, {hours} hours, {minutes} minutes, and {seconds} seconds\n' \
                 f'Tracked Since: {guild_analytics.created_at.strftime("%Y-%m-%d %H:%M:%S")} UTC\n```'
-        self._send(env.guild_id, env.channel_id, message)
+        await self._send(env.guild_id, env.channel_id, message)
 
     async def history(self, env: CommandEnvelope) -> None:
         '''Show recently played videos.'''
@@ -127,7 +122,7 @@ class MusicCommands:
         history = await self.broker_client.get_guild_history(env.guild_id)
 
         if not history:
-            self._send(env.guild_id, env.channel_id, 'There have been no videos played.')
+            await self._send(env.guild_id, env.channel_id, 'There have been no videos played.')
             return
 
         headers = [
@@ -145,7 +140,7 @@ class MusicCommands:
                 f'{uploader}',
             ])
         for mess in table.render():
-            self._send(env.guild_id, env.channel_id, mess)
+            await self._send(env.guild_id, env.channel_id, mess)
 
     async def join(self, env: CommandEnvelope) -> None:
         '''Join the author's voice channel.'''
@@ -155,10 +150,10 @@ class MusicCommands:
 
         result = await self.player_gateway.ensure(env.guild_id, voice_channel_id, env.channel_id)
         if result.error:
-            self._send(env.guild_id, env.channel_id, result.error)
+            await self._send(env.guild_id, env.channel_id, result.error)
 
         # Said even when the join failed, as it always has been.
-        self._send(env.guild_id, env.channel_id, f'Connected to: {env.author_voice_channel_name}')
+        await self._send(env.guild_id, env.channel_id, f'Connected to: {env.author_voice_channel_name}')
 
     async def skip(self, env: CommandEnvelope) -> None:
         '''Skip the current video.'''
@@ -176,9 +171,9 @@ class MusicCommands:
         if await self.broker_client.skip_track(env.guild_id, playing.uuid) != SKIP_OK:
             return
         if playing.download is None:
-            self._send(env.guild_id, env.channel_id, 'Skipping current video')
+            await self._send(env.guild_id, env.channel_id, 'Skipping current video')
             return
-        self._send(env.guild_id, env.channel_id, f'Skipping video "{playing.download.title}"')
+        await self._send(env.guild_id, env.channel_id, f'Skipping video "{playing.download.title}"')
 
     async def stop(self, env: CommandEnvelope) -> None:
         '''Stop playback and leave voice.'''
@@ -196,7 +191,7 @@ class MusicCommands:
             return
 
         if env.channel_id == status.text_channel_id:
-            self._send(env.guild_id, env.channel_id,
+            await self._send(env.guild_id, env.channel_id,
                        f'I am already sending messages to channel {env.channel_name}')
             return
         # The broker owns the play-order message, so telling it the new channel moves it
@@ -213,7 +208,7 @@ class MusicCommands:
         self.logger.info(f'Player clear called in guild {env.guild_id}')
         # The player sees the queue change on its next poll and drops the staged copies.
         await self.broker_client.clear_queue(env.guild_id)
-        self._send(env.guild_id, env.channel_id, 'Cleared player queue')
+        await self._send(env.guild_id, env.channel_id, 'Cleared player queue')
 
     async def shuffle(self, env: CommandEnvelope) -> None:
         '''Shuffle the queue.'''
@@ -226,7 +221,7 @@ class MusicCommands:
         items = await self._queued_items(env)
         if items is None:
             return
-        index = self._queue_index(env, queue_index)
+        index = await self._queue_index(env, queue_index)
         if index is None:
             return
         # The broker works by track, not position: the index names the track the user saw, and
@@ -236,16 +231,16 @@ class MusicCommands:
             item = await self.broker_client.remove_queued_track(
                 env.guild_id, str(items[index - 1].media_request.uuid))
         if item is None:
-            self._send(env.guild_id, env.channel_id, f'Unable to remove queue index {index}')
+            await self._send(env.guild_id, env.channel_id, f'Unable to remove queue index {index}')
             return
-        self._send(env.guild_id, env.channel_id, f'Removed item {item.title} from queue')
+        await self._send(env.guild_id, env.channel_id, f'Removed item {item.title} from queue')
 
     async def bump(self, env: CommandEnvelope, queue_index: str) -> None:
         '''Bump the item at ``queue_index`` to the top of the queue.'''
         items = await self._queued_items(env)
         if items is None:
             return
-        index = self._queue_index(env, queue_index)
+        index = await self._queue_index(env, queue_index)
         if index is None:
             return
         # The broker works by track, not position: the index names the track the user saw, and
@@ -255,15 +250,15 @@ class MusicCommands:
             item = await self.broker_client.bump_queued_track(
                 env.guild_id, str(items[index - 1].media_request.uuid))
         if item is None:
-            self._send(env.guild_id, env.channel_id, f'Unable to bump queue index {index}')
+            await self._send(env.guild_id, env.channel_id, f'Unable to bump queue index {index}')
             return
-        self._send(env.guild_id, env.channel_id, f'Bumped item "{item.title}" to top of queue')
+        await self._send(env.guild_id, env.channel_id, f'Bumped item "{item.title}" to top of queue')
 
     async def _ensure_player(self, env: CommandEnvelope, voice_channel_id: int) -> bool:
         '''Make sure the guild has a player in the author's voice channel, telling the channel if not.'''
         result = await self.player_gateway.ensure(env.guild_id, voice_channel_id, env.channel_id)
         if result.error:
-            self._send(env.guild_id, env.channel_id, result.error)
+            await self._send(env.guild_id, env.channel_id, result.error)
         return result.ok
 
     async def play(self, env: CommandEnvelope, search: str) -> None:
@@ -280,13 +275,11 @@ class MusicCommands:
         voice_channel_id = await self.check_author_voice_chat(env)
         if not voice_channel_id:
             return
-        if not await self.playlist.check_database_session(env):
-            return
         if not await self._ensure_player(env, voice_channel_id):
             return
 
         # Make sure sub command is valid
-        playlist_id, is_history = await self.playlist.get_playlist(playlist_index, env)
+        playlist_id, is_history = await self.playlist.find(env, playlist_index)
         if not playlist_id:
             return
 
@@ -306,13 +299,11 @@ class MusicCommands:
         voice_channel_id = await self.check_author_voice_chat(env)
         if not voice_channel_id:
             return
-        if not await self.playlist.check_database_session(env):
-            return
         if not await self._ensure_player(env, voice_channel_id):
             return
 
         # Get history playlist (id 0)
-        playlist_id, is_history = await self.playlist.get_playlist(0, env)
+        playlist_id, is_history = await self.playlist.find(env, 0)
         if not playlist_id:
             return
         await self.playlist.queue_items(env, playlist_id, shuffle=True, max_num=32, is_history=is_history)

@@ -28,7 +28,7 @@ from discord_core.utils.common import (is_peer_unavailable, rm_tree,
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations
-from discord_core.interfaces.database_protocols import GuildAnalyticsStore, PlaylistStore
+from discord_core.interfaces.database_protocols import PlaylistStore
 from discord_core.types.video_cache import MusicCacheConfig
 from discord_core.clients.http_broker_client import HttpBrokerClient
 from discord_core.interfaces.download_client_protocol import (
@@ -45,9 +45,7 @@ from discord_core.clients.http_youtube_music_search_client import (
     HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
 )
 
-from discord_gateway.cogs.common import CogHelperBase, build_commands_client, envelope_from_ctx
-from discord_gateway.command_logic.music import MusicCommands
-from discord_gateway.command_logic.playlist import PlaylistCommands
+from discord_gateway.cogs.common import CogHelperBase, build_commands_client
 from discord_gateway.loop_logic.gateway_intents import GatewayIntentsLoop
 from discord_gateway.loop_logic.music_results import MusicResultsLoop
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
@@ -293,12 +291,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # without touching a call site -- which is what MR 4b did, and no call site
         # below changed.
         self.playlist_store: PlaylistStore | None = None
-        # Same rule for the analytics tables, and with this one the cog holds no
-        # session of its own at all.
-        self.guild_analytics_store: GuildAnalyticsStore | None = None
         if self.stores:
             self.playlist_store = self.stores.playlist
-            self.guild_analytics_store = self.stores.guild_analytics
 
         self.server_queue_priority = {}
         if self.config.download and self.config.download.server_queue_priority:
@@ -1087,7 +1081,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Connect to voice channel.
         '''
-        await self.music_logic.join(envelope_from_ctx(ctx))
+        await self.forward_command(ctx, 'join')
 
     @command(name='play')
     @command_wrapper
@@ -1105,7 +1099,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         shuffle: boolean [Optional]
             If the search input is a spotify url or youtube api playlist, it will shuffle the results from the api before passing it into the download queue
         '''
-        await self.music_logic.play(envelope_from_ctx(ctx), search)
+        await self.forward_command(ctx, 'play', search=search)
 
 
     @command(name='skip')
@@ -1114,7 +1108,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Skip the video.
         '''
-        await self.music_logic.skip(envelope_from_ctx(ctx))
+        await self.forward_command(ctx, 'skip')
 
     @command(name='clear')
     @command_wrapper
@@ -1122,7 +1116,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Clear all items from queue
         '''
-        await self.music_logic.clear(envelope_from_ctx(ctx))
+        await self.forward_command(ctx, 'clear')
 
     @command(name='history')
     @command_wrapper
@@ -1130,7 +1124,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Show recently played videos
         '''
-        await self.music_logic.history(envelope_from_ctx(ctx))
+        await self.forward_command(ctx, 'history')
 
     @command(name='shuffle')
     @command_wrapper
@@ -1138,7 +1132,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Shuffle video queue.
         '''
-        await self.music_logic.shuffle(envelope_from_ctx(ctx))
+        await self.forward_command(ctx, 'shuffle')
 
     @command(name='remove')
     @command_wrapper
@@ -1149,7 +1143,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         queue_index: integer [Required]
             Position in queue of video that will be removed.
         '''
-        await self.music_logic.remove(envelope_from_ctx(ctx), queue_index)
+        await self.forward_command(ctx, 'remove', queue_index=queue_index)
 
     @command(name='bump')
     @command_wrapper
@@ -1160,7 +1154,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         queue_index: integer [Required]
             Position in queue of video that will be removed.
         '''
-        await self.music_logic.bump(envelope_from_ctx(ctx), queue_index)
+        await self.forward_command(ctx, 'bump', queue_index=queue_index)
 
     @command(name='stop')
     @command_wrapper
@@ -1168,7 +1162,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Stop the currently playing video and disconnect bot from voice chat.
         '''
-        await self.music_logic.stop(envelope_from_ctx(ctx))
+        await self.forward_command(ctx, 'stop')
 
     @command(name='move-messages')
     @command_wrapper
@@ -1176,19 +1170,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Move queue messages to this text chanel
         '''
-        await self.music_logic.move_messages(envelope_from_ctx(ctx))
-
-    @property
-    def music_logic(self) -> MusicCommands:
-        '''
-        The music commands that reach the player only through PlayerGateway. Stateless and
-        rebuilt per use, like playlist_logic, so a replaced dispatcher, broker client or store
-        is picked up.
-        '''
-        return MusicCommands(
-            self.dispatcher, self.broker_client, self.guild_analytics_store,
-            CogPlayerGateway(self), self.logger, self.config.general.message_delete_after,
-            self.enqueue_logic, self.playlist_logic)
+        await self.forward_command(ctx, 'move-messages')
 
     @property
     def enqueue_logic(self) -> MediaEnqueuer:
@@ -1211,19 +1193,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         return MusicResultsLoop(
             self.logger, self.broker_client, self.download_client, self.enqueue_logic,
             CogPlayerGateway(self), self.playlist_store, self.server_queue_priority)
-
-    @property
-    def playlist_logic(self) -> PlaylistCommands:
-        '''
-        The playlist commands that need the player, the broker or the enqueuer (the rest run in the
-        commands pod), built from this cog's current dispatcher and store. It holds no state of its
-        own, so it is rebuilt per use rather than cached: replacing the dispatcher or store on the
-        cog (as the tests do) is picked up with nothing to keep in sync.
-        '''
-        return PlaylistCommands(
-            self.dispatcher, self.playlist_store, self.logger,
-            self.config.general.message_delete_after, self.config.playlist.server_playlist_max_size,
-            self.broker_client, CogPlayerGateway(self), self.enqueue_logic)
 
     @group(name='playlist', invoke_without_command=False)
     async def playlist(self, ctx):
@@ -1266,7 +1235,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             The video to search and retrieve from youtube.
             This could be a simple search, an ID or URL.
         '''
-        await self.playlist_logic.item_add(envelope_from_ctx(ctx), playlist_index, search)
+        await self.forward_command(ctx, 'playlist.item-add', playlist_index=playlist_index, search=search)
 
 
     @playlist.command(name='item-remove')
@@ -1326,7 +1295,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         name: str [Required]
             Name of new playlist to create
         '''
-        await self.playlist_logic.save(envelope_from_ctx(ctx), name)
+        await self.forward_command(ctx, 'playlist.save-queue', name=name)
 
     @playlist.command(name='save-history')
     @command_wrapper
@@ -1337,7 +1306,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         name: str [Required]
             Name of new playlist to create
         '''
-        await self.playlist_logic.save(envelope_from_ctx(ctx), name, is_history=True)
+        await self.forward_command(ctx, 'playlist.save-history', name=name)
 
     @playlist.command(name='queue')
     @command_wrapper
@@ -1357,7 +1326,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             !playlist queue 0 shuffle
             !playlist queue 0 16
         '''
-        await self.music_logic.playlist_queue(envelope_from_ctx(ctx), playlist_index, args)
+        await self.forward_command(ctx, 'playlist.queue', playlist_index=playlist_index, args=[str(arg) for arg in args])
 
 
     @playlist.command(name='merge')
@@ -1381,7 +1350,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
 
         Equivalent to: !playlist queue 0 shuffle 32
         '''
-        await self.music_logic.random_play(envelope_from_ctx(ctx))
+        await self.forward_command(ctx, 'random-play')
 
 
     @command(name='music-stats')
@@ -1390,4 +1359,4 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Show music player stats
         '''
-        await self.music_logic.music_stats(envelope_from_ctx(ctx))
+        await self.forward_command(ctx, 'music-stats')

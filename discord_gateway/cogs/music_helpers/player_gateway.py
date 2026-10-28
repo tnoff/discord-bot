@@ -74,10 +74,14 @@ class CogPlayerGateway:
         await self.cog._save_player_session(player.guild, player)  # pylint: disable=protected-access
 
     async def wake(self, guild_id: int) -> None:
-        '''Have the guild's player claim a freshly queued track now, if it has a player.'''
+        '''
+        Have the guild's player claim a freshly queued track now, and start fetching it, if it
+        has a player. The same two things ``add_source_to_player`` does once a track is queued.
+        '''
         player = self.cog.players.get(guild_id)
         if player is not None:
             player.notify_enqueued()
+            player.trigger_prefetch()
 
     async def add_cached(self, guild_id: int, media_download: MediaDownload) -> bool:
         '''Queue a cache hit on the guild's player, if it has one.'''

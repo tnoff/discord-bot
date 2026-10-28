@@ -44,9 +44,13 @@ BUILT_CLIENTS = {
     # is a claim worth stating, and an absent key would read as an oversight.
     'discord-db': set(),
     'discord-dispatcher': set(),
-    # Serves the commands seam and replies through the dispatcher. The markov commands read and
-    # write through the db pod. The broker client arrives with the music commands.
-    'discord-commands': {'HttpDispatchClient', 'HttpMarkovStore', 'HttpPlaylistStore'},
+    # Serves the commands seam and replies through the dispatcher. The markov, playlist and
+    # music-stats commands read and write through the db pod. The music commands reach the player
+    # through the broker, and queue tracks through the downloader and the search pod.
+    'discord-commands': {
+        'HttpBrokerClient', 'HttpDispatchClient', 'HttpDownloadClient', 'HttpGuildAnalyticsStore',
+        'HttpMarkovStore', 'HttpMediaSearchClient', 'HttpPlaylistStore', 'HttpYoutubeMusicSearchClient',
+    },
 }
 
 

@@ -263,15 +263,6 @@ def module_prefixes_for(kind: str, name: str | None = None) -> tuple:
 # the client could be released before the gateway used it, so they can move into the gateway (and
 # off this list) whenever a core release is next due anyway.
 SHIPS_AHEAD_OF_CONSUMER = frozenset({
-    'discord_core.clients.http_download_client',
-    'discord_core.clients.http_guild_analytics_store',
-    'discord_core.clients.http_media_search_client',
-    'discord_core.clients.http_queue_worker_client',
-    'discord_core.clients.http_youtube_music_search_client',
-    'discord_core.clients.search_client',
-    'discord_core.interfaces.player_gateway',
-    'discord_core.types.playlist_add_result',
-    'discord_core.utils.media_enqueuer',
     'discord_core.clients.http_commands_client',
     'discord_core.interfaces.commands_client',
 })
