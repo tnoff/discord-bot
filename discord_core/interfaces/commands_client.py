@@ -9,6 +9,7 @@ from typing import Protocol
 
 from discord_core.types.command_envelope import CommandEnvelope
 from discord_core.types.command_wire import CommandAcceptedResponse
+from discord_core.types.guild_teardown import GuildTeardownAccepted
 
 __all__ = ['CommandsClient', 'CommandsUnavailable']
 
@@ -26,4 +27,11 @@ class CommandsClient(Protocol):
         Send one command and return once the pod has accepted it. `command` is a key of
         COMMAND_ARGS and `args` must fit its model. `request_id` defaults to a fresh uuid.
         Raises CommandsUnavailable; never retries.
+        '''
+
+    async def teardown_guild(self, guild_id: int) -> GuildTeardownAccepted:
+        '''
+        Ask the pod to clear the guild's queued downloads and searches, refuse new ones for a moment
+        and take down the progress messages that track them. Returns once the pod has taken the
+        job. Idempotent, so unlike `forward` a caller may repeat it. Raises CommandsUnavailable.
         '''

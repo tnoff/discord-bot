@@ -18,8 +18,10 @@ from discord_core.clients.http_client_base import SeamResponseInvalid
 from discord_core.clients.http_commands_client import HttpCommandsClient
 from discord_core.interfaces.commands_client import CommandsClient, CommandsUnavailable
 from discord_core.routes import commands as command_routes
+from discord_core.routes import guild_teardown
 from discord_core.types.command_envelope import CommandEnvelope
 from discord_core.types.command_wire import CommandAcceptedResponse
+from discord_core.types.guild_teardown import GuildTeardownAccepted
 from discord_core.utils.circuit_breaker import CircuitBreaker, CircuitState
 
 ENVELOPE = CommandEnvelope(guild_id=1, channel_id=2, author_id=3, author_display_name='tyler',
@@ -70,7 +72,8 @@ def test_the_client_calls_the_commands_seam():
 
 def test_the_client_implements_the_protocol():
     assert callable(getattr(HttpCommandsClient, 'forward'))
-    assert set(CommandsClient.__dict__) >= {'forward'}
+    assert set(CommandsClient.__dict__) >= {'forward', 'teardown_guild'}
+    assert callable(getattr(HttpCommandsClient, 'teardown_guild'))
 
 
 @pytest.mark.asyncio
@@ -182,3 +185,91 @@ async def test_a_reply_that_does_not_fit_the_model_names_the_peer():
 
 def test_the_base_url_loses_its_trailing_slash():
     assert HttpCommandsClient('http://pod:8080/')._base_url == 'http://pod:8080'  # pylint: disable=protected-access
+
+
+class StubTeardownPod:
+    '''A commands pod serving only the teardown route, recording the guild it was asked about.'''
+
+    def __init__(self, status=202, body=None):
+        self.status = status
+        self.body = {'status': 'ok'} if body is None else body
+        self.guild_ids = []
+
+    async def handle(self, request: web.Request) -> web.StreamResponse:
+        self.guild_ids.append(request.match_info['guild_id'])
+        return web.json_response(self.body, status=self.status)
+
+    def build_app(self) -> web.Application:
+        app = web.Application()
+        route = guild_teardown.TEARDOWN_GUILD
+        app.router.add_route(route.method, route.template, self.handle)
+        return app
+
+
+@contextlib.asynccontextmanager
+async def _connected_teardown(pod: StubTeardownPod):
+    async with TestServer(pod.build_app()) as server:
+        async with aiohttp.ClientSession() as session:
+            yield HttpCommandsClient(str(server.make_url('')), session=session)
+
+
+def test_the_teardown_route_is_not_part_of_the_commands_seam_yet():
+    """It ships first, so the gateway's peer route check does not demand it of a pod that predates it."""
+    assert guild_teardown.TEARDOWN_GUILD not in HttpCommandsClient.ROUTES_CALLED
+    assert guild_teardown.ALL == (guild_teardown.TEARDOWN_GUILD,)
+
+
+@pytest.mark.asyncio
+async def test_teardown_guild_posts_to_the_guild():
+    pod = StubTeardownPod()
+    async with _connected_teardown(pod) as client:
+        assert await client.teardown_guild(589886587953741824) == GuildTeardownAccepted()
+    assert pod.guild_ids == ['589886587953741824']
+
+
+@pytest.mark.asyncio
+async def test_teardown_guild_with_a_5xx_is_unavailable_and_is_not_retried():
+    pod = StubTeardownPod(status=503, body={'error': 'busy'})
+    async with _connected_teardown(pod) as client:
+        with pytest.raises(CommandsUnavailable, match='teardown of guild 7'):
+            await client.teardown_guild(7)
+    assert len(pod.guild_ids) == 1
+
+
+@pytest.mark.asyncio
+async def test_teardown_guild_with_a_4xx_is_the_senders_bug(breaker):
+    pod = StubTeardownPod(status=422, body={'error': 'bad'})
+    async with _connected_teardown(pod) as client:
+        with pytest.raises(aiohttp.ClientResponseError) as caught:
+            await client.teardown_guild(7)
+    assert caught.value.status == 422
+    assert breaker.state is CircuitState.CLOSED
+
+
+@pytest.mark.asyncio
+async def test_teardown_guild_with_a_pod_that_is_down_is_unavailable():
+    async with aiohttp.ClientSession() as session:
+        client = HttpCommandsClient('http://127.0.0.1:1', session=session)
+        with pytest.raises(CommandsUnavailable):
+            await client.teardown_guild(7)
+
+
+@pytest.mark.asyncio
+async def test_teardown_guild_shares_the_commands_breaker(breaker):
+    pod = StubTeardownPod(status=503, body={'error': 'busy'})
+    async with _connected_teardown(pod) as client:
+        for _ in range(2):
+            with pytest.raises(CommandsUnavailable):
+                await client.teardown_guild(7)
+        assert breaker.state is CircuitState.OPEN
+        with pytest.raises(CommandsUnavailable, match='breaker is open'):
+            await client.teardown_guild(7)
+    assert len(pod.guild_ids) == 2
+
+
+@pytest.mark.asyncio
+async def test_teardown_guild_rejects_an_answer_that_is_not_the_contract():
+    pod = StubTeardownPod(body={'status': 'nope'})
+    async with _connected_teardown(pod) as client:
+        with pytest.raises(SeamResponseInvalid):
+            await client.teardown_guild(7)
