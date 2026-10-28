@@ -1,0 +1,1 @@
+`async_retry_broker_command` now retries a refused or reset connection (`ClientOSError`) with capped backoff for up to 60s instead of 3 times over about 7s, so a callee that is rolling (the db pod is `Recreate`) no longer drops the request. Untraced pollers and every other error keep the existing retry.

@@ -11,9 +11,10 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from aiohttp.client_exceptions import ClientConnectionError, ClientResponseError
+from aiohttp.client_exceptions import ClientConnectionError, ClientConnectorError, ClientResponseError
 
 from discord_core.utils.retry import (
+    CONNECT_RETRY_BUDGET,
     async_retry_broker_command,
     async_retry_command,
 )
@@ -178,3 +179,71 @@ async def test_broker_retry_untraced_still_retries():
         result = await async_retry_broker_command(func, max_retries=2, traced=False)
     assert result == 'recovered'
     mock_sleep.assert_awaited_once_with(1)
+
+
+def _refused() -> ClientConnectorError:
+    return ClientConnectorError(Mock(), ConnectionRefusedError())
+
+
+class _Clock:
+    '''Stands in for sleep and monotonic together: sleeping advances the clock.'''
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps = []
+
+    def monotonic(self):
+        return self.now
+
+    async def sleep(self, delay):
+        self.sleeps.append(delay)
+        self.now += delay
+
+
+@pytest.fixture(name='clock')
+def clock_fixture():
+    clock = _Clock()
+    with patch('discord_core.utils.retry.async_sleep', clock.sleep), \
+            patch('discord_core.utils.retry.monotonic', clock.monotonic):
+        yield clock
+
+
+@pytest.mark.asyncio
+async def test_broker_retry_refused_connection_rides_out_a_30s_roll(clock):
+    '''A pod refusing for ~30s (a Recreate roll) is retried until it answers.'''
+    async def func():
+        if clock.now < 30:
+            raise _refused()
+        return 'recovered'
+    assert await async_retry_broker_command(func) == 'recovered'
+    assert max(clock.sleeps) <= 8
+    assert 30 <= clock.now < 40
+
+
+@pytest.mark.asyncio
+async def test_broker_retry_refused_connection_gives_up_after_budget(clock):
+    '''A pod that never comes back is re-raised once the budget is spent, not before.'''
+    func = AsyncMock(side_effect=_refused())
+    with pytest.raises(ClientConnectorError):
+        await async_retry_broker_command(func)
+    assert clock.now == CONNECT_RETRY_BUDGET
+    assert func.await_count > 3
+
+
+@pytest.mark.asyncio
+async def test_broker_retry_untraced_refused_connection_keeps_short_retry(clock):
+    '''Pollers tolerate a failed tick, so they do not block for the whole budget.'''
+    func = AsyncMock(side_effect=_refused())
+    with pytest.raises(ClientConnectorError):
+        await async_retry_broker_command(func, traced=False)
+    assert func.await_count == 4  # initial + 3 retries
+    assert clock.sleeps == [1, 2, 4]
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures('clock')
+async def test_broker_retry_5xx_budget_is_not_extended_by_refusals():
+    '''Refused connections do not use up, or reset, the retry count for 5xx.'''
+    func = AsyncMock(side_effect=[_refused(), _refused(), *[_client_response_error(503)] * 4])
+    with pytest.raises(ClientResponseError):
+        await async_retry_broker_command(func)
+    assert func.await_count == 6  # 2 refusals + 1 initial 5xx + 3 retries
