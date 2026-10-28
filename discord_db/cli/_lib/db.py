@@ -164,8 +164,17 @@ def managed_db(general_config):
 
 
 def instrument_sqlalchemy(db_engine=None) -> None:
-    '''Instrument SQLAlchemy with the active OpenTelemetry tracer.'''
+    '''Instrument SQLAlchemy with the active OpenTelemetry tracer.
+
+    skip_dep_check: the instrumentor's own version gate caps SQLAlchemy at < 2.1.0
+    (opentelemetry-python-contrib#5118), so on 2.1.x it logs an error and
+    instruments nothing -- the db pod emitted no SQL spans from the 2.1.4 bump on.
+    The cap is lifted upstream but not yet released; 0.66b1 produces spans on
+    2.1.6 (test_instrument_sqlalchemy.py asserts it). Drop the flag once an
+    instrumentor release carries the wider range.
+    '''
     kwargs = {
+        'skip_dep_check': True,
         'tracer_provider': trace.get_tracer_provider(),
         'enable_commenter': True,
         'commenter_options': {},

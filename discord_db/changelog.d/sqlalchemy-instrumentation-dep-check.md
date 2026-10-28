@@ -1,0 +1,1 @@
+Instrument SQLAlchemy with `skip_dep_check=True`: the OpenTelemetry instrumentor caps SQLAlchemy at < 2.1.0, so on 2.1.x it instrumented nothing and the db pod emitted no SQL spans. A test now runs a query and asserts a span is exported. Drop the flag once an instrumentor release lifts the cap.
