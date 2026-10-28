@@ -359,11 +359,17 @@ section](message_dispatcher.md#configuration) — not repeated here.
 
 ### Redis connection: direct URL vs. Sentinel
 
-`redis_url` connects to a single fixed endpoint — fine for local/dev, or a
-single-primary deployment. In production Redis runs as Valkey + Sentinel (three
-nodes, one primary), where the primary role floats across pods on failover. Set
-`redis_sentinel` instead so the client discovers the current primary via
-Sentinel on every connection — a promotion is then transparent to the app:
+`redis_url` connects to a single fixed endpoint. It is what production uses: one
+Valkey pod behind the `redis-primary` Service, with an append-only file on a
+persistent volume, so a restart or a reschedule to another node keeps the queues
+and the saved player sessions but is an outage while the pod comes back (6.5
+minutes on 2026-10-28, when it sat unschedulable during a node roll). Production
+ran Valkey + Sentinel (three nodes, one primary) until 2026-07-20.
+
+For a deployment that does run Sentinel, where the primary role floats across pods
+on failover, set `redis_sentinel` instead so the client discovers the current
+primary via Sentinel on every connection — a promotion is then transparent to the
+app:
 
 ```yaml
 general:
