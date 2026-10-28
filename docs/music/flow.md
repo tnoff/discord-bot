@@ -473,7 +473,7 @@ Post the resolution back to the broker
     ↓
 --- pod boundary ---
     ↓
-Bot pod: Process Search Results Loop (process_search_results)
+Commands pod: Process Search Results Loop (process_search_results)
     ↓
 Poll the broker for the next resolved search
     ↓
@@ -483,7 +483,7 @@ Check cache again
 └─ Cache MISS: Submit to discord-downloader over HTTP, mark QUEUED
 ```
 
-**For all requests that need downloading — in the `discord-downloader` pod, then back in the bot pod**:
+**For all requests that need downloading — in the `discord-downloader` pod, then back in the commands pod**:
 
 ```
 discord-downloader pod: Download Files Loop
@@ -509,14 +509,15 @@ yt-dlp downloads the file
     ↓
 --- pod boundary ---
     ↓
-Bot pod: Process Download Results Loop (process_download_results)
+Commands pod: Process Download Results Loop (process_download_results)
     ↓
 Poll the broker for the next finished result
     ↓
 ├─ Terminal failure: distinguish a rejection (video declined) from a
 │  genuine fault, notify the user, mark FAILED
 └─ Success: check out the file from the broker (S3 or local), add to
-   the guild's queue in the broker (`enqueue_track`), mark COMPLETED
+   the guild's queue in the broker (`enqueue_track`), mark COMPLETED,
+   then ask the gateway to wake the guild's player (a wake intent)
 ```
 
 ---
@@ -527,8 +528,8 @@ Poll the broker for the next finished result
 
 The queue is the broker's, not the player's. `add_source_to_player` registers the
 download with the broker, then asks it to enqueue the track (the broker half is
-`MusicResultsLoop.enqueue_download` in `loop_logic/music_results.py`; the cog only wakes
-the player afterwards):
+`TrackQueuer.enqueue_download` in `discord_core/utils/media_enqueuer.py`; the commands pod
+then sends the gateway a wake intent, and the gateway wakes the player):
 
 ```
 broker_client.register_download(media_download)
@@ -780,7 +781,7 @@ NO: Posted back to the broker as a terminal failure
     Message: "Media request failed download: <reason>"
 ```
 
-Only successes and terminal failures ever reach the bot's
+Only successes and terminal failures ever reach the commands pod's
 `process_download_results` loop; retryable errors never leave the
 downloader pod.
 
@@ -790,7 +791,7 @@ yt-dlp raises a rejection-class exception
     ↓
 Posted back to the broker as a terminal failure, tagged as a rejection
     ↓
-Bot pod: process_download_results distinguishes rejection from fault
+Commands pod: process_download_results distinguishes rejection from fault
     ↓
 Message: "Media request rejected: <name>"
     ↓

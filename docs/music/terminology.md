@@ -232,13 +232,13 @@ today:
 - **Purpose**: Disconnect from empty voice channels
 - **Processes**: Checks all active players
 
-### **Process Download Results Loop** (`process_download_results`)
-- **Purpose**: Pull completed downloads back from the `discord-downloader`/broker pipeline and hand them to the player queue
-- **Processes**: Results polled via `download_client`/`broker_client`
+### **Process Download Results Loop** (`process_download_results`, commands pod)
+- **Purpose**: Pull completed downloads back from the `discord-downloader`/broker pipeline and hand them to the guild's player queue, then wake the gateway's player with an intent
+- **Processes**: Results popped from the broker (`broker_client.next_result`); runs in `discord_commands/workers/result_loops.py`
 
-### **Process Search Results Loop** (`process_search_results`)
-- **Purpose**: Pull completed YouTube Music search resolutions back from the `discord-search` pipeline
-- **Processes**: Results polled via `youtube_music_search_client`/`broker_client`
+### **Process Search Results Loop** (`process_search_results`, commands pod)
+- **Purpose**: Pull completed YouTube Music search resolutions back from the `discord-search` pipeline, cache-check them and submit the downloads
+- **Processes**: Resolutions popped from the broker (`broker_client.next_search_result`); runs in `discord_commands/workers/result_loops.py`
 
 ### **History Worker** (`HistoryWorker`, broker pod)
 - **Purpose**: Record playback history/analytics to the `discord-db` pod after each track plays out — this replaced the gateway's `post_play_processing` loop when the player queue moved into the broker

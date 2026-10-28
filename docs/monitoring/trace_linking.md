@@ -80,7 +80,7 @@ music.play_  (SERVER)                    ← @command_wrapper, Discord ctx attri
   │  [MediaRequest.span_context captured here]
   │
   └─ [link] music.download_client.create_source  (CLIENT)   ← yt-dlp call, discord-downloader pod
-               └─ [link] music.process_download_results  (CONSUMER)  ← discord-gateway pod, pulls the result back
+               └─ [link] music.process_download_results  (CONSUMER)  ← discord-commands pod, pulls the result back
                             └─ [link] music.add_source_to_player  (INTERNAL)  ← discord-gateway pod
 ```
 
@@ -96,7 +96,7 @@ music.play_  (SERVER)                                       ← discord-gateway 
   │
   └─ [link] music.search_youtube_music  (CLIENT)    ← discord-search pod
                └─ [link] music.download_client.create_source  (CLIENT)  ← discord-downloader pod
-                            └─ [link] music.process_download_results  (CONSUMER)  ← discord-gateway pod
+                            └─ [link] music.process_download_results  (CONSUMER)  ← discord-commands pod
                                          └─ [link] music.add_source_to_player  (INTERNAL)  ← discord-gateway pod
 ```
 
@@ -123,10 +123,12 @@ music.playlist play  (SERVER)
 | `music.play_` | SERVER | `discord-gateway`, `discord_gateway/cogs/music.py` | Created by `@command_wrapper`; carries full Discord context attributes |
 | `music.search_youtube_music` | CLIENT | `discord-search`, `discord_search/workers/youtube_music_search_driver.py` | Only present for non-URL searches; marked ERROR on rate-limit failure |
 | `music.download_client.create_source` | CLIENT | `discord-downloader`, `discord_downloader/interfaces/download_protocols.py` | yt-dlp download; carries media request attributes |
-| `music.process_download_results` | CONSUMER | `discord-gateway`, `discord_gateway/cogs/music.py` | Routes completed result to player or returns error to user |
-| `music.add_source_to_player` | INTERNAL | `discord-gateway`, `discord_gateway/cogs/music.py` | Final handoff into the player queue |
+| `music.process_download_results` | CONSUMER | `discord-commands`, `discord_commands/loop_logic/music_results.py` | Routes completed result to player or returns error to user |
+| `music.add_source_to_player` | INTERNAL | `discord-commands` (the result loop), `discord_core/utils/media_enqueuer.py` | Final handoff into the player queue |
 
-Other spans `discord_gateway/cogs/music.py` emits (`music.process_search_results`,
+`music.process_search_results` (CONSUMER) is the search-result twin of `music.process_download_results`, also from `discord_commands/loop_logic/music_results.py`.
+
+Other spans `discord_gateway/cogs/music.py` emits (
 `music.resume_player_session`,
 `music.get_player`, `music.ensure_player`, `music.cleanup`,
 `music.cog_unload`) follow the same `span_links_from_context` pattern where
@@ -276,7 +278,8 @@ any spans from it.
 |------|------|
 | `discord_core/utils/otel.py` | `capture_span_context()`, `span_links_from_context()` |
 | `discord_core/types/media_request.py` | `MediaRequest.span_context` field |
-| `discord_gateway/cogs/music.py` | Capture in `enqueue_media_requests()`; links in `process_download_results()`, `process_search_results()`, `add_source_to_player()` |
+| `discord_gateway/cogs/music.py` | Capture in `enqueue_media_requests()`; links in `add_source_to_player()` |
+| `discord_commands/loop_logic/music_results.py` | Links in `process_download_result()`, `process_search_result()` |
 | `discord_search/workers/youtube_music_search_driver.py` | `music.search_youtube_music` span, `discord-search` pod |
 | `discord_downloader/interfaces/download_protocols.py` | Fallback capture in `DownloadWorkerBase.submit()`; `music.download_client.create_source` span, `discord-downloader` pod |
 | `discord_core/clients/http_client_base.py` | `_trace_headers()` — W3C traceparent injection shared by every `Http*Client` |
