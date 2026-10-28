@@ -68,8 +68,8 @@ metadata:
   description: >-
     Owns the Discord REST surface: the other tiers POST to it and it queues the work in
     Redis before calling Discord. Logs in with the bot token for REST auth only (bot.login)
-    and holds no gateway connection -- that is discord-gateway's. One replica with strategy
-    Recreate.
+    and holds no gateway connection -- that is discord-gateway's. One replica, rolled with
+    RollingUpdate (maxSurge 1, maxUnavailable 0) so the Service keeps an endpoint during a deploy.
   # Deployment label `tier: dispatcher`, Service port 8082
 spec:
   type: service
