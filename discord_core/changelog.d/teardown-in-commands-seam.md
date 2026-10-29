@@ -1,1 +1,0 @@
-`routes/commands.py` `ALL` now includes the guild-teardown route (`routes/guild_teardown.py`), so it is `HttpCommandsClient.ROUTES_CALLED` and the gateway's peer route check demands it of the commands pod, which has served it since #1160. Nothing is added to the wire. Any consumer must run against a commands pod from #1160 or later, or its route check reports the route missing.
