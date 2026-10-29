@@ -8,6 +8,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+import aiohttp
 import pytest
 
 from discord_core.types.player_session import PlayerSession
@@ -535,3 +536,69 @@ async def test_resume_stops_when_player_cannot_be_built(mocker, fake_context):  
         queue = await cog.broker_client.get_guild_queue(fake_context['guild'].id)
         assert queue.closed is True
         assert queue.items == []
+
+
+# ---------------------------------------------------------------------------
+# A broker that is away when the gateway starts
+# ---------------------------------------------------------------------------
+
+def _broker_is_away(kind):
+    '''One of the errors is_peer_unavailable reads as "the broker could not be reached".'''
+    if kind == 'unavailable_status':
+        return aiohttp.ClientResponseError(MagicMock(), (), status=503)
+    return {'refused': aiohttp.ClientConnectionError('refused'), 'timeout': TimeoutError()}[kind]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('kind', ['refused', 'timeout', 'unavailable_status'])
+async def test_resume_waits_out_a_broker_that_is_away(mocker, fake_context, kind):  #pylint:disable=redefined-outer-name
+    '''A broker that is still coming up (node roll, image pull) must not cost the guild its resume:
+    the gateway keeps asking and picks the session up once the broker answers.'''
+    cog, voice_channel = _resumable_cog(fake_context, mocker, [_FakeMember()])
+    async with _queued_track(cog, fake_context) as media_download:
+        session = _session(fake_context, voice_channel)
+        await cog.broker_client.save_player_session(session)
+        listing = mocker.patch.object(cog.broker_client, 'list_player_sessions',
+                                      side_effect=[_broker_is_away(kind), _broker_is_away(kind), [session]])
+        sleeper = mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+
+        await cog.resume_player_sessions()
+
+        assert listing.await_count == 3
+        assert [call.args for call in sleeper.await_args_list] == [(music_module.RESUME_BROKER_POLL_SECONDS,)] * 2
+        assert fake_context['guild'].id in cog.players
+        assert await _queued_uuids(cog, fake_context['guild'].id) == [str(media_download.media_request.uuid)]
+
+
+@pytest.mark.asyncio
+async def test_resume_gives_up_loudly_on_a_broker_that_stays_away(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''The wait is bounded, and running out is an error in the log, not a silent dead task.'''
+    cog, _ = _resumable_cog(fake_context, mocker, [_FakeMember()])
+    mocker.patch.object(music_module, 'RESUME_BROKER_WAIT_SECONDS', 0)
+    listing = mocker.patch.object(cog.broker_client, 'list_player_sessions',
+                                  side_effect=_broker_is_away('refused'))
+    sleeper = mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog.logger = MagicMock()
+
+    with pytest.raises(aiohttp.ClientConnectionError):
+        await cog.resume_player_sessions()
+
+    assert listing.await_count == 1
+    sleeper.assert_not_awaited()
+    assert any('not resuming player sessions' in call.args[0] for call in cog.logger.error.call_args_list)
+    assert not cog.players
+
+
+@pytest.mark.asyncio
+async def test_resume_does_not_retry_a_real_broker_fault(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''Only an unreachable broker is waited on; a 400 or a bad payload fails at once rather than for 15 minutes.'''
+    cog, _ = _resumable_cog(fake_context, mocker, [_FakeMember()])
+    listing = mocker.patch.object(cog.broker_client, 'list_player_sessions',
+                                  side_effect=aiohttp.ClientResponseError(MagicMock(), (), status=400))
+    sleeper = mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+
+    with pytest.raises(aiohttp.ClientResponseError):
+        await cog.resume_player_sessions()
+
+    assert listing.await_count == 1
+    sleeper.assert_not_awaited()

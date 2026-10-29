@@ -216,6 +216,14 @@ _INTENT_POLL_INTERVAL_SECONDS = 0.25
 # How long a restarted gateway waits for the previous one's now-playing record to lapse before
 # taking over a guild anyway. The broker expires the record 15s after the last heartbeat.
 FOREIGN_PLAYER_WAIT_SECONDS = 20.0
+# How long the startup resume keeps asking a broker that is away for the stored player sessions
+# before giving up on them. The broker client already rides out a refused connection for a minute
+# and the startup peer wait holds for two more, so this only matters when the broker is down
+# longer than both: a node roll where its pod is still pulling an image (3.5 minutes on
+# 2026-10-28, answering about 7 minutes after the gateway came up). Bounded so a broker that is
+# gone for good ends in an error instead of a task that waits forever.
+RESUME_BROKER_WAIT_SECONDS = 900.0
+RESUME_BROKER_POLL_SECONDS = 10.0
 
 # Background-loop names. Used as both the LoopHealth registry key and the
 # heartbeat gauge's background_job attribute, so the metric series and the health
@@ -708,7 +716,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         One-shot, run after the gateway is ready so guild/channel lookups resolve.
         '''
         await self.bot.wait_until_ready()
-        sessions = await self.broker_client.list_player_sessions()
+        sessions = await self._list_player_sessions_when_broker_up()
         self.logger.info(f'Found {len(sessions)} player session(s) to consider resuming')
         for session in sessions:
             try:
@@ -716,6 +724,33 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             except Exception as e:  #pylint:disable=broad-except
                 # One guild's bad session must not stop the others from resuming.
                 self.logger.exception(f'Error resuming player session for guild {session.guild_id}: {e}')
+
+    async def _list_player_sessions_when_broker_up(self) -> list[PlayerSession]:
+        '''
+        Fetch the stored player sessions, waiting out a broker that is away.
+
+        Resume runs once at startup, so a broker that is unreachable at that moment would
+        otherwise end the task for the life of the pod: nothing is resumed, and the sessions
+        sit in the broker until the next restart. Only an unreachable peer is retried (see
+        is_peer_unavailable); any other error is a real fault and propagates at once. Gives up,
+        loudly, after RESUME_BROKER_WAIT_SECONDS.
+        '''
+        deadline = time() + RESUME_BROKER_WAIT_SECONDS
+        attempts = 0
+        while True:
+            attempts += 1
+            try:
+                return await self.broker_client.list_player_sessions()
+            except Exception as error:
+                if is_peer_unavailable(error) and time() < deadline:
+                    self.logger.warning(f'Broker unavailable (attempt {attempts}), will retry resuming player '
+                                        f'sessions: {type(error).__name__}: {error}')
+                    await sleep(RESUME_BROKER_POLL_SECONDS)
+                    continue
+                if is_peer_unavailable(error):
+                    self.logger.error(f'Broker still unavailable after {RESUME_BROKER_WAIT_SECONDS:.0f}s, '
+                                      'not resuming player sessions; they stay stored for the next start')
+                raise
 
     async def _abandon_guild_state(self, guild_id: int) -> None:
         '''
