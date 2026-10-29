@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.9.4] - 2026-10-29
+
+### Changed
+
+- Bump the `discord_core` pin to core-v3.14.1: no behavior change for this pod. The release changes the Redis pods' health endpoint, which this pod does not use; the pin moves with the other six (tests/cli/test_package_pins.py requires them to agree).
+
 ## [3.9.3] - 2026-10-29
 
 ### Changed

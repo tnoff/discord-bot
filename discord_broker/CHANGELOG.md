@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.14] - 2026-10-29
+
+### Changed
+
+- Bump the `discord_core` pin to core-v3.14.1: `/health` on this pod no longer pings Redis, so a Redis outage longer than roughly 60 to 90 seconds no longer fails three liveness probes in a row and restarts the pod for a fault a restart cannot fix. Liveness still fails for a stalled background loop (staleness window, 300 s by default), so a much longer outage can still restart it. The Redis `PING` moved to `/ready`, which nothing in Kubernetes probes today.
+
 ## [3.5.13] - 2026-10-29
 
 ### Changed
