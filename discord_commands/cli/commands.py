@@ -51,6 +51,7 @@ from discord_commands.loop_logic.music_results import MusicResultsLoop
 from discord_commands.servers.commands_health_server import CommandsHealthServer
 from discord_commands.servers.commands_server import CommandsHttpServer
 from discord_commands.workers.command_executor import CommandExecutor
+from discord_commands.workers.guild_teardown import GuildTeardown
 from discord_commands.workers.result_loops import ResultLoops
 
 
@@ -62,7 +63,8 @@ def main(config_file):
     run(settings, general_config)
 
 
-async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, health_server=None,
+async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, teardown: GuildTeardown,
+                    health_server=None,
                     dispatcher: HttpDispatchClient | None = None,
                     closers: list[Callable[[], Awaitable]] | None = None,
                     download_client: HttpDownloadClient | None = None,
@@ -70,6 +72,8 @@ async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, 
     '''
     Serve until SIGTERM/SIGINT, then drain the HTTP server, stop the executor and close the clients.
 
+    teardown : stopped after the HTTP server has drained, so no teardown is accepted after it stops,
+        and before the clients it uses close.
     closers : each client's close (or stop), awaited in order after the executor.
     download_client : started here, in the first async context, for the status poller that its
         queue_size reads from.
@@ -98,6 +102,7 @@ async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, 
         logger.info('Main :: Draining commands server...')
         await http_server.drain_and_stop()
         await executor.close()
+        await teardown.close()
         # After the executor: a command still running needs the dispatcher to send its reply.
         if dispatcher:
             await dispatcher.close()
@@ -166,10 +171,11 @@ def run(settings: dict, general_config: GeneralConfig):
                                    message_delete_after, enqueuer, playlist)
     executor = CommandExecutor(build_handlers(reply, logger, markov_store, markov_reject_list,
                                               playlist, music_commands))
+    teardown = GuildTeardown(download_client, youtube_music_search_client, broker_client, enqueuer, logger)
     cfg = settings.get('general', {}).get('commands_server', {})
     # bandit B104: '0.0.0.0' default is intentional — the gateway reaches this pod across the docker/k8s network; override via commands_server.host config
     http_server = CommandsHttpServer(
-        executor,
+        executor, teardown,
         host=cfg.get('host', '0.0.0.0'),  # nosec B104
         port=int(cfg.get('port', 8086)),
     )
@@ -184,7 +190,7 @@ def run(settings: dict, general_config: GeneralConfig):
 
     closers = [markov_store.close, playlist_store.close, analytics_store.close, broker_client.close,
                download_client.stop, youtube_music_search_client.close, media_search_client.close]
-    run_loop(main_loop(http_server, executor, health_server=health_server, dispatcher=dispatcher,
+    run_loop(main_loop(http_server, executor, teardown, health_server=health_server, dispatcher=dispatcher,
                        closers=closers, download_client=download_client, result_loops=result_loops))
 
 

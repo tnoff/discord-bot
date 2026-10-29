@@ -269,6 +269,4 @@ def module_prefixes_for(kind: str, name: str | None = None) -> tuple:
 SHIPS_AHEAD_OF_CONSUMER = frozenset({
     'discord_core.clients.http_commands_client',
     'discord_core.interfaces.commands_client',
-    'discord_core.routes.guild_teardown',
-    'discord_core.types.guild_teardown',
 })

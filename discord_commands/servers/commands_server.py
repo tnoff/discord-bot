@@ -2,7 +2,8 @@
 HTTP server for the commands pod: the gateway's way to hand it a parsed command.
 Schedule with asyncio.create_task(server.serve()).
 
-    POST /commands/{command}  -> 202 {status, duplicate}
+    POST /commands/{command}          -> 202 {status, duplicate}
+    POST /guilds/{guild_id}/teardown  -> 202 {status}
 
 202 means the pod has queued the command on its guild's FIFO, not that it has run. The reply to the
 user goes through the dispatcher. Bodies are validated here and nowhere else:
@@ -11,6 +12,8 @@ user goes through the dispatcher. Bodies are validated here and nowhere else:
   command's model. It is the sender's bug, and the client does not retry a 4xx.
 - 501 for a command the contract knows but this build has no handler for. A 5xx, so a gateway
   rolled ahead of this pod gets "commands unavailable" and not a silently dropped command.
+
+The teardown route is served from guild_teardown_handlers.py.
 '''
 import logging
 
@@ -23,24 +26,28 @@ from discord_core.servers.base import AiohttpServerBase
 from discord_core.types.command_wire import CommandAcceptedResponse, CommandRequestBody, parse_args
 from discord_core.utils.otel import otel_span_wrapper
 
+from discord_commands.servers.guild_teardown_handlers import GuildTeardownHandlersMixin
 from discord_commands.workers.command_executor import CommandExecutor
+from discord_commands.workers.guild_teardown import GuildTeardown
 
 logger = logging.getLogger(__name__)
 
 
-class CommandsHttpServer(AiohttpServerBase):
-    '''aiohttp server in front of a CommandExecutor.'''
+class CommandsHttpServer(GuildTeardownHandlersMixin, AiohttpServerBase):
+    '''aiohttp server in front of a CommandExecutor and a GuildTeardown.'''
 
     # bandit B104: '0.0.0.0' default is intentional — the gateway reaches this pod across the docker/k8s network; callers override host via constructor arg
-    def __init__(self, executor: CommandExecutor, host: str = '0.0.0.0', port: int = 8086):  # nosec B104
+    def __init__(self, executor: CommandExecutor, teardown: GuildTeardown, host: str = '0.0.0.0', port: int = 8086):  # nosec B104
         super().__init__()
         self._executor = executor
+        self._teardown = teardown
         self._host = host
         self._port = port
 
     def route_handlers(self) -> dict:
         '''Map every route on the commands seam to the handler that serves it.'''
-        return {command_routes.FORWARD_COMMAND: self._handle_forward}
+        return {command_routes.FORWARD_COMMAND: self._handle_forward,
+                **self.guild_teardown_handlers()}
 
     def build_app(self) -> web.Application:
         '''Build and return the aiohttp Application. Exposed for testing.'''

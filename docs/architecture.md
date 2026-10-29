@@ -280,6 +280,18 @@ the pod lets an iteration in flight finish before it cancels the loops. Their
 heartbeat series (`process_search_results`, `process_download_results`) are
 published by `discord-commands`, not the gateway.
 
+The pod also does a guild's **teardown** (`discord_commands/workers/guild_teardown.py`),
+so the gateway need not reach the downloader or the search pod. When a guild's
+player goes away the gateway's `cleanup()` calls
+`POST /guilds/{guild_id}/teardown`, which answers 202 once the pod has taken the
+job. The pod then clears the guild's queued downloads and searches, marks each
+dropped request `DISCARDED`, blocks both queues for the guild and deletes its
+bundles, keeping those of playlist adds still queued. It runs outside the
+guild's command FIFO, so a `play` still enqueuing does not hold it up. The
+gateway tries twice; if the pod stays unreachable it logs a warning and goes on
+(queued work is then left to the result loop, bundles to their 24h TTL). A bot
+restart skips the teardown: the queues are parked, not drained.
+
 Because the executor runs a guild's commands one at a time, a `play` that is
 still searching a large playlist holds up that guild's next command (a
 `skip`, say) until it finishes enqueuing.

@@ -46,9 +46,11 @@ def test_run_builds_the_server_on_the_configured_port(run_loop):
     settings = settings_with()
     settings['general'] = {**GENERAL, 'commands_server': {'host': '127.0.0.1', 'port': 9999}}
     commands_cli.run(settings, general_config())
-    (http_server, executor), kwargs = run_loop.call_args.args[0]
+    (http_server, executor, teardown), kwargs = run_loop.call_args.args[0]
     assert (http_server._host, http_server._port) == ('127.0.0.1', 9999)  # pylint: disable=protected-access
     assert http_server._executor is executor  # pylint: disable=protected-access
+    assert http_server._teardown is teardown  # pylint: disable=protected-access
+    assert teardown.download_client is kwargs['download_client']
     assert kwargs['health_server'] is None
     assert kwargs['dispatcher']._base_url == DISPATCH_URL  # pylint: disable=protected-access
     assert len(kwargs['closers']) == 7
@@ -117,7 +119,7 @@ def test_run_requires_the_music_peers(run_loop, client):
 
 def test_run_defaults_to_all_interfaces_on_8086(run_loop):
     commands_cli.run(settings_with(), general_config())
-    (http_server, _), _ = run_loop.call_args.args[0]
+    (http_server, _, _), _ = run_loop.call_args.args[0]
     assert (http_server._host, http_server._port) == ('0.0.0.0', 8086)  # pylint: disable=protected-access
 
 
@@ -143,6 +145,8 @@ async def test_main_loop_serves_until_stopped_then_drains_before_closing_the_exe
     http_server.drain_and_stop = AsyncMock(side_effect=lambda: order.append('drain'))
     executor = MagicMock()
     executor.close = AsyncMock(side_effect=lambda: order.append('close'))
+    teardown = MagicMock()
+    teardown.close = AsyncMock(side_effect=lambda: order.append('teardown'))
     health_server = MagicMock()
     health_server.serve = AsyncMock(side_effect=lambda: order.append('health'))
     dispatcher = MagicMock()
@@ -160,13 +164,13 @@ async def test_main_loop_serves_until_stopped_then_drains_before_closing_the_exe
         order.append('playlist')
 
     loop_task = asyncio.create_task(commands_cli.main_loop(
-        http_server, executor, health_server, dispatcher, [close_store, close_playlist], download_client,
+        http_server, executor, teardown, health_server, dispatcher, [close_store, close_playlist], download_client,
         result_loops))
     await asyncio.sleep(0.01)
     assert not loop_task.done()
     stop_event.set()
     await loop_task
-    assert order[-5:] == ['drain', 'close', 'dispatcher', 'store', 'playlist']
+    assert order[-6:] == ['drain', 'close', 'teardown', 'dispatcher', 'store', 'playlist']
     assert {'serve', 'health', 'seams', 'download-start'} <= set(order)
     assert order.index('seams') < order.index('download-start')
     # The loops start once the clients they use are up, and stop first: a popped result is not
@@ -191,9 +195,12 @@ async def test_main_loop_runs_without_a_health_server(mocker):
     http_server.drain_and_stop = AsyncMock()
     executor = MagicMock()
     executor.close = AsyncMock()
-    await commands_cli.main_loop(http_server, executor)
+    teardown = MagicMock()
+    teardown.close = AsyncMock()
+    await commands_cli.main_loop(http_server, executor, teardown)
     http_server.drain_and_stop.assert_awaited_once()
     executor.close.assert_awaited_once()
+    teardown.close.assert_awaited_once()
 
 
 def test_main_reads_the_config_file_and_runs(mocker):

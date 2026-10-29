@@ -24,8 +24,8 @@ see — name, description, unit, and which pod.
 |---|---|---|---|---|
 | `broker_bundles` | Active multi-request bundles tracked by the broker | `1` | broker | `discord_broker/workers/broker_metrics.py:81` |
 | `broker_entries` | Broker registry entries by zone | `1` | broker | `discord_broker/workers/broker_metrics.py:78` |
-| `cache_filesystem_max_bytes` | Max size of cache filesystem | `bytes` | gateway | `discord_gateway/cogs/music.py:388` |
-| `cache_filesystem_used_bytes` | Used size of cache filesystem | `bytes` | gateway | `discord_gateway/cogs/music.py:389` |
+| `cache_filesystem_max_bytes` | Max size of cache filesystem | `bytes` | gateway | `discord_gateway/cogs/music.py:392` |
+| `cache_filesystem_used_bytes` | Used size of cache filesystem | `bytes` | gateway | `discord_gateway/cogs/music.py:393` |
 | `heartbeat` | Broker HTTP server heartbeat | `1` | broker | `discord_broker/servers/broker_server.py:100` |
 | `heartbeat` | Broker history worker heartbeat | `1` | broker | `discord_broker/workers/history_worker.py:75` |
 | `heartbeat` | Delete message loop heartbeat | `1` | gateway | `discord_gateway/cogs/delete_messages.py:57` |
@@ -46,7 +46,7 @@ see — name, description, unit, and which pod.
 | `result_queue_depth` | Markov dispatch result queue depth | `1` | gateway | `discord_gateway/cogs/markov.py:87` |
 | `result_queue_depth` | Pending results on the broker bot-ready queues, by result type | `1` | broker | `discord_broker/workers/broker_metrics.py:75` |
 | `seam_contract_breach` | 1 when a peer has been missing a called route longer than the grace window | `1` | core (shared) | `discord_core/clients/seam_contract.py:307` |
-| `voice_sessions` | Voice sessions, by what counted them | `1` | gateway | `discord_gateway/cogs/music.py:384` |
+| `voice_sessions` | Voice sessions, by what counted them | `1` | gateway | `discord_gateway/cogs/music.py:388` |
 
 <!-- END GENERATED(metric-census) -->
 
@@ -65,7 +65,7 @@ gap in the resolver: see `tests/cli/_otel_resolve.py`.
 |---|---|---|
 | `discord_commands/workers/result_loops.py:94` | description not statically determinable | `description` |
 | `discord_core/cli/_lib/worker_pod.py:132` | description not statically determinable | `f'{pod_label} consumer loop heartbeat'` |
-| `discord_gateway/cogs/music.py:400` | description not statically determinable | `description` |
+| `discord_gateway/cogs/music.py:404` | description not statically determinable | `description` |
 
 <!-- END GENERATED(metric-exempt-appendix) -->
 
