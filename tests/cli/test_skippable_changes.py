@@ -28,14 +28,17 @@ from tests.cli._skippable_changes import (DOC_DIRS_READ_BY_TESTS, DOCS_READ_BY_T
     # Nothing changed: run everything rather than assume it is safe.
     ([], Skippable(everything=False, tests=False)),
     # The original rule, unchanged: these two skip every job.
-    (['catalog-info.yaml'], Skippable(everything=True, tests=True)),
-    (['renovate.json', 'catalog-info.yaml'], Skippable(everything=True, tests=True)),
+    (['renovate.json'], Skippable(everything=True, tests=True)),
+    # catalog-info.yaml is read by tests/test_catalog_apis.py, so it runs everything.
+    (['catalog-info.yaml'], Skippable(everything=False, tests=False)),
+    (['renovate.json', 'catalog-info.yaml'], Skippable(everything=False, tests=False)),
     # Prose no test reads skips tox, but not the cheap checks.
     (['docs/guide.md'], Skippable(everything=False, tests=True)),
     (['docs/images/basic_play.png'], Skippable(everything=False, tests=True)),
     (['docs/music/media_broker.md', 'docs/monitoring/loop_health.md'], Skippable(everything=False, tests=True)),
     (['README.md', 'AGENTS.md', 'LICENSE'], Skippable(everything=False, tests=True)),
-    (['docs/guide.md', 'catalog-info.yaml'], Skippable(everything=False, tests=True)),
+    (['docs/guide.md', 'renovate.json'], Skippable(everything=False, tests=True)),
+    (['docs/guide.md', 'catalog-info.yaml'], Skippable(everything=False, tests=False)),
     # Docs a test compares against the code are inputs, not prose.
     (['docs/architecture.md'], Skippable(everything=False, tests=False)),
     (['docs/configuration.md'], Skippable(everything=False, tests=False)),
@@ -140,6 +143,7 @@ def _repo(tmp_path, monkeypatch):
     (tmp_path / 'discord_core').mkdir()
     (tmp_path / 'discord_core' / 'module.py').write_text('X = 1\n' * 20, encoding='utf-8')
     (tmp_path / 'catalog-info.yaml').write_text('kind: Component\n', encoding='utf-8')
+    (tmp_path / 'renovate.json').write_text('{ }\n', encoding='utf-8')
     _commit(tmp_path, 'base')
     return tmp_path, _head(tmp_path)
 
@@ -160,13 +164,23 @@ def test_main_skips_tests_for_a_docs_only_change(repo, capsys):
 
 
 def test_main_skips_everything_for_a_metadata_only_change(repo, capsys):
-    '''The original rule still holds.'''
+    '''The original rule still holds, for the one file left in it.'''
+    tmp_path, base = repo
+    (tmp_path / 'renovate.json').write_text('{}\n', encoding='utf-8')
+    _commit(tmp_path, 'renovate config only')
+
+    assert main(['--base', base]) == 0
+    assert _outputs(capsys) == ['only=true', 'tests_skippable=true']
+
+
+def test_main_runs_everything_for_a_catalog_only_change(repo, capsys):
+    '''A test reads catalog-info.yaml, so a catalog-only PR must not skip it.'''
     tmp_path, base = repo
     (tmp_path / 'catalog-info.yaml').write_text('kind: Component\nspec: {}\n', encoding='utf-8')
     _commit(tmp_path, 'catalog only')
 
     assert main(['--base', base]) == 0
-    assert _outputs(capsys) == ['only=true', 'tests_skippable=true']
+    assert _outputs(capsys) == ['only=false', 'tests_skippable=false']
 
 
 def test_main_runs_tests_when_code_changes_with_docs(repo, capsys):
@@ -338,6 +352,15 @@ def test_the_scan_finds_the_reads_it_is_here_to_protect():
 def test_no_test_reads_a_file_that_skips_tox():
     '''Add a doc a test reads to DOCS_READ_BY_TESTS (or its directory to
     DOC_DIRS_READ_BY_TESTS) in tests/cli/_skippable_changes.py, or CI will skip the
-    test that checks it whenever only that file changes.'''
-    unprotected = sorted(path for path in _paths_built_from_repo_root() if is_documentation(_probe(path)))
+    test that checks it whenever only that file changes. A file in METADATA_ONLY skips
+    everything, so no test may read one of those either.'''
+    unprotected = sorted(path for path in _paths_built_from_repo_root()
+                         if is_documentation(_probe(path)) or path in METADATA_ONLY)
     assert not unprotected, f'tests read files that skip tox: {unprotected}'
+
+
+def test_the_scan_would_have_caught_the_catalog():
+    '''catalog-info.yaml was exempt while tests/test_catalog_apis.py read it. Put it back in the set
+    and the guard must fail, which is the point of scanning for it.'''
+    assert 'catalog-info.yaml' in _paths_built_from_repo_root()
+    assert 'catalog-info.yaml' not in METADATA_ONLY

@@ -147,7 +147,7 @@ diff and skips work a change cannot affect:
 
 | The PR changes only | Skipped |
 |---|---|
-| `catalog-info.yaml`, `renovate.json` | everything |
+| `renovate.json` | everything |
 | the above, root prose (`README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `DEVELOPMENT.md`, `CHANGELOG.md`, `LICENSE`) or `docs/` | the tox matrix |
 
 A docs-only PR still runs the secret scan, the version and pin checks and the
