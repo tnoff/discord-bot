@@ -19,7 +19,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
-from discord_core.types.download import LifecycleEvent
 from discord_core.types.media_download import MediaDownload
 from discord_core.utils.common import (is_peer_unavailable, rm_tree,
                                       return_loop_runner,
@@ -35,6 +34,7 @@ from discord_core.interfaces.download_client_protocol import (
     DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
 )
 from discord_core.interfaces.broker_client_protocol import BrokerClient
+from discord_core.interfaces.commands_client import CommandsUnavailable
 from discord_core.types.player_session import PlayerSession
 from discord_core.clients.dispatch_client_base import DispatchClientBase
 from discord_core.utils.media_enqueuer import MediaEnqueuer
@@ -213,6 +213,10 @@ _IDLE_POLL_BACKOFF_SECONDS = 0.25
 # How often the gateway asks the broker for work other pods want done (join, stop, wake). Short, because
 # a join waits on it and a wake is only as prompt as this; an empty answer is a cheap 204.
 _INTENT_POLL_INTERVAL_SECONDS = 0.25
+# One retry, after a short wait: a pod mid-restart is back in a second or two, and the voice
+# disconnect and the player's cleanup are waiting behind this.
+_TEARDOWN_ATTEMPTS = 2
+_TEARDOWN_RETRY_DELAY_SECONDS = 1.0
 # How long a restarted gateway waits for the previous one's now-playing record to lapse before
 # taking over a guild anyway. The broker expires the record 15s after the last heartbeat.
 FOREIGN_PLAYER_WAIT_SECONDS = 20.0
@@ -909,56 +913,23 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 except Exception as e:
                     self.logger.warning(f'Error disconnecting voice client for guild {guild.id}: {e}')
 
-            # Block download queue for later
-            # Clear queues before blocking: the worker's clear_queue restores
-            # preserved items via put_nowait, which raises once the queue is blocked,
-            # so block-first is not an option here (holds for the Redis worker too,
-            # whose clear leaves preserved items in place). The clear/block calls are
-            # now async, so this runs during guild teardown (shutdown/disconnect) when
-            # the submit loops are already winding down — the narrow post-clear window
-            # is acceptable for a guild being torn down.
-            # We also record any bundle uuids belonging to preserved (playlist-add)
-            # items so we can skip deleting those bundles below — their requests
-            # are still in flight and will keep updating the broker bundle UI.
+            # The guild's queued downloads and searches are the commands pod's to clear and block,
+            # and it deletes the guild's bundles with them; see _request_guild_teardown.
             #
             # None of this runs on BOT_SHUTDOWN: the queues are parked instead of
             # drained. Clearing a queue drops the request from Redis, but its broker
             # registry entry only leaves the in_flight zone when the follow-up
-            # DISCARDED push below deletes it — and that loop is one round-trip per
+            # DISCARDED push deletes it — and that loop is one round-trip per
             # item, so a SIGKILL part-way through (the pod runs a short grace period)
             # strands every remaining entry, plus the bundle holding them, until the
             # 24h TTL. Parking costs nothing: the downloader and search tiers outlive
             # this pod, work the backlog, and every request reaches a terminal state
             # that reaps its own entry, while the media lands in the shared cache so
-            # a re-request after the restart is a cache hit.
-            preserved_bundle_uuids: set[str] = set()
+            # a re-request after the restart is a cache hit. The bundles stay for the
+            # same reason: each keeps rendering real progress and releases itself once
+            # its requests go terminal.
             if reason != CleanupReason.BOT_SHUTDOWN:
-                def preserve_predicate(req):
-                    keep = not req.download_file
-                    if keep and req.bundle_uuid:
-                        preserved_bundle_uuids.add(req.bundle_uuid)
-                    return keep
-
-                clear_result = await self.download_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
-                # The predicate runs on the downloader pod, so the closure above
-                # never sees the preserved items — union the pod-reported bundle_uuids
-                # so their bundles are skipped below.
-                preserved_bundle_uuids |= clear_result.preserved_bundle_uuids
-                self.logger.debug(f'Cleanup found {len(clear_result.dropped)} existing download items')
-                for item in clear_result.dropped:
-                    await self.enqueue_logic.push_state(item, LifecycleEvent.DISCARDED)
-
-                search_clear_result = await self.youtube_music_search_client.clear_guild_queue(guild.id, preserve_predicate=preserve_predicate)
-                # Playlist-adds queue for search before they queue for download, so the
-                # search side preserves bundles too — and its predicate also runs
-                # on the search pod, out of reach of the closure above.
-                preserved_bundle_uuids |= search_clear_result.preserved_bundle_uuids
-                self.logger.debug(f'Cleanup found {len(search_clear_result.dropped)} existing search queue items')
-                for item in search_clear_result.dropped:
-                    await self.enqueue_logic.push_state(item, LifecycleEvent.DISCARDED)
-
-                await self.download_client.block_guild(guild.id)
-                await self.youtube_music_search_client.block_guild(guild.id)
+                await self._request_guild_teardown(guild.id)
 
             player = None
             # Clear play queue if that didnt happen
@@ -978,31 +949,32 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 released = await self.broker_client.close_guild(guild.id)
                 self.logger.info(f'Closed broker state for guild {guild.id}, released {released} entr(ies)')
 
-            # Tear down broker-owned bundles for this guild.  Skip bundles whose
-            # playlist-add items survived the queue clear — those will continue
-            # to render updates on their own and the cog will release the bundle
-            # when those items reach a terminal state.
-            #
-            # Skipped entirely on BOT_SHUTDOWN, for the same reason the queues are
-            # parked above: the backlog those bundles track is still being worked by
-            # the downloader and search tiers, so each bundle keeps rendering real
-            # progress and releases itself once its requests go terminal.  Deleting
-            # them here would drop a live progress UI on the floor, and doing it
-            # after the O(queue) work above is what made bundle teardown the first
-            # casualty of the grace period.
-            if reason != CleanupReason.BOT_SHUTDOWN:
-                guild_bundles = await self.broker_client.list_bundles_for_guild(guild.id)
-                for bundle_uuid in guild_bundles:
-                    if bundle_uuid in preserved_bundle_uuids:
-                        self.logger.debug(f'Skipping delete of bundle {bundle_uuid} — has active playlist-add requests')
-                        continue
-                    await self.broker_client.delete_bundle(bundle_uuid)
-
             if reason != CleanupReason.BOT_SHUTDOWN:
                 self.logger.debug(f'Deleting player dir for guild {guild.id}')
                 guild_player_path = self.player_dir / f'{guild.id}'
                 if guild_player_path.exists():
                     rm_tree(guild_player_path)
+
+    async def _request_guild_teardown(self, guild_id: int) -> None:
+        '''
+        Ask the commands pod to clear the guild's queued downloads and searches, block new ones for
+        a moment, and take down the guild's bundles.
+
+        Tried twice. If the pod cannot be reached the guild is left as it is and cleanup goes on:
+        its queued work runs until the result loop finds no player and discards it, its bundles
+        last until their 24h TTL, and nothing is blocked. That is better than holding up the
+        voice disconnect and the player's own cleanup behind a pod that is down.
+        '''
+        for attempt in range(1, _TEARDOWN_ATTEMPTS + 1):
+            try:
+                await self.commands_client.teardown_guild(guild_id)
+                return
+            except CommandsUnavailable as error:
+                self.logger.warning(f'Teardown request for guild {guild_id} failed '
+                                    f'(attempt {attempt}/{_TEARDOWN_ATTEMPTS}): {error}')
+                if attempt < _TEARDOWN_ATTEMPTS:
+                    await sleep(_TEARDOWN_RETRY_DELAY_SECONDS)
+        self.logger.warning(f'Commands pod unreachable, queued work for guild {guild_id} is not cleared')
 
     async def get_player(self, guild_id: int,
                          join_channel = None,

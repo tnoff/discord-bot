@@ -20,3 +20,15 @@ paths:
         required: true
         schema:
           type: string
+  /guilds/{guild_id}/teardown:
+    post:
+      operationId: post-guilds-by-guild_id-teardown
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+      parameters:
+      - name: guild_id
+        in: path
+        required: true
+        schema:
+          type: string

@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+from unittest.mock import MagicMock
 
 import aiohttp
 import pytest
@@ -9,6 +10,7 @@ from discord_core.clients import http_commands_client
 from discord_core.clients.http_commands_client import HttpCommandsClient
 from discord_core.interfaces.commands_client import CommandsUnavailable
 from discord_core.routes import commands as command_routes
+from discord_core.routes import guild_teardown
 from discord_core.types.command_args import PlayArgs
 from discord_core.types.command_envelope import CommandEnvelope
 from discord_core.utils.circuit_breaker import CircuitBreaker
@@ -21,10 +23,10 @@ ENVELOPE = CommandEnvelope(guild_id=1, channel_id=2, author_id=3, author_display
 
 
 @contextlib.asynccontextmanager
-async def served(handlers):
+async def served(handlers, teardown=None):
     '''A real server over a real executor, and a client pointed at it.'''
     executor = CommandExecutor(handlers)
-    commands_server = CommandsHttpServer(executor)
+    commands_server = CommandsHttpServer(executor, teardown or MagicMock())
     async with TestServer(commands_server.build_app()) as server:
         async with aiohttp.ClientSession() as session:
             yield (executor, server, session,
@@ -39,11 +41,12 @@ def fresh_breaker(monkeypatch):
 
 
 def test_it_serves_exactly_the_routes_in_the_registry():
-    app = CommandsHttpServer(CommandExecutor({})).build_app()
+    app = CommandsHttpServer(CommandExecutor({}), MagicMock()).build_app()
     served_routes = {(r.method, r.resource.canonical) for r in app.router.routes()
                      if r.method not in ('HEAD',) and r.resource.canonical != '/_contract'}
     assert {('POST', route.template) for route in command_routes.ALL} <= served_routes
-    assert set(CommandsHttpServer(CommandExecutor({})).route_handlers()) == set(command_routes.ALL)
+    handlers = CommandsHttpServer(CommandExecutor({}), MagicMock()).route_handlers()
+    assert set(handlers) == set(command_routes.ALL) | set(guild_teardown.ALL)
 
 
 @pytest.mark.asyncio
@@ -125,3 +128,41 @@ async def test_a_draining_server_refuses_new_commands():
         commands_server.start_draining()
         status = await _post(session, server, '/commands/skip', body)
     assert status == 503
+
+
+@pytest.mark.asyncio
+async def test_the_client_and_server_agree_on_a_teardown():
+    teardown = MagicMock()
+    async with served({}, teardown) as (_, _, _, client, _):
+        reply = await client.teardown_guild(42)
+    assert reply.status == 'ok'
+    teardown.submit.assert_called_once_with(42)
+
+
+@pytest.mark.asyncio
+async def test_a_teardown_is_accepted_when_one_is_already_running():
+    """The job is idempotent, so the caller is told the same thing either way."""
+    teardown = MagicMock()
+    teardown.submit.return_value = False
+    async with served({}, teardown) as (_, _, _, client, _):
+        reply = await client.teardown_guild(42)
+    assert reply.status == 'ok'
+
+
+@pytest.mark.asyncio
+async def test_a_teardown_for_a_guild_id_that_is_not_a_number_is_a_422():
+    teardown = MagicMock()
+    async with served({}, teardown) as (_, server, session, _, _):
+        status = await _post(session, server, '/guilds/not-a-number/teardown', {})
+    assert status == 422
+    teardown.submit.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_draining_server_refuses_a_teardown():
+    teardown = MagicMock()
+    async with served({}, teardown) as (_, server, session, _, commands_server):
+        commands_server.start_draining()
+        status = await _post(session, server, '/guilds/42/teardown', {})
+    assert status == 503
+    teardown.submit.assert_not_called()

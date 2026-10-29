@@ -14,6 +14,7 @@ from discord_core.utils.common import is_peer_unavailable
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import loop_heartbeat_observations
 from discord_core.clients.http_broker_client import HttpBrokerClient
+from discord_core.clients.http_commands_client import HttpCommandsClient
 from discord_core.clients.http_download_client import HttpDownloadClient
 from discord_core.clients.http_media_search_client import HttpMediaSearchClient
 from discord_core.clients.http_youtube_music_search_client import HttpYoutubeMusicSearchClient
@@ -25,7 +26,6 @@ from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 
 from discord_gateway.types.cleanup_reason import CleanupReason
 from discord_gateway.utils.bot_metrics import BotMetricNaming
-from discord_downloader.interfaces.download_protocols import ClearGuildResult
 
 from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
 from tests.fakes.asyncio_download_client import AsyncioDownloadClient
@@ -93,6 +93,12 @@ def music_config(*overrides: dict) -> dict:
             else:
                 merged[key] = value
     return merged
+
+@pytest.fixture(autouse=True)
+def fixture_teardown_guild(mocker):
+    '''The commands pod, which cleanup asks to clear the guild's queued work.'''
+    return mocker.patch.object(HttpCommandsClient, 'teardown_guild', new_callable=AsyncMock)
+
 
 @pytest.mark.asyncio
 async def test_guild_cleanup(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
@@ -1098,47 +1104,6 @@ async def test_voice_client_cleanup_when_player_does_not_exist(fake_context, moc
     assert fake_context['guild'].id not in cog.players
 
 @pytest.mark.asyncio
-async def test_voice_client_cleanup_player_not_exist_with_bundles(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """Test that cleanup tears down broker bundles when player doesn't exist"""
-    dispatcher = Mock()
-    # The broker captures the dispatcher at construction time, so pass the spy in.
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, dispatcher)
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    attach_in_process_search(cog)
-    mocker.patch('discord_gateway.cogs.music.sleep')
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-
-    # Create a mock voice client
-    mock_voice_client = mocker.MagicMock()
-    mock_voice_client.cleanup = mocker.MagicMock()
-    mock_voice_client.disconnect = mocker.AsyncMock()
-
-    fake_context['guild'].voice_client = mock_voice_client
-
-    # Create a real broker-owned bundle for this guild
-    bundle_uuid = await cog.broker_client.create_bundle(
-        fake_context['guild'].id, fake_context['channel'].id,
-        input_string='test playlist', has_search_banner=True,
-    )
-    assert bundle_uuid in await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id)
-
-    # Call cleanup - should not raise exception even though player doesn't exist
-    await cog.cleanup(fake_context['guild'])
-
-    # Bundle is gone from the broker
-    assert bundle_uuid not in await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id)
-
-    # delete_bundle drops the bundle's mutable Discord message via the dispatcher
-    remove_calls = [call for call in dispatcher.remove_mutable.call_args_list
-                    if bundle_uuid in str(call)]
-    assert remove_calls
-
-    # Verify voice client was disconnected (manual cleanup() is no longer called)
-    mock_voice_client.disconnect.assert_awaited_once()
-    mock_voice_client.cleanup.assert_not_called()
-
-@pytest.mark.asyncio
 async def test_voice_client_cleanup_player_removed_externally(fake_context, mocker):  #pylint:disable=redefined-outer-name
     """Test cleanup when player was already removed from cog.players"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
@@ -1513,39 +1478,6 @@ async def test_cog_unload_stops_search_client_in_ha(fake_context, mocker):  #pyl
     cog.players = {}
     await cog.cog_unload()
     cog.youtube_music_search_client.stop.assert_awaited_once()
-
-@pytest.mark.asyncio
-async def test_cleanup_ha_skips_preserved_bundles(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """The HA reconciliation: even though the cog's local predicate never sees the
-    preserved items (they stay on the downloader pod), the bundle_uuids the pod
-    reports via clear_guild_queue are unioned in, so their bundles are NOT deleted."""
-    mocker.patch('discord_gateway.cogs.music.rm_tree')
-    config = music_config({
-        'music': {'download_client': {'url': 'http://downloader-host:8083'}}
-    })
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    guild = Mock()
-    guild.id = 4242
-    # Downloader pod ran the predicate and preserved 'keep-bundle'; the cog never
-    # saw those items locally, so only the pod-reported set carries it.
-    cog.download_client = Mock()
-    cog.download_client.clear_guild_queue = AsyncMock(
-        return_value=ClearGuildResult(dropped=[], preserved_bundle_uuids={'keep-bundle'}))
-    cog.download_client.block_guild = AsyncMock()
-    cog.youtube_music_search_client = Mock()
-    cog.youtube_music_search_client.clear_guild_queue = AsyncMock(
-        return_value=ClearGuildResult(dropped=[]))
-    cog.youtube_music_search_client.block_guild = AsyncMock()
-    cog.broker_client = Mock()
-    cog.broker_client.list_bundles_for_guild = AsyncMock(return_value=['keep-bundle', 'drop-bundle'])
-    cog.broker_client.close_guild = AsyncMock(return_value=0)
-    cog.broker_client.delete_bundle = AsyncMock()
-    cog.players = {}
-    await cog.cleanup(guild, reason=CleanupReason.QUEUE_TIMEOUT)
-    # keep-bundle preserved by the downloader → skipped; drop-bundle deleted.
-    cog.broker_client.delete_bundle.assert_awaited_once_with('drop-bundle')
-
 
 @pytest.mark.asyncio
 async def test_loops_wait_for_the_peer_gate_before_running(fake_context):  #pylint:disable=redefined-outer-name
