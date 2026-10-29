@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.14.0] - 2026-10-29
+
+### Changed
+
+- Add the guild-teardown contract (#1030, gateway cleanup): `routes/guild_teardown.py` (`POST /guilds/{guild_id}/teardown`), `GuildTeardownAccepted`, `CommandsClient.teardown_guild` and `HttpCommandsClient.teardown_guild`. The route is deliberately not in `routes/commands.py`'s `ALL` yet, so the gateway's peer route check does not demand it of a commands pod that predates it; it is folded in once the pod serves it. Nothing calls it yet.
+
 ## [3.13.0] - 2026-10-28
 
 ### Changed
