@@ -77,10 +77,14 @@ Size it to comfortably clear the transients a restart cannot fix:
 |---|---|
 | Rolling deploy skew | ~20 s |
 | Broker pod roll | ~30 s |
-| Redis pod reschedule (single instance) | minutes: 6.5 min on 2026-10-28, while the pod sat unschedulable |
+| Redis pod reschedule (single instance) | about 1 min with a free node (62 s on 2026-10-28); 6.5 min when the pod sat unschedulable |
 
-The 300 s default leaves generous headroom over the first two, but not over a Redis
-reschedule that has to wait for capacity. Widening it makes the
+The 300 s default leaves generous headroom over the first two. The Redis-facing pods
+(dispatcher, broker, downloader, search) do not ping Redis from their liveness probe
+(see [Health Server](health_server.md#redis-backed-pods-discord-dispatcher-discord-broker-discord-downloader-discord-search)),
+so a Redis reschedule that finishes inside the window restarts none of them. One that
+outlasts it does: their loops go stale, and the probe's own `failureThreshold × periodSeconds`
+(3 × 30 s) stacks on top, which is why 6.5 minutes was close. Widening it makes the
 bot more tolerant of long peer outages at the cost of noticing a real wedge
 later; narrowing it does the reverse. Note the probe's own
 `failureThreshold × periodSeconds` stacks on top of this window.

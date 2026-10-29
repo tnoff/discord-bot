@@ -9,7 +9,7 @@ implementations:
 |---|---|---|
 | `discord-gateway` | `HealthServer` (`discord_gateway/servers/health_server.py`) | Discord connection (`is_ready` and not closed) + background-loop health. **No peer probes** |
 | `discord-commands` | `CommandsHealthServer` (`discord_commands/servers/commands_health_server.py`) | The process is serving + background-loop health |
-| `discord-dispatcher`, `discord-broker`, `discord-downloader`, `discord-search` | `RedisPingHealthServer` (`discord_core/servers/redis_health_server.py`, built via `discord_core/cli/_lib/worker_pod.py` for the two worker pods) | Redis ping |
+| `discord-dispatcher`, `discord-broker`, `discord-downloader`, `discord-search` | `RedisPingHealthServer` (`discord_core/servers/redis_health_server.py`, built via `discord_core/cli/_lib/worker_pod.py` for the two worker pods) | Liveness: the process is up and its background loops are making progress, **not** Redis. Readiness: a Redis `PING` |
 | `discord-db` | `DatabasePingHealthServer` (`discord_db/servers/database_health_server.py`) | Database `SELECT 1` (postgres or SQLite) |
 
 ## Bot (gateway) health server
@@ -66,8 +66,7 @@ instead; Kubernetes liveness uses `/health` on 8080.
 ## Redis-backed pods (`discord-dispatcher`, `discord-broker`, `discord-downloader`, `discord-search`)
 
 These four pods share `RedisPingHealthServer` (`discord_core/servers/redis_health_server.py`).
-It checks Redis connectivity — a `PING` — instead of any Discord or HTTP-peer
-state, and is identical across the four; the two worker pods
+It is identical across the four and checks no Discord or HTTP-peer state; the two worker pods
 (`discord-downloader`, `discord-search`) build it via
 `discord_core/cli/_lib/worker_pod.py`'s `build_redis_health_server`, the
 dispatcher and broker build it directly in their own `cli/*.py`.
@@ -83,14 +82,38 @@ general:
       port: 8080
 ```
 
-### Endpoint
+### Endpoints
 
-Same path/port as the bot server.
+Same path and port as the bot server, but the two probes do not run the same check.
 
-| Redis state        | HTTP status | Body                         |
-|--------------------|-------------|------------------------------|
-| Ping succeeds      | `200 OK`    | `{"status": "ok"}`           |
-| Ping raises        | `503 Service Unavailable` | `{"status": "unavailable"}` |
+| Probe | Path | Asks Redis? | 200 when | 503 when |
+|---|---|---|---|---|
+| Liveness | `/health` (and any path that is not a readiness one) | No | always, unless a background loop is stalled | a loop has had no successful iteration inside its staleness window |
+| Readiness | `/ready`, `/readyz`, `/readiness` | Yes, `PING` bounded to 0.8 s | the ping answers | the ping raises or does not answer in time, or a loop is stalled |
+
+**Why liveness does not ask Redis.** Redis being away is something a restart cannot
+fix, and the kubelet restarts a pod after three failed liveness probes (30 s apart on
+these pods). When liveness was the ping, a Redis outage longer than roughly 60 to 90
+seconds restarted the dispatcher, broker, downloader and search pods. On 2026-10-28,
+with Redis down for six minutes, all four were killed by their probes; a 62-second
+reschedule that evening failed two probes on three of them and survived by about three
+seconds. It was not enough to
+ignore the ping's result either: a ping against a Service with no ready endpoints
+hangs rather than refuses, and a probe that times out fails exactly like a 503. So
+liveness never waits on Redis at all.
+
+A long enough outage still restarts them, through the loops: they record an error for
+every failed Redis call, and a loop with no successful iteration for the staleness
+window (300 s by default, see [Background Loop Health](loop_health.md)) fails liveness.
+That is the same wedge detection every other pod has, and it takes about
+`stale_after_seconds` plus three probes.
+
+**Readiness is informational today.** The Services' readiness probes are TCP checks on
+the service ports (the dispatcher's 8082, the broker's 8081, and so on), not `/ready`,
+so a Redis outage does not take these pods out of their Services. Every probe on either
+path is counted on `pod_ready_check`; with liveness no longer pinging, only `/ready`
+requests can report `outcome="unavailable"` for a Redis problem. Alert on `redis_up`
+from the Redis exporter for that.
 
 ## `discord-db` health server
 
