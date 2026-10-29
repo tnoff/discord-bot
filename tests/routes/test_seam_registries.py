@@ -206,9 +206,11 @@ def test_wire_paths_are_unchanged(seam, registry):
     assert actual == EXPECTED_WIRE_PATHS[seam]
 
 
-def test_the_commands_route_is_one_parameterised_post():
-    '''One route for every command, so a new command is not a seam change (routes/commands.py).'''
-    assert [f'{r.method} {r.template}' for r in command_routes.ALL] == ['POST /commands/{command}']
+def test_the_commands_seam_is_one_parameterised_post_and_the_teardown():
+    '''One route for every command, so a new command is not a seam change (routes/commands.py), and
+    the guild teardown the gateway asks of the same pod.'''
+    assert [f'{r.method} {r.template}' for r in command_routes.ALL] == [
+        'POST /commands/{command}', 'POST /guilds/{guild_id}/teardown']
 
 
 def test_database_wire_paths_are_unchanged():

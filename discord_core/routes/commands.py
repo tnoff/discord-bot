@@ -16,8 +16,11 @@ shipped before that, for the deploy-order reason routes/gateway_intents.py recor
 released discord_core, so the symbols went first and the commands pod served them next. The pod
 has served the route since #1116.
 '''
+from discord_core.routes import guild_teardown
 from discord_core.routes.route import Route, collect
 
 FORWARD_COMMAND = Route('POST', '/commands/{command}')
 
-ALL = collect(globals())
+# The teardown route is declared in routes/guild_teardown.py; the commands pod has served it since
+# #1160, so it is part of what the gateway's peer route check demands of the pod.
+ALL = collect(globals()) + guild_teardown.ALL

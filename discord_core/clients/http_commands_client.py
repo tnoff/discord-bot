@@ -1,8 +1,9 @@
 '''
 HTTP client the gateway uses to forward commands to the commands pod (#1030, Phase 2).
 
-Routes are declared in routes/commands.py and are this client's `ROUTES_CALLED`, so the gateway
-checks that the commands pod advertises `POST /commands/{command}` the same way it checks the broker
+Routes are declared in routes/commands.py (the teardown route in routes/guild_teardown.py, which it
+includes) and are this client's `ROUTES_CALLED`, so the gateway checks that the commands pod
+advertises `POST /commands/{command}` and the teardown route the same way it checks the broker
 and dispatcher. The pod has served the route since the skeleton (#1116).
 
 Unlike the broker and dispatch clients this one does not use `HttpClientMixin._http`, because that

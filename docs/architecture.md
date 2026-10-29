@@ -166,7 +166,7 @@ composite app.
 | `discord-commands` | `discord-search` | queue_worker | `/search/ytmusic` | `HttpYoutubeMusicSearchClient` | 4 |
 | `discord-downloader` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
 | `discord-gateway` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
-| `discord-gateway` | `discord-commands` | commands | — | `HttpCommandsClient` | 1 |
+| `discord-gateway` | `discord-commands` | commands | — | `HttpCommandsClient` | 2 |
 | `discord-gateway` | `discord-db` | database | `/database/guild_analytics` | `HttpGuildAnalyticsStore` | 2 |
 | `discord-gateway` | `discord-db` | database | `/database/markov` | `HttpMarkovStore` | 9 |
 | `discord-gateway` | `discord-db` | database | `/database/playlist` | `HttpPlaylistStore` | 16 |
@@ -181,7 +181,7 @@ composite app.
 | seam | served by | called by | routes |
 |---|---|---|---|
 | broker | `discord-broker` | `discord-commands`, `discord-downloader`, `discord-gateway`, `discord-search` | 39 |
-| commands | `discord-commands` | `discord-gateway` | 1 |
+| commands | `discord-commands` | `discord-gateway` | 2 |
 | database | `discord-db` | `discord-broker`, `discord-commands`, `discord-gateway` | 33 |
 | dispatch | `discord-dispatcher` | `discord-broker`, `discord-commands`, `discord-gateway` | 8 |
 | media_search | `discord-search` | `discord-commands`, `discord-gateway` | 2 |
