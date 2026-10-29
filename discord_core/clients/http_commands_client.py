@@ -23,8 +23,11 @@ import aiohttp
 from discord_core.clients.http_client_base import HttpClientMixin
 from discord_core.interfaces.commands_client import CommandsUnavailable
 from discord_core.routes import commands as command_routes
+from discord_core.routes import guild_teardown
+from discord_core.routes.route import Route
 from discord_core.types.command_envelope import CommandEnvelope
 from discord_core.types.command_wire import CommandAcceptedResponse, CommandRequestBody, parse_args
+from discord_core.types.guild_teardown import GuildTeardownAccepted
 from discord_core.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 
 logger = logging.getLogger(__name__)
@@ -67,11 +70,27 @@ class HttpCommandsClient(HttpClientMixin):
             envelope=envelope, args=parse_args(command, args or {}).model_dump(),
             request_id=request_id or uuid4().hex, span_context=span_context).model_dump(mode='json')
         url = self._route_url(command_routes.FORWARD_COMMAND, command=command)
+        payload = await self._post(command_routes.FORWARD_COMMAND, url, body, command)
+        return self._validate(CommandAcceptedResponse, payload)
+
+    async def teardown_guild(self, guild_id: int) -> GuildTeardownAccepted:
+        '''
+        POST /guilds/{guild_id}/teardown -- ask the pod to clear the guild's queued music work.
+
+        Answers once the pod has taken the job. One attempt like `forward`; unlike a command it is
+        idempotent, so the caller may repeat it. Raises CommandsUnavailable.
+        '''
+        url = self._route_url(guild_teardown.TEARDOWN_GUILD, guild_id=guild_id)
+        payload = await self._post(guild_teardown.TEARDOWN_GUILD, url, {}, f'teardown of guild {guild_id}')
+        return self._validate(GuildTeardownAccepted, payload)
+
+    async def _post(self, route: Route, url: str, body: dict, label: str):
+        '''One request behind the breaker. `label` names what was sent, for the errors.'''
         session = self._get_session()
 
         async def _call():
             async with session.request(
-                    command_routes.FORWARD_COMMAND.method, url, json=body,
+                    route.method, url, json=body,
                     headers=self._trace_headers(),
                     timeout=aiohttp.ClientTimeout(total=ACCEPT_TIMEOUT_SECONDS)) as resp:
                 if 400 <= resp.status < 500:
@@ -87,11 +106,11 @@ class HttpCommandsClient(HttpClientMixin):
         try:
             payload = await _BREAKER.call(_call)
         except CircuitBreakerOpenError as error:
-            raise CommandsUnavailable(f'commands pod breaker is open ({command})') from error
+            raise CommandsUnavailable(f'commands pod breaker is open ({label})') from error
         except (aiohttp.ClientConnectionError, asyncio.TimeoutError) as error:
-            raise CommandsUnavailable(f'commands pod did not take {command}: {error!r}') from error
+            raise CommandsUnavailable(f'commands pod did not take {label}: {error!r}') from error
         except aiohttp.ClientResponseError as error:
-            raise CommandsUnavailable(f'commands pod answered {error.status} to {command}') from error
+            raise CommandsUnavailable(f'commands pod answered {error.status} to {label}') from error
         if isinstance(payload, aiohttp.ClientResponseError):
             raise payload
-        return self._validate(CommandAcceptedResponse, payload)
+        return payload
