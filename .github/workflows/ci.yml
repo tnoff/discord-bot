@@ -16,9 +16,10 @@ permissions:
   contents: read
 
 jobs:
-  # A PR that touches only catalog-info.yaml or renovate.json changes nothing any
-  # job here inspects: no source, no image input, no packaging metadata, no
-  # workflow. So all of them gate on this and CI reduces to the aggregate.
+  # A PR that touches only renovate.json changes nothing any job here inspects:
+  # no source, no image input, no packaging metadata, no workflow. So all of them
+  # gate on this and CI reduces to the aggregate. (catalog-info.yaml is NOT in this
+  # set: tests/test_catalog_apis.py reads it.)
   #
   # This MUST stay a job-level `if:` and never become a workflow-level
   # `paths-ignore`. The branch ruleset requires the `CI result` context;
