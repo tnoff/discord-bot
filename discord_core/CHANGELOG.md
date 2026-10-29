@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.14.1] - 2026-10-29
+
+### Changed
+
+- `RedisPingHealthServer` (the dispatcher, broker, downloader and search health endpoint) no longer pings Redis on `/health`. Liveness now fails only for a stalled background loop; the Redis `PING` moved to `/ready`, `/readyz` and `/readiness` and is bounded to 0.8 s. A Redis outage longer than roughly 60 to 90 seconds used to fail three liveness probes in a row and restart all four pods for a fault a restart cannot fix (on 2026-10-28 the search, downloader, dispatcher and broker pods were killed that way), and a ping against a Service with no ready endpoints hangs rather than refuses, so ignoring the result was not enough. A pod picks this up when its `discord_core` pin is bumped to this release.
+
 ## [3.14.0] - 2026-10-29
 
 ### Changed

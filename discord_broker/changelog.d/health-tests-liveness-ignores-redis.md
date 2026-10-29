@@ -1,1 +1,0 @@
-- Test-only: the `BrokerHealthServer` tests now pin liveness (`/health`) staying ok when Redis is away and readiness (`/ready`) reporting it, following the `discord_core` change that stopped the Redis ping from being a liveness check. No behavior change in this package until its `discord_core` pin is bumped to that release.
