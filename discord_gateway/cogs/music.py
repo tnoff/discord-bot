@@ -684,7 +684,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # on a path with nowhere to report one.
         return await self.playlist_store.ensure_history_playlist(guild_id)
 
-    async def _save_player_session(self, guild, player: MusicPlayer) -> None:
+    async def _save_player_session(self, guild, player: MusicPlayer) -> bool:
         '''
         Remember where this guild's player is, so a restart can rejoin it.
 
@@ -694,12 +694,13 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
 
         No session is written when the bot is not in a voice channel: there is nothing to
         rejoin, and a session with no channel would only be discarded on the way back up.
+        Returns whether one was written.
         '''
         voice_client = guild.voice_client
         channel = getattr(voice_client, 'channel', None)
         if channel is None:
             self.logger.debug(f'No voice channel for guild {guild.id}, skipping session save')
-            return
+            return False
         session = PlayerSession(
             guild_id=guild.id,
             voice_channel_id=channel.id,
@@ -708,6 +709,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         )
         self.logger.debug(f'Saving player session for guild {guild.id}, was_playing={session.was_playing}')
         await self.broker_client.save_player_session(session)
+        return True
 
     async def resume_player_sessions(self) -> None:
         '''
@@ -788,56 +790,77 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         '''
         Resume a single stored session, if it still makes sense to.
 
-        The session is dropped first, unconditionally: it describes a moment that has already
-        passed, so a resume that fails part-way through must not be retried on the next restart
-        against even staler state. A successful resume saves a fresh one when it rejoins voice.
+        The stored session stays put until the attempt has an outcome, so a gateway that is
+        stopped part-way through (a rolling restart, a node going away) leaves it for the next
+        start instead of taking the guild's way back with it. An outcome is: resumed, with
+        nothing to resume, or failed. The last two drop it: it describes a moment that has
+        already passed, and a resume that fails must not be retried against even staler state.
+        A resume that works leaves the fresh session the voice join wrote.
+
+        A cancelled resume is deliberately not an outcome. CancelledError is a BaseException,
+        so it passes the handler below, which is why this is not a try/finally.
         '''
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.resume_player_session', kind=SpanKind.INTERNAL,
                                            attributes={DiscordContextNaming.GUILD.value: session.guild_id}):
-            await self.broker_client.delete_player_session(session.guild_id)
+            try:
+                resumed = await self._rejoin_from_session(session)
+            except Exception:
+                await self.broker_client.delete_player_session(session.guild_id)
+                raise
+            if not resumed:
+                await self.broker_client.delete_player_session(session.guild_id)
 
-            guild = self.bot.get_guild(session.guild_id)
-            if guild is None:
-                self.logger.warning(f'Guild {session.guild_id} not found, cannot resume session')
-                await self._abandon_guild_state(session.guild_id)
-                return
-            voice_channel = guild.get_channel(session.voice_channel_id)
-            text_channel = guild.get_channel(session.text_channel_id)
-            if voice_channel is None or text_channel is None:
-                self.logger.warning(f'Voice or text channel gone for guild {session.guild_id}, cannot resume session')
-                await self._abandon_guild_state(session.guild_id)
-                return
-            # Don't play to an empty room.  Everyone leaving while the bot was
-            # down is the clearest signal nobody is waiting on the queue.
-            if not [member for member in voice_channel.members if not member.bot]:
-                self.logger.info(f'No listeners left in voice channel {voice_channel.id} for guild '
-                                 f'{session.guild_id}, not resuming')
-                await self._abandon_guild_state(session.guild_id)
-                return
+    async def _rejoin_from_session(self, session: PlayerSession) -> bool:
+        '''
+        Rebuild the guild's player from a stored session. True when the guild is playing again
+        with a session saved for the next restart, False when there was nothing to resume.
+        '''
+        guild = self.bot.get_guild(session.guild_id)
+        if guild is None:
+            self.logger.warning(f'Guild {session.guild_id} not found, cannot resume session')
+            await self._abandon_guild_state(session.guild_id)
+            return False
+        voice_channel = guild.get_channel(session.voice_channel_id)
+        text_channel = guild.get_channel(session.text_channel_id)
+        if voice_channel is None or text_channel is None:
+            self.logger.warning(f'Voice or text channel gone for guild {session.guild_id}, cannot resume session')
+            await self._abandon_guild_state(session.guild_id)
+            return False
+        # Don't play to an empty room.  Everyone leaving while the bot was
+        # down is the clearest signal nobody is waiting on the queue.
+        if not [member for member in voice_channel.members if not member.bot]:
+            self.logger.info(f'No listeners left in voice channel {voice_channel.id} for guild '
+                             f'{session.guild_id}, not resuming')
+            await self._abandon_guild_state(session.guild_id)
+            return False
 
-            await self._wait_out_foreign_player(session.guild_id)
-            # Taking ownership of the guild is what hands back a track the old gateway had
-            # started and never finished.
-            await self.broker_client.open_guild(session.guild_id, text_channel.id)
-            # A track recovered from the old gateway is back at the head of the queue by now,
-            # so the queue alone is the count of what is waiting.
-            queue = await self.broker_client.get_guild_queue(session.guild_id)
-            waiting = len(queue.items)
-            if not waiting and queue.playing is None:
-                self.logger.info(f'Nothing queued for guild {session.guild_id}, not resuming')
-                await self._abandon_guild_state(session.guild_id)
-                return
+        await self._wait_out_foreign_player(session.guild_id)
+        # Taking ownership of the guild is what hands back a track the old gateway had
+        # started and never finished.
+        await self.broker_client.open_guild(session.guild_id, text_channel.id)
+        # A track recovered from the old gateway is back at the head of the queue by now,
+        # so the queue alone is the count of what is waiting.
+        queue = await self.broker_client.get_guild_queue(session.guild_id)
+        waiting = len(queue.items)
+        if not waiting and queue.playing is None:
+            self.logger.info(f'Nothing queued for guild {session.guild_id}, not resuming')
+            await self._abandon_guild_state(session.guild_id)
+            return False
 
-            self.logger.info(f'Resuming playback in guild {session.guild_id} with {waiting} item(s) queued')
-            player = await self.get_player(session.guild_id, join_channel=voice_channel,
-                                           guild=guild, text_channel=text_channel)
-            if player is None:
-                self.logger.warning(f'Could not build player for guild {session.guild_id}, cannot resume session')
-                await self._abandon_guild_state(session.guild_id)
-                return
-            self.dispatcher.send_message(session.guild_id, text_channel.id,
-                f'Resumed after a restart, {waiting} item(s) still queued',
-                delete_after=self.config.general.message_delete_after)
+        self.logger.info(f'Resuming playback in guild {session.guild_id} with {waiting} item(s) queued')
+        player = await self.get_player(session.guild_id, join_channel=voice_channel,
+                                       guild=guild, text_channel=text_channel)
+        if player is None:
+            self.logger.warning(f'Could not build player for guild {session.guild_id}, cannot resume session')
+            await self._abandon_guild_state(session.guild_id)
+            return False
+        self.dispatcher.send_message(session.guild_id, text_channel.id,
+            f'Resumed after a restart, {waiting} item(s) still queued',
+            delete_after=self.config.general.message_delete_after)
+        # The join above saved a session. Saving again is what makes "the stored session is
+        # current, or gone" true even when no join happened here; False means we are not in
+        # voice, so what is stored is stale and the caller drops it.
+        return await self._save_player_session(guild, player)
 
     async def cleanup(self, guild, reason: CleanupReason = CleanupReason.QUEUE_TIMEOUT):
         '''

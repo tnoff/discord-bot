@@ -280,7 +280,7 @@ async def test_resume_rejoins_and_keeps_the_queue(mocker, fake_context):  #pylin
         # Not replayed or re-requested: it is the same queue entry, and nothing went to the downloader
         assert await _queued_uuids(cog, fake_context['guild'].id) == [str(media_download.media_request.uuid)]
         assert await cog.download_client.queue_size(fake_context['guild'].id) == 0
-        # Consumed exactly once -- a failed resume must not retry against staler state
+        # Nothing joined voice here, so what was stored is stale and dropped -- not retried next start
         assert await cog.broker_client.list_player_sessions() == []
 
 
@@ -602,3 +602,69 @@ async def test_resume_does_not_retry_a_real_broker_fault(mocker, fake_context): 
 
     assert listing.await_count == 1
     sleeper.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# What happens to the stored session while a resume is in flight
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_a_resume_cut_short_by_shutdown_keeps_the_session(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''A gateway stopped part-way through resuming (a rolling restart, a node going away) must leave
+    the session for the next start. Deleting it up front took the guild's way back with it.'''
+    cog, voice_channel = _resumable_cog(fake_context, mocker, [_FakeMember()])
+    async with _queued_track(cog, fake_context):
+        session = _session(fake_context, voice_channel)
+        await cog.broker_client.save_player_session(session)
+        joining = asyncio.Event()
+
+        async def _hangs_in_the_voice_join(*_args, **_kwargs):
+            joining.set()
+            await asyncio.Event().wait()
+
+        mocker.patch.object(cog, 'get_player', side_effect=_hangs_in_the_voice_join)
+        task = asyncio.create_task(cog.resume_player_sessions())
+        await joining.wait()
+
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert await cog.broker_client.list_player_sessions() == [session]
+
+
+@pytest.mark.asyncio
+async def test_a_resume_that_fails_does_not_keep_the_session(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''A resume that errors is not retried on the next start against even staler state.'''
+    cog, voice_channel = _resumable_cog(fake_context, mocker, [_FakeMember()])
+    async with _queued_track(cog, fake_context):
+        await cog.broker_client.save_player_session(_session(fake_context, voice_channel))
+        mocker.patch.object(cog, 'get_player', side_effect=RuntimeError('voice join blew up'))
+        cog.logger = MagicMock()
+
+        await cog.resume_player_sessions()
+
+        assert await cog.broker_client.list_player_sessions() == []
+        assert any('Error resuming player session' in call.args[0] for call in cog.logger.exception.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_a_successful_resume_leaves_a_current_session(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    '''Once the bot is back in voice, a crash right after resuming has somewhere to return to.'''
+    cog, voice_channel = _resumable_cog(fake_context, mocker, [_FakeMember()])
+
+    async def _joins(player, channel):
+        voice_client = FakeVoiceClient(guild=player.guild)
+        voice_client.channel = channel
+        player.guild.voice_client = voice_client
+
+    mocker.patch.object(MusicPlayer, 'join_voice', _joins)
+    async with _queued_track(cog, fake_context):
+        await cog.broker_client.save_player_session(_session(fake_context, voice_channel))
+
+        await cog.resume_player_sessions()
+
+        [saved] = await cog.broker_client.list_player_sessions()
+        assert (saved.guild_id, saved.voice_channel_id, saved.text_channel_id) == (
+            fake_context['guild'].id, voice_channel.id, fake_context['channel'].id)
+        assert fake_context['guild'].id in cog.players
