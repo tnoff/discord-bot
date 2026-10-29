@@ -10,7 +10,6 @@ from discord_core.clients import http_commands_client
 from discord_core.clients.http_commands_client import HttpCommandsClient
 from discord_core.interfaces.commands_client import CommandsUnavailable
 from discord_core.routes import commands as command_routes
-from discord_core.routes import guild_teardown
 from discord_core.types.command_args import PlayArgs
 from discord_core.types.command_envelope import CommandEnvelope
 from discord_core.utils.circuit_breaker import CircuitBreaker
@@ -46,7 +45,7 @@ def test_it_serves_exactly_the_routes_in_the_registry():
                      if r.method not in ('HEAD',) and r.resource.canonical != '/_contract'}
     assert {('POST', route.template) for route in command_routes.ALL} <= served_routes
     handlers = CommandsHttpServer(CommandExecutor({}), MagicMock()).route_handlers()
-    assert set(handlers) == set(command_routes.ALL) | set(guild_teardown.ALL)
+    assert set(handlers) == set(command_routes.ALL)
 
 
 @pytest.mark.asyncio

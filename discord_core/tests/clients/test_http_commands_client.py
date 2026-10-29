@@ -213,9 +213,9 @@ async def _connected_teardown(pod: StubTeardownPod):
             yield HttpCommandsClient(str(server.make_url('')), session=session)
 
 
-def test_the_teardown_route_is_not_part_of_the_commands_seam_yet():
-    """It ships first, so the gateway's peer route check does not demand it of a pod that predates it."""
-    assert guild_teardown.TEARDOWN_GUILD not in HttpCommandsClient.ROUTES_CALLED
+def test_the_teardown_route_is_part_of_the_commands_seam():
+    """So the gateway's peer route check demands it of the pod, which has served it since #1160."""
+    assert guild_teardown.TEARDOWN_GUILD in HttpCommandsClient.ROUTES_CALLED
     assert guild_teardown.ALL == (guild_teardown.TEARDOWN_GUILD,)
 
 

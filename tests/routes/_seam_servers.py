@@ -24,7 +24,6 @@ from discord_core.routes import broker as broker_routes
 from discord_core.routes import queue_worker as queue_worker_routes
 from discord_core.routes import dispatch as dispatch_routes
 from discord_core.routes import commands as command_routes
-from discord_core.routes import guild_teardown as guild_teardown_routes
 
 from discord_commands.servers.commands_server import CommandsHttpServer
 
@@ -57,9 +56,8 @@ def fully_configured_database():
 SEAMS = [
     ('broker', lambda: make_broker_http_server(AsyncioBroker()),
      broker_routes.ALL, 'discord-broker'),
-    # The teardown route is served ahead of the commands registry (routes/guild_teardown.py).
     ('commands', lambda: CommandsHttpServer(object(), object()),
-     [*command_routes.ALL, *guild_teardown_routes.ALL], 'discord-commands'),
+     command_routes.ALL, 'discord-commands'),
     ('database', fully_configured_database, database_routes.ALL, 'discord-db'),
     ('dispatch', lambda: DispatchHttpServer(object(), object()), dispatch_routes.ALL,
      'discord-dispatcher'),

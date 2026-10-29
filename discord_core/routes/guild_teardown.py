@@ -11,10 +11,9 @@ commands pod to do it.
 round trip per queued request, and nothing the gateway does next depends on the outcome. It is
 idempotent, so a caller may repeat it.
 
-DEFINED here as its own module and not part of `routes/commands.py`'s ALL yet, for the deploy-order
-reason routes/gateway_intents.py records: pods install a released discord_core, so the symbols ship
-first, the commands pod serves the route next, and the registry is folded into the commands seam
-last. Until then the gateway's peer route check does not demand it of the pod.
+Declared in its own module, and part of `routes/commands.py`'s ALL (so `HttpCommandsClient.ROUTES_CALLED`): it
+shipped ahead of the commands pod for the deploy-order reason routes/gateway_intents.py records, and the
+pod has served it since #1160.
 '''
 from discord_core.routes.route import Route, collect
 
