@@ -60,10 +60,11 @@ from typing import Callable, NamedTuple, Optional
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Changes that no job inspects, named exactly and anchored. Not a prefix, not a
-# glob. NOTE: tests/test_catalog_apis.py does read catalog-info.yaml (it checks
-# the API wiring against the measured seams), so a catalog-only PR can skip a test
-# that would have caught it. Left as it was; see the PR that added this module.
-METADATA_ONLY = frozenset({'catalog-info.yaml', 'renovate.json'})
+# glob. catalog-info.yaml used to be here, but tests/test_catalog_apis.py reads it
+# (it checks the API wiring against the measured seams), so a catalog-only PR skipped
+# the test that would have caught a bad edit. test_no_test_reads_a_file_that_skips_tox
+# now covers this set as well as the documentation one.
+METADATA_ONLY = frozenset({'renovate.json'})
 
 # Documentation a test reads. These are inputs, not prose.
 DOCS_READ_BY_TESTS = frozenset({
