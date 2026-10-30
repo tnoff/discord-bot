@@ -1,4 +1,10 @@
 # Changelog
+## [0.8.1] - 2026-10-30
+
+### Changed
+
+- Bump the `discord_core` pin to core-v3.17.0, which adds the guild-roles contract (#1030). Nothing in this pod uses it yet; the pin moves with the other six (tests/cli/test_package_pins.py requires them to agree).
+
 ## [0.8.0] - 2026-10-30
 
 ### Changed
