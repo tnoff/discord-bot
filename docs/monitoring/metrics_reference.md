@@ -33,7 +33,7 @@ see — name, description, unit, and which pod.
 | `heartbeat` | Download HTTP server heartbeat | `1` | downloader | `discord_core/servers/queue_worker_server.py:75` |
 | `heartbeat` | Markov check loop heartbeat | `1` | gateway | `discord_gateway/cogs/markov.py:83` |
 | `heartbeat` | Markov result loop heartbeat | `1` | gateway | `discord_gateway/cogs/markov.py:85` |
-| `heartbeat` | Message dispatcher worker pool heartbeat | `1` | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:331` |
+| `heartbeat` | Message dispatcher worker pool heartbeat | `1` | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:334` |
 | `heartbeat` | Youtube music search HTTP server heartbeat | `1` | search | `discord_core/servers/queue_worker_server.py:75` |
 | `history_event_queue_depth` | Play records waiting for the broker history worker | `1` | broker | `discord_broker/workers/history_worker.py:78` |
 | `queue_worker_backoff_seconds` | Seconds remaining on the shared YouTube backoff window | `s` | downloader | `discord_core/workers/queue_metrics.py:52` |

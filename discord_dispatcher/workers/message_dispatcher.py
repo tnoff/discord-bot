@@ -31,6 +31,7 @@ from discord_core.types.results import (
 
 from discord_dispatcher.utils.discord_retry import async_retry_discord_message_command
 from discord_dispatcher.workers.delete_schedule import DeleteSchedule, PendingDelete
+from discord_dispatcher.workers.guild_roles import GuildRolesCalls
 
 
 _DRAIN_TIMEOUT_SECONDS = 30
@@ -83,6 +84,7 @@ _MEMBER_DELETE = 'delete:'
 _MEMBER_UPDATE_CHANNEL = 'update_channel:'
 _MEMBER_FETCH_HISTORY = 'fetch_history:'
 _MEMBER_FETCH_EMOJIS = 'fetch_emojis:'
+_MEMBER_GUILD_ROLES = 'guild_roles:'
 
 
 class DispatchPriority(IntEnum):
@@ -301,6 +303,7 @@ class MessageDispatcher(DispatchClientBase):
         self._bundle_store = bundle_store
         self._work_queue = work_queue
         self._delete_schedule = delete_schedule
+        self._guild_roles = GuildRolesCalls(bot)
 
         # DispatchClientBase: per-cog result delivery queues
         self._cog_queues: dict[str, asyncio.Queue] = {}
@@ -543,6 +546,15 @@ class MessageDispatcher(DispatchClientBase):
             DispatchPriority.LOW,
         )
 
+    async def enqueue_guild_roles_call(self, request_id: str, kind: str, params: dict,
+                                       span_context: dict | None = None) -> None:
+        '''Enqueue one guild-roles call (workers/guild_roles.py); result stored under request_id.'''
+        await self._work_queue.enqueue(
+            f'{_MEMBER_GUILD_ROLES}{request_id}',
+            {'kind': kind, 'params': params, 'span_context': span_context},
+            DispatchPriority.LOW,
+        )
+
     def update_mutable_channel(self, key: str, guild_id: int, new_channel_id: int):
         '''Enqueue a mutable bundle channel move at HIGH priority.'''
         self._spawn_enqueue(self._work_queue.enqueue_unique(
@@ -610,6 +622,8 @@ class MessageDispatcher(DispatchClientBase):
             await self._process_fetch_history(member[len(_MEMBER_FETCH_HISTORY):], payload)
         elif member.startswith(_MEMBER_FETCH_EMOJIS):
             await self._process_fetch_emojis(member[len(_MEMBER_FETCH_EMOJIS):], payload)
+        elif member.startswith(_MEMBER_GUILD_ROLES):
+            await self._process_guild_roles(member[len(_MEMBER_GUILD_ROLES):], payload)
         else:
             self.logger.warning('MessageDispatcher :: unknown queue member: %s', member)
 
@@ -833,6 +847,24 @@ class MessageDispatcher(DispatchClientBase):
             event = self._result_events.pop(request_id, None)
             if event:
                 event.set()
+
+    async def _process_guild_roles(self, request_id: str, payload: dict):
+        '''Run one guild-roles call and store its result; a failure is stored as the result.'''
+        kind = payload['kind']
+        params = payload['params']
+        async with async_otel_span_wrapper('message_dispatcher.guild_roles',
+                                           attributes={'discord.guild': params['guild_id'],
+                                                       'dispatch.call': kind},
+                                           links=span_links_from_context(payload.get('span_context'))):
+            try:
+                result = await self._guild_roles.run(kind, params)
+            except Exception as exc:  # pylint: disable=broad-except
+                # Intentional broad catch: same reasoning as _process_fetch_history.
+                self.logger.error('MessageDispatcher :: %s failed for server %s: %s',
+                                  kind, params['guild_id'], exc, exc_info=True)
+                result = DispatchErrorResultBody(
+                    error=str(exc), error_detail=encode_error(exc)).model_dump()
+            await self._work_queue.store_result(request_id, result)
 
     # ------------------------------------------------------------------
     # Fetch helpers

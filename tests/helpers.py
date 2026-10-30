@@ -810,6 +810,9 @@ class FakeDispatchServer:
         self.calls.append(('enqueue_fetch_emojis', request_id, guild_id))
         self._result_store[request_id] = {'guild_id': guild_id, 'emojis': []}
 
+    async def enqueue_guild_roles_call(self, request_id, kind, params, **_):
+        self.calls.append(('enqueue_guild_roles_call', request_id, kind, params))
+
 
 class FakeRedisDispatchQueue:
     '''Minimal RedisDispatchQueue stand-in backed by a plain dict.'''

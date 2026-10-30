@@ -8,6 +8,12 @@ info:
     Do not edit by hand. Routes only: the seam contract guarantees which routes exist, not the shape of
     their bodies -- see docs/projects/http-seam-contract.md.'
 paths:
+  /dispatch/change_member_role:
+    post:
+      operationId: post-dispatch-change_member_role
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
   /dispatch/delete:
     post:
       operationId: post-dispatch-delete
@@ -23,6 +29,24 @@ paths:
   /dispatch/fetch_history:
     post:
       operationId: post-dispatch-fetch_history
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+  /dispatch/fetch_member:
+    post:
+      operationId: post-dispatch-fetch_member
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+  /dispatch/fetch_role_members:
+    post:
+      operationId: post-dispatch-fetch_role_members
+      responses:
+        default:
+          description: See the handler; the seam contract covers the route, not the body.
+  /dispatch/fetch_roles:
+    post:
+      operationId: post-dispatch-fetch_roles
       responses:
         default:
           description: See the handler; the seam contract covers the route, not the body.

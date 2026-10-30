@@ -23,6 +23,7 @@ from discord_core.routes import database as database_routes
 from discord_core.routes import broker as broker_routes
 from discord_core.routes import queue_worker as queue_worker_routes
 from discord_core.routes import dispatch as dispatch_routes
+from discord_core.routes import guild_roles as guild_roles_routes
 from discord_core.routes import commands as command_routes
 
 from discord_commands.servers.commands_server import CommandsHttpServer
@@ -59,8 +60,8 @@ SEAMS = [
     ('commands', lambda: CommandsHttpServer(object(), object()),
      command_routes.ALL, 'discord-commands'),
     ('database', fully_configured_database, database_routes.ALL, 'discord-db'),
-    ('dispatch', lambda: DispatchHttpServer(object(), object()), dispatch_routes.ALL,
-     'discord-dispatcher'),
+    ('dispatch', lambda: DispatchHttpServer(object(), object()),
+     [*dispatch_routes.ALL, *guild_roles_routes.ALL], 'discord-dispatcher'),
     ('media_search', lambda: MediaSearchHttpServer(object()), media_search_routes.ALL,
      'discord-search'),
     ('queue_worker/downloads', lambda: DownloadHttpServer(object()),
