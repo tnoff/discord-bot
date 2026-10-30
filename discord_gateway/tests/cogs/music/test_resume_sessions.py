@@ -277,9 +277,8 @@ async def test_resume_rejoins_and_keeps_the_queue(mocker, fake_context):  #pylin
         await cog.resume_player_sessions()
 
         assert fake_context['guild'].id in cog.players
-        # Not replayed or re-requested: it is the same queue entry, and nothing went to the downloader
+        # Not replayed or re-requested: it is the same queue entry,
         assert await _queued_uuids(cog, fake_context['guild'].id) == [str(media_download.media_request.uuid)]
-        assert await cog.download_client.queue_size(fake_context['guild'].id) == 0
         # Nothing joined voice here, so what was stored is stale and dropped -- not retried next start
         assert await cog.broker_client.list_player_sessions() == []
 

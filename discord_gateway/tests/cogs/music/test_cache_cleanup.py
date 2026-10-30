@@ -52,7 +52,7 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
         }
     })
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog, db_engine=fake_engine)
+    broker = attach_in_process_broker(cog, db_engine=fake_engine)
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -61,7 +61,7 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
         with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
             # Simulate what AsyncioDownloadClient does: upload then register with S3 key
             s3_key = f'cache/{sd.media_request.uuid}.mp3'
-            upload_mock(cog.broker_client.local_broker.bucket_name, sd.file_path, s3_key)
+            upload_mock(broker.bucket_name, sd.file_path, s3_key)
             sd.file_path = Path(s3_key)
             await cog.broker_client.register_download(sd)
             upload_mock.assert_called_once()
@@ -87,7 +87,7 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context, fake_sto
         }
     })
     cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog, db_engine=fake_engine)
+    broker = attach_in_process_broker(cog, db_engine=fake_engine)
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
@@ -96,8 +96,8 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context, fake_sto
             with fake_media_download(tmp_dir, fake_context=fake_context) as sd2:
                 delete_mock = mocker.patch('discord_broker.interfaces.broker_protocols.delete_file', return_value=True)
                 # Register via iterate_file only (no S3 upload — simulates pre-existing cache rows)
-                await cog.broker_client.local_broker.video_cache.iterate_file(sd)
-                await cog.broker_client.local_broker.video_cache.iterate_file(sd2)
+                await broker.video_cache.iterate_file(sd)
+                await broker.video_cache.iterate_file(sd2)
                 # Neither is in the broker registry, so both are evictable
                 await cog.broker_client.cache_cleanup()
                 delete_mock.assert_called_once()

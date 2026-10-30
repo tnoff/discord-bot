@@ -1,28 +1,20 @@
-from datetime import datetime
 from unittest.mock import MagicMock, AsyncMock
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_core.cogs.music_helpers.common import SearchType
-from discord_core.types.download import LifecycleEvent
-from discord_core.types.playlist_add_request import PlaylistAddRequest
-from discord_core.types.search import SearchResult
 from discord_core.types.playlist import PlaylistItemWrite
-from discord_core.utils.media_enqueuer import MediaEnqueuer
-from discord_core.types.playlist_add_result import PlaylistAddResult
 
 from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.common import envelope_from_ctx
-from discord_gateway.tests.cogs.test_music import music_config, BASE_MUSIC_CONFIG
+from discord_gateway.tests.cogs.test_music import BASE_MUSIC_CONFIG
 
 from discord_db.database import Playlist, PlaylistItem
 
-from tests.helpers import async_mock_session, fake_source_dict
+from tests.helpers import async_mock_session
 from tests.helpers import fake_engine, fake_context, fake_stores #pylint:disable=unused-import
 from tests.helpers import attach_in_process_broker
-from tests.helpers import attach_in_process_search
 
 
 @pytest.mark.asyncio
@@ -79,40 +71,6 @@ async def test_get_history_playlist_method(fake_engine, fake_context, fake_store
             # We can't easily test the exact message without executing the partial function
 
 
-@pytest.mark.asyncio
-async def test_playlist_queue_bundle_creation_with_channel_id(fake_context):  #pylint:disable=redefined-outer-name
-    """Test that enqueue_media_requests registers requests against a broker bundle"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    attach_in_process_search(cog)
-
-    # Test the method that routes entries into the broker bundle
-    entries = [fake_source_dict(fake_context), fake_source_dict(fake_context)]
-
-    # Create a mock player
-    mock_player = MagicMock()
-    mock_player.guild = fake_context['guild']
-    mock_player.text_channel = fake_context['channel']
-
-    # Create a broker-owned bundle for the test
-    bundle_uuid = await cog.broker_client.create_bundle(
-        fake_context['guild'].id, fake_context['channel'].id, has_search_banner=True,
-    )
-
-    # Call enqueue_media_requests directly to test bundle population
-    result = await cog.enqueue_logic.enqueue_media_requests(envelope_from_ctx(fake_context['context']), entries, bundle_uuid)
-
-    assert result is True
-
-    # Verify the broker holds the bundle with correct guild/channel and the
-    # two requests attached.
-    state = cog.broker_client.local_broker.get_bundle_state(bundle_uuid)
-    assert state is not None
-    assert state.guild_id == fake_context['guild'].id
-    assert state.channel_id == fake_context['channel'].id
-    assert len(state.bundled_requests) == 2
-
-
             # Message should mention "Channel History" not the database playlist name
             # This is set by the special is_history logic
 
@@ -143,84 +101,6 @@ async def test_get_history_playlist_existing(fake_engine, fake_context, fake_sto
     assert playlist_id1 == playlist_id2
     async with async_mock_session(fake_engine) as db_session:
         assert (await db_session.execute(select(sql_count()).select_from(Playlist).where(Playlist.is_history == True))).scalar() == 1  #pylint:disable=singleton-comparison
-
-
-@pytest.mark.asyncio
-async def test_add_playlist_item_marks_failed_when_playlist_full(mocker, fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """__add_playlist_item pushes FAILED with the 'playlist too long' reason
-    when __playlist_insert_item raises PlaylistMaxLength."""
-    config = music_config({'music': {'playlist': {'server_playlist_max_size': 1}}})
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    push_mock = AsyncMock()
-    mocker.patch.object(MediaEnqueuer, 'push_state', push_mock)
-
-    async with async_mock_session(fake_engine) as session:
-        playlist = Playlist(server_id=fake_context['guild'].id, name='full',
-                            created_at=datetime.now(), is_history=False)
-        session.add(playlist)
-        await session.commit()
-        await session.refresh(playlist)
-        # Saturate to max so the next insert raises PlaylistMaxLength.
-        session.add(PlaylistItem(title='t', video_url='https://ex.com/a',
-                                 uploader='u', playlist_id=playlist.id))
-        await session.commit()
-        playlist_id = playlist.id
-
-    request = PlaylistAddRequest(
-        guild_id=fake_context['guild'].id,
-        channel_id=fake_context['channel'].id,
-        requester_id=fake_context['author'].id,
-        requester_name=fake_context['author'].display_name,
-        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='https://ex.com/b'),
-        playlist_id=playlist_id,
-    )
-    result = PlaylistAddResult(webpage_url='https://ex.com/b', title='B', uploader='u')
-    await cog.enqueue_logic.add_playlist_item(request, result)  #pylint:disable=protected-access
-    push_mock.assert_awaited_once()
-    args, kwargs = push_mock.await_args
-    assert args[0] is request
-    assert args[1] is LifecycleEvent.FAILED
-    assert 'playlist too long' in kwargs['failure_reason']
-
-
-@pytest.mark.asyncio
-async def test_add_playlist_item_marks_failed_when_item_already_exists(mocker, fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """__add_playlist_item pushes FAILED with 'already exists' when the item
-    URL is already in the playlist (insert returns None)."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    push_mock = AsyncMock()
-    mocker.patch.object(MediaEnqueuer, 'push_state', push_mock)
-
-    async with async_mock_session(fake_engine) as session:
-        playlist = Playlist(server_id=fake_context['guild'].id, name='dup',
-                            created_at=datetime.now(), is_history=False)
-        session.add(playlist)
-        await session.commit()
-        await session.refresh(playlist)
-        session.add(PlaylistItem(title='same', video_url='https://ex.com/same',
-                                 uploader='u', playlist_id=playlist.id))
-        await session.commit()
-        playlist_id = playlist.id
-
-    request = PlaylistAddRequest(
-        guild_id=fake_context['guild'].id,
-        channel_id=fake_context['channel'].id,
-        requester_id=fake_context['author'].id,
-        requester_name=fake_context['author'].display_name,
-        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='https://ex.com/same'),
-        playlist_id=playlist_id,
-    )
-    result = PlaylistAddResult(webpage_url='https://ex.com/same', title='same', uploader='u')
-    await cog.enqueue_logic.add_playlist_item(request, result)  #pylint:disable=protected-access
-    push_mock.assert_awaited_once()
-    args, kwargs = push_mock.await_args
-    assert args[0] is request
-    assert args[1] is LifecycleEvent.FAILED
-    assert 'already exists' in kwargs['failure_reason']
 
 
 @pytest.mark.asyncio

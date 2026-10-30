@@ -171,9 +171,6 @@ composite app.
 | `discord-gateway` | `discord-db` | database | `/database/markov` | `HttpMarkovStore` | 9 |
 | `discord-gateway` | `discord-db` | database | `/database/playlist` | `HttpPlaylistStore` | 16 |
 | `discord-gateway` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 8 |
-| `discord-gateway` | `discord-search` | media_search | — | `HttpMediaSearchClient` | 2 |
-| `discord-gateway` | `discord-downloader` | queue_worker | `/downloads` | `HttpDownloadClient` | 4 |
-| `discord-gateway` | `discord-search` | queue_worker | `/search/ytmusic` | `HttpYoutubeMusicSearchClient` | 4 |
 | `discord-search` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
 
 #### Seams
@@ -184,8 +181,8 @@ composite app.
 | commands | `discord-commands` | `discord-gateway` | 2 |
 | database | `discord-db` | `discord-broker`, `discord-commands`, `discord-gateway` | 33 |
 | dispatch | `discord-dispatcher` | `discord-broker`, `discord-commands`, `discord-gateway` | 8 |
-| media_search | `discord-search` | `discord-commands`, `discord-gateway` | 2 |
-| queue_worker | `discord-downloader`, `discord-search` | `discord-commands`, `discord-gateway` | 8 |
+| media_search | `discord-search` | `discord-commands` | 2 |
+| queue_worker | `discord-downloader`, `discord-search` | `discord-commands` | 8 |
 
 #### Images that call no seam
 

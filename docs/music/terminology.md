@@ -73,14 +73,14 @@ This document defines all key components, types, and concepts used throughout th
   standalone `discord-search` pod over HTTP — this class itself is a thin
   gateway-side client, not where those integrations live
 - Returns list of `SearchResult` for each track found
-- Located in `discord_core/clients/search_client.py`
+- Located in `discord_commands/clients/search_client.py`
 
 ### **Download pipeline**
 - There is no single `DownloadClient` class any more — yt-dlp download logic
   lives in the standalone `discord-downloader` pod
   (`discord_downloader/interfaces/download_protocols.py`,
   `discord_downloader/workers/redis_download_worker.py`); the gateway holds
-  only a thin HTTP client (`discord_core/clients/http_download_client.py`)
+  only a thin HTTP client (`discord_commands/clients/http_download_client.py`)
   that submits requests and polls for results
 - Handles download errors and raises appropriate exceptions
 - Distinguishes between retryable errors (timeouts, TLS issues) and permanent failures

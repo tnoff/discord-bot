@@ -18,11 +18,11 @@ from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.queue import PutsBlocked
 from discord_core.utils.otel import async_otel_span_wrapper, capture_span_context, span_links_from_context
 from discord_core.types.command_envelope import CommandEnvelope
-from discord_core.utils.playlist_view import playlist_public_view
-
-from discord_core.clients.search_client import SearchClient, SearchException
 from discord_core.interfaces.player_gateway import PlayerGateway
-from discord_core.types.playlist_add_result import PlaylistAddResult
+
+from discord_commands.clients.search_client import SearchClient, SearchException
+from discord_commands.types.playlist_add_result import PlaylistAddResult
+from discord_commands.utils.playlist_view import playlist_public_view
 
 
 # What enqueue_track answers when it does not accept a track (the broker's own spellings).

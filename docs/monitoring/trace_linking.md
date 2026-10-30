@@ -124,7 +124,7 @@ music.playlist play  (SERVER)
 | `music.search_youtube_music` | CLIENT | `discord-search`, `discord_search/workers/youtube_music_search_driver.py` | Only present for non-URL searches; marked ERROR on rate-limit failure |
 | `music.download_client.create_source` | CLIENT | `discord-downloader`, `discord_downloader/interfaces/download_protocols.py` | yt-dlp download; carries media request attributes |
 | `music.process_download_results` | CONSUMER | `discord-commands`, `discord_commands/loop_logic/music_results.py` | Routes completed result to player or returns error to user |
-| `music.add_source_to_player` | INTERNAL | `discord-commands` (the result loop), `discord_core/utils/media_enqueuer.py` | Final handoff into the player queue |
+| `music.add_source_to_player` | INTERNAL | `discord-commands` (the result loop), `discord_commands/utils/media_enqueuer.py` | Final handoff into the player queue |
 
 `music.process_search_results` (CONSUMER) is the search-result twin of `music.process_download_results`, also from `discord_commands/loop_logic/music_results.py`.
 

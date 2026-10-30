@@ -25,7 +25,7 @@ from discord_core.interfaces.download_client_protocol import DownloadClient
 from discord_core.interfaces.youtube_music_search_protocols import YoutubeMusicSearchClient
 from discord_core.types.download import LifecycleEvent
 from discord_core.types.media_request import MediaRequest
-from discord_core.utils.media_enqueuer import MediaEnqueuer
+from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
 SHUTDOWN_GRACE_SECONDS = 10.0
 

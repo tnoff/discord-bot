@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from discord_core.utils.playlist_view import playlist_public_view
+from discord_commands.utils.playlist_view import playlist_public_view
 
 
 class FakeStore:

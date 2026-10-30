@@ -7,7 +7,7 @@ from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.interfaces.player_gateway import PlayerGateway, PlayerStatus
 from discord_core.types.command_envelope import CommandEnvelope
-from discord_core.utils.media_enqueuer import MediaEnqueuer
+from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
 from discord_commands.command_logic.playlist import PlaylistCommands
 from discord_commands.command_logic.reply import Reply

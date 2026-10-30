@@ -31,17 +31,16 @@ from discord_core.cli._lib.common import (
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.clients.http_broker_client import HttpBrokerClient
 from discord_core.clients.http_dispatch_client import HttpDispatchClient
-from discord_core.clients.http_download_client import HttpDownloadClient
 from discord_core.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
 from discord_core.clients.http_markov_store import HttpMarkovStore
-from discord_core.clients.http_media_search_client import HttpMediaSearchClient
 from discord_core.clients.http_playlist_store import HttpPlaylistStore
-from discord_core.clients.http_youtube_music_search_client import HttpYoutubeMusicSearchClient
-from discord_core.clients.search_client import SearchClient
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig, tracing_config_from_settings
-from discord_core.utils.media_enqueuer import MediaEnqueuer, TrackQueuer
 
+from discord_commands.clients.http_download_client import HttpDownloadClient
+from discord_commands.clients.http_media_search_client import HttpMediaSearchClient
+from discord_commands.clients.http_youtube_music_search_client import HttpYoutubeMusicSearchClient
+from discord_commands.clients.search_client import SearchClient
 from discord_commands.command_logic.broker_player_gateway import BrokerPlayerGateway
 from discord_commands.command_logic.music import MusicCommands
 from discord_commands.command_logic.playlist import PlaylistCommands
@@ -50,6 +49,7 @@ from discord_commands.handlers import build_handlers
 from discord_commands.loop_logic.music_results import MusicResultsLoop
 from discord_commands.servers.commands_health_server import CommandsHealthServer
 from discord_commands.servers.commands_server import CommandsHttpServer
+from discord_commands.utils.media_enqueuer import MediaEnqueuer, TrackQueuer
 from discord_commands.workers.command_executor import CommandExecutor
 from discord_commands.workers.guild_teardown import GuildTeardown
 from discord_commands.workers.result_loops import ResultLoops

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from discord_core.types.download import LifecycleEvent
-from discord_core.utils.media_enqueuer import MediaEnqueuer
+from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
 from tests.helpers import fake_context, fake_media_download  #pylint:disable=unused-import
 

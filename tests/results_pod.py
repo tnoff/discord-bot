@@ -16,8 +16,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock
 
-from discord_core.clients.search_client import SearchClient
-from discord_core.utils.media_enqueuer import MediaEnqueuer, TrackQueuer
+from discord_commands.clients.search_client import SearchClient
+from discord_commands.utils.media_enqueuer import MediaEnqueuer, TrackQueuer
 
 from discord_commands.command_logic.broker_player_gateway import BrokerPlayerGateway
 from discord_commands.loop_logic.music_results import MusicResultsLoop
@@ -54,7 +54,7 @@ class ResultsPod:  # pylint:disable=too-many-instance-attributes
 
     def __init__(self, fake_context, fake_stores, music: dict | None = None, download_worker_cls=None,
                  source_search_client=None, ytm_client=None, with_search: bool = False,
-                 dispatcher=_FROM_CONTEXT):
+                 dispatcher=_FROM_CONTEXT, db_engine=None):
         self.config = MusicConfig.model_validate(music or music_settings())
         self.logger = getLogger('results_pod')
         self.logging_config = None
@@ -70,7 +70,7 @@ class ResultsPod:  # pylint:disable=too-many-instance-attributes
         self.broker_client = None
         self.download_client = None
         self.youtube_music_search_client = None
-        attach_in_process_broker(self)
+        attach_in_process_broker(self, db_engine=db_engine)
         attach_in_process_download(self, worker_cls=download_worker_cls)
         self.search_driver = attach_in_process_search(self, client=ytm_client) if with_search else None
 

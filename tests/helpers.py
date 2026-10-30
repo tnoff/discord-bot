@@ -372,7 +372,8 @@ def attach_in_process_search(cog: Any, client: Optional[Any] = None) -> YoutubeM
         cog.broker_client,
         cog.logger,
         max_retries=cog.config.download.max_youtube_music_search_retries,
-        queue_priority=cog.server_queue_priority,
+        queue_priority={int(item.server_id): item.priority
+                        for item in cog.config.download.server_queue_priority},
     )
 
 class AsyncIterator():
