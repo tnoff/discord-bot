@@ -263,10 +263,11 @@ def module_prefixes_for(kind: str, name: str | None = None) -> tuple:
 # the client could be released before the gateway used it, so they can move into the gateway (and
 # off this list) whenever a core release is next due anyway.
 #
-# The guild-teardown route and its answer ship ahead of both ends: the gateway client reaches them
-# now, and the commands pod imports them once it serves the route (the next change), which makes
-# two images and the guard then demands they come off this list.
+# The guild-roles routes and bodies ship ahead of both ends too: the dispatcher serves them next and
+# the commands pod calls them after that, which makes two images and takes them off this list.
 SHIPS_AHEAD_OF_CONSUMER = frozenset({
     'discord_core.clients.http_commands_client',
     'discord_core.interfaces.commands_client',
+    'discord_core.routes.guild_roles',
+    'discord_core.types.guild_roles',
 })
