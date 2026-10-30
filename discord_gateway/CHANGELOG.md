@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.11.0] - 2026-10-30
+
+### Changed
+
+- The gateway no longer talks to the downloader or the search pod (#1030): the `HttpDownloadClient`, `HttpYoutubeMusicSearchClient` and `HttpMediaSearchClient` it built, their status pollers, the `download` and `search` entries of the startup peer wait, their seam checks, `enqueue_logic`, `add_source_to_player`, `get_player(check_voice_client_active=...)` and `CogPlayerGateway.status` / `has_live_player` / `add_cached` are gone. It talks to the broker, the dispatcher, the db pod and the commands pod. `music.download_client`, `music.youtube_music_search_client` and `music.media_search_client` are no longer read; keys left in the config are ignored, so docker-apps can drop them in either order. `GatewayIntentsLoop` takes a narrower `IntentPlayerGateway`. Deploy after the commands image from the teardown change (#1160): until then every teardown request fails.
+
 ## [3.10.1] - 2026-10-30
 
 ### Changed

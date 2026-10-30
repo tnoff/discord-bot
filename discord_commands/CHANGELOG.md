@@ -1,4 +1,10 @@
 # Changelog
+## [0.8.0] - 2026-10-30
+
+### Changed
+
+- The pod now owns the music clients and the enqueue logic (#1030), moved out of `discord_core` now that no other image reaches them: `discord_commands/clients/` (`HttpDownloadClient`, `HttpYoutubeMusicSearchClient`, `HttpMediaSearchClient`, `HttpQueueWorkerClient`, `SearchClient`), `discord_commands/utils/` (`MediaEnqueuer`, `TrackQueuer`, `playlist_view`) and `discord_commands/types/playlist_add_result.py`, with their tests. No behaviour change. The gateway-side tests of the enqueue, search-driver and add-to-player flows are ported here over the `ResultsPod` harness.
+
 ## [0.7.2] - 2026-10-30
 
 ### Changed
