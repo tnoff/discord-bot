@@ -1,0 +1,1 @@
+Bump the `discord_core` pin to core-v3.15.0: no behavior change for this pod. The release only adds the guild-teardown route to the commands seam; the pin moves with the other six (tests/cli/test_package_pins.py requires them to agree).

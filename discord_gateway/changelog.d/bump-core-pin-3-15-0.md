@@ -1,0 +1,1 @@
+Bump the `discord_core` pin to core-v3.15.0: the commands seam's route check now includes the guild-teardown route, so this pod expects the commands pod to serve it (it has since #1160). The pin moves with the other six (tests/cli/test_package_pins.py requires them to agree).
