@@ -16,16 +16,14 @@ non-default position is used throughout on purpose: asserting the default would
 pass just as well against a toggle that is never read.
 '''
 
-import pytest
 
 from discord_core.cli._lib import worker_pod
 from discord_core.utils.common import GeneralConfig
 
-from discord_gateway.cogs.music import Music
 from discord_db.cli import database as database_cli
 from discord_downloader.cli import downloader as downloader_cli
 
-from tests.helpers import fake_context, fake_engine, fake_stores  # pylint: disable=unused-import
+from tests.helpers import fake_engine  # pylint: disable=unused-import
 
 
 def _general_config(tracing: dict, *, health_server=True) -> GeneralConfig:
@@ -167,45 +165,3 @@ def test_downloader_toggles_are_independent(mocker):
 
     assert kwargs['suppress_egress_probe_auto_instrumentation'] is False
     assert kwargs['suppress_download_readiness_auto_instrumentation'] is True
-
-
-# --------------------------------------------------------------------------- #
-# poller -> the two HttpQueueWorkerClient subclasses the music cog builds
-# --------------------------------------------------------------------------- #
-
-def _music_settings(tracing: dict | None) -> dict:
-    '''Music-cog settings, optionally carrying a tracing block.'''
-    general: dict = {'include': {'music': True}, 'commands_http_url': 'http://commands:8086'}
-    if tracing is not None:
-        general['monitoring'] = {'otlp': {'enabled': False}, 'tracing': tracing}
-    return {
-        'general': general,
-        'music': {
-            'broker_client': {'url': 'http://broker-host:8081'},
-            'download_client': {'url': 'http://downloader-host:8083'},
-            'youtube_music_search_client': {'url': 'http://search-host:8084'},
-            'media_search_client': {'url': 'http://search-host:8084'},
-        },
-    }
-
-
-@pytest.mark.parametrize('tracing,expected', [
-    ({'trace_queue_worker_status_poll': True}, True),
-    ({'trace_queue_worker_status_poll': False}, False),
-    (None, False),
-], ids=['on', 'off', 'no-tracing-block'])
-def test_music_cog_forwards_the_poller_toggle(fake_context, tracing, expected, fake_stores):  # pylint: disable=redefined-outer-name
-    '''
-    Both status pollers the cog owns get the configured value.
-
-    The cog is the construction site for these two clients, so this is where the
-    toggle either reaches the pod or is quietly replaced by the default -- the
-    failure this fleet has actually shipped. Asserted on both clients because
-    they are separate constructor calls: wiring one and forgetting the other
-    leaves half the bot's poll spans unswitchable.
-    '''
-    cog = Music(fake_context['bot'], _music_settings(tracing),
-                fake_context['dispatcher'], fake_stores)
-
-    assert cog.download_client._trace_status_poll is expected  # pylint: disable=protected-access
-    assert cog.youtube_music_search_client._trace_status_poll is expected  # pylint: disable=protected-access

@@ -19,31 +19,20 @@ from pydantic import BaseModel, Field, model_validator
 
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
-from discord_core.types.media_download import MediaDownload
 from discord_core.utils.common import (is_peer_unavailable, rm_tree,
                                       return_loop_runner,
-                                      seam_contract_from_settings,
-                                      tracing_config_from_settings)
+                                      seam_contract_from_settings)
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations
 from discord_core.interfaces.database_protocols import PlaylistStore
 from discord_core.types.video_cache import MusicCacheConfig
 from discord_core.clients.http_broker_client import HttpBrokerClient
-from discord_core.interfaces.download_client_protocol import (
-    DownloadClient, RETRY_BACKOFF_SECONDS_MINIMUM,
-)
 from discord_core.interfaces.broker_client_protocol import BrokerClient
+from discord_core.interfaces.download_client_protocol import RETRY_BACKOFF_SECONDS_MINIMUM
 from discord_core.interfaces.commands_client import CommandsUnavailable
 from discord_core.types.player_session import PlayerSession
 from discord_core.clients.dispatch_client_base import DispatchClientBase
-from discord_core.utils.media_enqueuer import MediaEnqueuer
-from discord_core.clients.search_client import SearchClient
-from discord_core.clients.http_download_client import HttpDownloadClient
-from discord_core.clients.http_media_search_client import HttpMediaSearchClient
-from discord_core.clients.http_youtube_music_search_client import (
-    HttpYoutubeMusicSearchClient, YoutubeMusicSearchClient,
-)
 
 from discord_gateway.cogs.common import CogHelperBase, build_commands_client
 from discord_gateway.loop_logic.gateway_intents import GatewayIntentsLoop
@@ -140,56 +129,6 @@ class BrokerClientConfig(BaseModel):
     been in use since the broker cutover on 2026-07-01.'''
     url: str
 
-class DownloadClientConfig(BaseModel):
-    '''Config for connecting to the downloader pod's HTTP server.
-
-    Required: downloads run in the standalone downloader pod and the cog submits,
-    clears and blocks over HTTP.  It used to be optional, selecting an in-process
-    download worker when absent — that fallback is gone, so a missing url is a
-    startup error rather than a quiet mode switch (projects/discord-bot-ha-only).
-
-    Unlike the broker there is no matching server config here: the downloader pod
-    hosts its own server via its CLI entrypoint, the cog is a client only.'''
-    url: str
-
-class YoutubeMusicSearchClientConfig(BaseModel):
-    '''Config for connecting to the search pod's HTTP server.
-
-    Required: the search loop runs in the standalone search pod, and the cog is a
-    client only.  It used to be optional, selecting an in-process search worker
-    when absent — that fallback is gone, so a missing url is a startup error
-    rather than a quiet mode switch (projects/discord-bot-ha-only).
-
-    The pod hosts its own server via its CLI entrypoint, so there is no matching
-    server config here.
-
-    Named youtube_music_search_client, NOT search_client: the cog already has a
-    self.search_client (the SearchClient source-expansion member), and the two
-    are unrelated.'''
-    url: str
-
-class MediaSearchClientConfig(BaseModel):
-    '''Config for connecting to the search pod's source-expansion routes.
-
-    Required, and required from the first release that reads it — unlike the three
-    seams above, this one never had an optional phase.  Those each spent a release
-    selecting an in-process worker when the url was absent, and each had to be
-    un-defaulted later (projects/discord-bot-ha-only); there is no reason to
-    repeat that here when the pod has been serving these routes since !264.
-
-    A missing url is therefore a startup error.  That is deliberate: the
-    alternative is an in-process fallback, which would mean importing
-    clients/media_search_client — and with it spotipy and googleapiclient, the two
-    packages this whole extraction exists to get off the bot image.  A fallback
-    nothing can reach without undoing the point of the change is not a fallback.
-
-    The same pod and port as youtube_music_search_client: one bind fronts both
-    route families (servers/composite_server.py).  They stay separate keys anyway,
-    because sharing a pod today is not a promise to share one forever, and a
-    single key would make splitting them a config break rather than a config
-    edit.'''
-    url: str
-
 class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
     general: MusicGeneralConfig = Field(default_factory=MusicGeneralConfig)
@@ -197,9 +136,6 @@ class MusicConfig(BaseModel):
     playlist: MusicPlaylistConfig = Field(default_factory=MusicPlaylistConfig)
     download: MusicDownloadConfig = Field(default_factory=MusicDownloadConfig)
     broker_client: BrokerClientConfig
-    download_client: DownloadClientConfig
-    youtube_music_search_client: YoutubeMusicSearchClientConfig
-    media_search_client: MediaSearchClientConfig
 
 #
 # Exceptions
@@ -298,11 +234,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         if self.stores:
             self.playlist_store = self.stores.playlist
 
-        self.server_queue_priority = {}
-        if self.config.download and self.config.download.server_queue_priority:
-            for item in self.config.download.server_queue_priority:
-                self.server_queue_priority[int(item.server_id)] = item.priority
-
         storage_bucket_name = self.config.download.storage.bucket_name if self.config.download.storage else None
 
         # Dir for player working files; use configured path if set, otherwise a temp dir
@@ -334,9 +265,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # CheckoutResult(s3_key=...), and the client stamps bucket_name onto it so
         # MusicPlayer knows where to fetch the file from S3.  Without it the player
         # falls through to open() the raw s3_key and 404s.
-        # Read once and shared by all four of this cog's HTTP clients: they speak
-        # four different seams but the grace window is a property of the roll, not
-        # of the seam, so one config drives them all.
         seam_contract_config = seam_contract_from_settings(settings)
         self.broker_client: BrokerClient = HttpBrokerClient(
             self.config.broker_client.url, bucket_name=storage_bucket_name,
@@ -344,45 +272,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # Unlike the other logic classes this one holds state (a task per guild), so it is built once.
         self.intents_logic = GatewayIntentsLoop(
             self.logger, self.broker_client, CogPlayerGateway(self), self.gateway_id)
-
-        # Source expansion runs in the search pod: the cog posts a Spotify or
-        # YouTube-playlist id over HTTP and gets a CatalogResponse back, and never
-        # builds a provider client of its own.  SearchClient is unchanged either
-        # side of this line — it takes a MediaSearchClient, and both
-        # implementations satisfy that Protocol, which is the entire reason MR 1
-        # put the Protocol in first.
-        #
-        # A provider failure still arrives as MediaSearchError, raised by the
-        # remote client out of the pod's typed error body, so the rendering below
-        # it does not know the difference.
-        # Kept as an attribute as well as wrapped: SearchClient is a Protocol
-        # consumer and does not expose the transport, but the seam check is a
-        # property of the HTTP client underneath it.
-        self.media_search_client = HttpMediaSearchClient(
-            self.config.media_search_client.url, seam_contract=seam_contract_config)
-        self.search_client = SearchClient(self.media_search_client)
-        # Downloads run in the standalone downloader pod: the cog submits, clears
-        # and blocks over HTTP and never builds an in-process worker or queue.
-        # Results still return through the broker's download-result queue, which
-        # process_download_results consumes.
-        # Span toggles live in general.monitoring.tracing, alongside the logging
-        # block the base class reads the same way. Read here rather than threaded
-        # from the cli because the cog is where these two clients are built, and a
-        # new constructor argument through load_cogs would be one more hop at
-        # which the value could be dropped and silently replaced by the default.
-        tracing_config = tracing_config_from_settings(self.settings)
-        self.download_client: DownloadClient = HttpDownloadClient(
-            self.config.download_client.url,
-            trace_status_poll=tracing_config.trace_queue_worker_status_poll,
-            seam_contract=seam_contract_config)
-        # The search loop runs in the standalone search pod; the cog submits,
-        # clears and blocks over HTTP and never builds a worker, queue or driver.
-        # Resolutions come back through the broker's search-result queue, which
-        # process_search_results already consumes.
-        self.youtube_music_search_client: YoutubeMusicSearchClient = HttpYoutubeMusicSearchClient(
-            self.config.youtube_music_search_client.url,
-            trace_status_poll=tracing_config.trace_queue_worker_status_poll,
-            seam_contract=seam_contract_config)
 
         # Callback functions
         create_observable_gauge(METER_PROVIDER, BotMetricNaming.VOICE_SESSIONS.value, self.__voice_sessions_callback, 'Voice sessions, by what counted them')
@@ -494,21 +383,12 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # because there is no running loop there, and it must never be able to
         # stop the cog from loading.
         #
-        # All four of this cog's seams, not just the broker: the download client
-        # speaks queue_worker to the downloader pod, the ytmusic client speaks the
-        # same seam to the search pod at a different prefix, and the media-search
-        # client speaks media_search to that same pod. Each claims only its own
-        # peer's routes, so the two queue_worker clients do not demand each
-        # other's prefix.
         start_seam_checks()
-        # Every loop below calls the broker, downloader or search pod. A gateway that
-        # comes up first (a whole-namespace rollout) would otherwise open with a burst
-        # of connection errors on each of them, so they all wait on this one probe
-        # task; it gives up after a bounded wait and lets them start regardless.
+        # Every loop below calls the broker. A gateway that comes up first (a whole-namespace
+        # rollout) would otherwise open with a burst of connection errors, so they all wait on
+        # this one probe task; it gives up after a bounded wait and lets them start regardless.
         self._peers_ready_task = self.bot.loop.create_task(wait_for_peers({
             'broker': self.config.broker_client.url,
-            'download': self.config.download_client.url,
-            'search': self.config.youtube_music_search_client.url,
         }, self.logger))
         self._cleanup_task = self.bot.loop.create_task(
             self._after_peers_ready(return_loop_runner(
@@ -521,21 +401,12 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # which would re-run it forever.
         self._init_task = self.bot.loop.create_task(
             self._after_peers_ready(self.resume_player_sessions))
-        # The download loop lives in the downloader pod. The cog starts only the
-        # client's status poller. The bot registers no download loop and emits no
-        # download_files heartbeat; the downloader pod publishes that series.
-        await self.download_client.start(self.bot, self.bot_shutdown_event)
         self._intent_task = self.bot.loop.create_task(
             self._after_peers_ready(return_loop_runner(
                 self.process_gateway_intents, self.bot, self.logger,
                 health=LOOP_HEALTH.register(LOOP_PROCESS_GATEWAY_INTENTS),
                 peer_unavailable=is_peer_unavailable))
         )
-        # The search loop lives in the search pod, so the cog starts only the
-        # client's status poller. The bot registers no youtube_music_search loop
-        # and emits no heartbeat for one — the search pod publishes that series
-        # instead (cli/search.py's LOOP_SEARCH_WORKER, the same loop name).
-        await self.youtube_music_search_client.start(self.bot, self.bot_shutdown_event)
         # No embedded BrokerHttpServer: the broker pod serves that surface. Recording plays
         # (analytics and the history playlist) is the broker's history worker now.
 
@@ -572,11 +443,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 self._init_task.cancel()
             if self._cleanup_task:
                 self._cleanup_task.cancel()
-            # No bot-side download loops to cancel — stop the status poller and
-            # close the HTTP session instead.
-            await self.download_client.stop()
-            # No bot-side search loop to cancel — just the poller + session.
-            await self.youtube_music_search_client.stop()
             if self._intent_task:
                 self._intent_task.cancel()
             await self.intents_logic.close()
@@ -642,21 +508,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # And you might hit issues where dict size changes during iteration
         for guild, reason in guilds:
             await self.cleanup(guild, reason=reason)
-
-    async def add_source_to_player(self, media_download: MediaDownload, player: MusicPlayer):
-        '''
-        Queue a downloaded track for the guild's player.
-
-        The broker half is enqueue_logic.enqueue_download; what stays here is waking the player
-        once the broker has the track.
-
-        media_download : Standard MediaDownload for post download
-        player : MusicPlayer
-        '''
-        async def wake_player():
-            player.notify_enqueued()
-            player.trigger_prefetch()
-        return await self.enqueue_logic.enqueue_download(media_download, wake_player)
 
     async def process_gateway_intents(self):
         '''
@@ -980,7 +831,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                          join_channel = None,
                          create_player: bool=True,
                          ctx: Context = None,
-                         check_voice_client_active: bool=False,
                          guild = None,
                          text_channel = None):
         '''
@@ -990,7 +840,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         join_channel: Turn on voice client while we're here
         create_player : Create player if doesn't exist yet
         ctx: Original context call
-        check_voice_client_active: Check if we're currently playing anything
         guild / text_channel : Explicit stand-ins for ctx.guild / ctx.channel, for
             callers with no command behind them (a session resumed at startup).
             Ignored when ctx is given.
@@ -1001,11 +850,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
             try:
                 player = self.players[guild_id]
             except KeyError:
-                if check_voice_client_active:
-                    self.dispatcher.send_message(target_guild.id, target_text_channel.id,
-                        'I am not currently playing anything',
-                        delete_after=self.config.general.message_delete_after)
-                    return None
                 if not create_player:
                     return None
                 # Make directory for guild specific files
@@ -1025,13 +869,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                                      bucket_name=self.config.download.storage.bucket_name if self.config.download.storage else None)
                 await player.start_tasks()
                 self.players[guild_id] = player
-            if check_voice_client_active:
-                pending_downloads = await self.download_client.queue_size(guild_id)
-                if not player.guild.voice_client or (not player.guild.voice_client.is_playing() and not pending_downloads):
-                    self.dispatcher.send_message(player.guild.id, player.text_channel.id,
-                        'I am not currently playing anything',
-                        delete_after=self.config.general.message_delete_after)
-                    return None
             # Check if we should join voice
             if not player.guild.voice_client and join_channel:
                 try:
@@ -1141,18 +978,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         Move queue messages to this text chanel
         '''
         await self.forward_command(ctx, 'move-messages')
-
-    @property
-    def enqueue_logic(self) -> MediaEnqueuer:
-        '''
-        Search, cache-check and routing of media requests, built from this cog's current clients.
-        Stateless and rebuilt per use, like the other logic properties. The result loops use it too.
-        '''
-        return MediaEnqueuer(
-            self.broker_client, self.search_client, self.youtube_music_search_client,
-            self.download_client, self.playlist_store, CogPlayerGateway(self), self.dispatcher,
-            self.logger, self.config.player.queue_max_size, self.config.playlist.server_playlist_max_size,
-            self.config.general.message_delete_after, self.server_queue_priority)
 
     @group(name='playlist', invoke_without_command=False)
     async def playlist(self, ctx):

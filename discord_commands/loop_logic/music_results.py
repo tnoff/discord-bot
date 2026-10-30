@@ -13,11 +13,11 @@ from discord_core.types.media_request import media_request_attributes
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.queue import PutsBlocked
 from discord_core.types.search_resolution import SearchResolution
+from discord_core.interfaces.player_gateway import PlayerGateway
 from discord_core.utils.otel import async_otel_span_wrapper, span_links_from_context
 
-from discord_core.utils.media_enqueuer import MediaEnqueuer
-from discord_core.interfaces.player_gateway import PlayerGateway
-from discord_core.types.playlist_add_result import PlaylistAddResult
+from discord_commands.types.playlist_add_result import PlaylistAddResult
+from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
 OTEL_SPAN_PREFIX = 'music'
 

@@ -1,8 +1,6 @@
 from asyncio import TimeoutError as async_timeout
 
-from discord_core.types.media_download import MediaDownload
-
-from discord_core.interfaces.player_gateway import EnsureResult, PlayerStatus
+from discord_core.interfaces.player_gateway import EnsureResult
 from discord_gateway.types.cleanup_reason import CleanupReason
 
 
@@ -21,26 +19,6 @@ class CogPlayerGateway:
     async def _channel(self, channel_id: int):
         '''A channel from the bot's cache, fetched when it is not there.'''
         return self.cog.bot.get_channel(channel_id) or await self.cog.bot.fetch_channel(channel_id)
-
-    async def status(self, guild_id: int) -> PlayerStatus:
-        '''Snapshot the guild's player without creating one.'''
-        player = self.cog.players.get(guild_id)
-        if player is None:
-            return PlayerStatus(exists=False)
-        voice_client = player.guild.voice_client
-        pending_downloads = await self.cog.download_client.queue_size(guild_id)
-        return PlayerStatus(
-            exists=True,
-            voice_connected=bool(voice_client),
-            is_playing=bool(voice_client and voice_client.is_playing()),
-            pending_downloads=pending_downloads,
-            text_channel_id=player.text_channel.id,
-        )
-
-    async def has_live_player(self, guild_id: int) -> bool:
-        '''Whether the guild has a player that is not shutting down.'''
-        player = self.cog.players.get(guild_id)
-        return player is not None and not player.shutdown_called
 
     async def ensure(self, guild_id: int, voice_channel_id: int, text_channel_id: int) -> EnsureResult:
         '''Create the guild's player if needed and join the voice channel.'''
@@ -76,17 +54,9 @@ class CogPlayerGateway:
     async def wake(self, guild_id: int) -> None:
         '''
         Have the guild's player claim a freshly queued track now, and start fetching it, if it
-        has a player. The same two things ``add_source_to_player`` does once a track is queued.
+        has a player.
         '''
         player = self.cog.players.get(guild_id)
         if player is not None:
             player.notify_enqueued()
             player.trigger_prefetch()
-
-    async def add_cached(self, guild_id: int, media_download: MediaDownload) -> bool:
-        '''Queue a cache hit on the guild's player, if it has one.'''
-        player = self.cog.players.get(guild_id)
-        if player is None:
-            return False
-        self.cog.logger.debug(f'Search "{str(media_download.media_request)}" found in cache, placing in player queue')
-        return await self.cog.add_source_to_player(media_download, player)

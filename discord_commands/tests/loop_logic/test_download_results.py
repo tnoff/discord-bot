@@ -11,7 +11,7 @@ from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage, S
 from discord_core.exceptions import ExitEarlyException
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
-from discord_core.utils.media_enqueuer import MediaEnqueuer
+from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
 from tests.fakes.pipeline_fakes import (yield_download_worker_bot_flagged,
                                         yield_download_worker_download_error,

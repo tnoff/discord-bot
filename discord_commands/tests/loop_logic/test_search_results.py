@@ -7,7 +7,7 @@ import pytest
 from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage, YOUTUBE_VIDEO_PREFIX
 from discord_core.exceptions import ExitEarlyException, YoutubeMusicRetryException
 from discord_core.types.queue import PutsBlocked
-from discord_core.utils.media_enqueuer import MediaEnqueuer
+from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
 from tests.fakes.search_pipeline_fakes import (MockYoutubeMusicClient, create_test_media_request,
                                                create_test_playlist_add_request, make_broker_bundle)

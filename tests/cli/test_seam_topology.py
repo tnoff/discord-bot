@@ -30,9 +30,8 @@ from tests.cli._seam_topology import (
 # Adding a client to a pod means adding it here in the same commit.
 BUILT_CLIENTS = {
     'discord-gateway': {
-        'HttpBrokerClient', 'HttpCommandsClient', 'HttpDispatchClient', 'HttpDownloadClient',
-        'HttpGuildAnalyticsStore', 'HttpMarkovStore', 'HttpMediaSearchClient',
-        'HttpPlaylistStore', 'HttpYoutubeMusicSearchClient',
+        'HttpBrokerClient', 'HttpCommandsClient', 'HttpDispatchClient', 'HttpGuildAnalyticsStore',
+        'HttpMarkovStore', 'HttpPlaylistStore',
     },
     'discord-broker': {
         'HttpDispatchClient', 'HttpHistoryPlaylistStore', 'HttpPlayAnalyticsStore',
@@ -87,8 +86,8 @@ def test_queue_worker_is_called_at_two_prefixes():
     without the prefix. Asserted because a future refactor that derived the
     prefix from the seam name would silently merge two real dependencies into one.
     '''
-    bot_clients = measure_all()['discord-gateway']
-    prefixes = {name: client['prefix'] for name, client in bot_clients.items()
+    commands_clients = measure_all()['discord-commands']
+    prefixes = {name: client['prefix'] for name, client in commands_clients.items()
                 if client['seam'] == 'queue_worker'}
     assert prefixes == {
         'HttpDownloadClient': '/downloads',

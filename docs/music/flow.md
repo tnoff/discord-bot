@@ -528,7 +528,7 @@ Poll the broker for the next finished result
 
 The queue is the broker's, not the player's. `add_source_to_player` registers the
 download with the broker, then asks it to enqueue the track (the broker half is
-`TrackQueuer.enqueue_download` in `discord_core/utils/media_enqueuer.py`; the commands pod
+`TrackQueuer.enqueue_download` in `discord_commands/utils/media_enqueuer.py`; the commands pod
 then sends the gateway a wake intent, and the gateway wakes the player):
 
 ```

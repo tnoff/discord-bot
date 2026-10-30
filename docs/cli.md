@@ -69,9 +69,9 @@ Each cog performs specific cleanup during `cog_unload()`:
 - There is no message-sending loop or download-file loop to cancel any
   more — dispatch is HTTP-based (see
   [Message dispatcher](message_dispatcher.md)) and downloads run in the
-  standalone `discord-downloader` pod. Instead this cog stops its HTTP
-  status pollers and closes their sessions (`download_client.stop()`,
-  `youtube_music_search_client.stop()`)
+  standalone `discord-downloader` pod. The gateway holds no client for the
+  downloader or the search pod at all; it talks to the broker, the
+  dispatcher, the db pod and the commands pod
 - Removes temporary download/player directories
 
 #### Markov Cog

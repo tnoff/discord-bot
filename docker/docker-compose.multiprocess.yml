@@ -226,11 +226,6 @@ services:
         condition: service_started
       postgres:
         condition: service_healthy
-      # No downloader entry: both flavours are profiled, and a profile-less
-      # service cannot depend on a profiled one — compose refuses to start.
-      # Harmless: the bot polls the downloader's status endpoint and retries, so
-      # it tolerates the downloader being absent, late or mid-restart (that poll
-      # loop is what logs "downloader status poller error" during a prod rollout).
-      search:
-        condition: service_started
+      # No downloader or search entry: the gateway does not call them, the commands
+      # pod does.
     restart: unless-stopped

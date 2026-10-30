@@ -8,7 +8,7 @@ from typing import List
 
 from aiohttp import ClientConnectionError
 
-from discord_core.clients.search_client import SearchException
+from discord_commands.clients.search_client import SearchException
 from discord_core.types.command_envelope import CommandEnvelope
 from discord_core.types.download import DownloadErrorType, DownloadResult, DownloadStatus
 from discord_core.types.media_download import MediaDownload

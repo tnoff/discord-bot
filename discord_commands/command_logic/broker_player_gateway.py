@@ -13,7 +13,7 @@ from discord_core.interfaces.download_client_protocol import DownloadClient
 from discord_core.interfaces.player_gateway import EnsureResult, PlayerStatus
 from discord_core.types.gateway_intents import IntentKind
 from discord_core.types.media_download import MediaDownload
-from discord_core.utils.media_enqueuer import TrackQueuer
+from discord_commands.utils.media_enqueuer import TrackQueuer
 
 # An intent expires unclaimed after 30 seconds (discord_broker.workers.gateway_intents), so a join
 # not answered by then never will be. Waiting a little past that tells "slow" from "never claimed".

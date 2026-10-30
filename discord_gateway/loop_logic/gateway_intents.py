@@ -1,6 +1,7 @@
 from asyncio import CancelledError, Task, create_task
 from collections import deque
 from logging import Logger
+from typing import Protocol
 
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.status import StatusCode
@@ -9,12 +10,28 @@ from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.types.gateway_intents import GatewayIntent, IntentKind
 from discord_core.utils.otel import async_otel_span_wrapper
 
-from discord_core.interfaces.player_gateway import PlayerGateway
+from discord_core.interfaces.player_gateway import EnsureResult
 
 OTEL_SPAN_PREFIX = 'music'
 
 # What a caller is told when handling an intent raised: the detail is in the gateway's own log.
 INTERNAL_ERROR = 'The bot hit an internal error'
+
+
+class IntentPlayerGateway(Protocol):
+    '''The player calls an intent can ask for: the ones the gateway carries out.'''
+
+    async def ensure(self, guild_id: int, voice_channel_id: int, text_channel_id: int) -> EnsureResult:
+        '''Create the guild's player if needed and join the voice channel.'''
+
+    async def stop(self, guild_id: int, text_channel_id: int) -> None:
+        '''Destroy the guild's player at the user's request.'''
+
+    async def move_messages(self, guild_id: int, text_channel_id: int) -> None:
+        '''Point the player, and its saved session, at a new text channel.'''
+
+    async def wake(self, guild_id: int) -> None:
+        '''Have the guild's player claim a freshly queued track now, if it has a player.'''
 
 
 class GatewayIntentsLoop:
@@ -31,7 +48,7 @@ class GatewayIntentsLoop:
     idempotent, but an intent still running here is not run a second time.
     '''
 
-    def __init__(self, logger: Logger, broker_client: BrokerClient, player_gateway: PlayerGateway,
+    def __init__(self, logger: Logger, broker_client: BrokerClient, player_gateway: IntentPlayerGateway,
                  gateway_id: str):
         self.logger = logger
         self.broker_client = broker_client

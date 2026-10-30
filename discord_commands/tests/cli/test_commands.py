@@ -58,6 +58,22 @@ def test_run_builds_the_server_on_the_configured_port(run_loop):
     assert isinstance(kwargs['result_loops'], ResultLoops)
 
 
+@pytest.mark.parametrize('tracing,expected', [
+    ({'trace_queue_worker_status_poll': True}, True),
+    ({'trace_queue_worker_status_poll': False}, False),
+    (None, False),
+], ids=['on', 'off', 'no-tracing-block'])
+def test_run_forwards_the_status_poller_toggle_to_the_download_client(run_loop, tracing, expected):
+    '''The pod is where the client is built, so this is where the toggle either reaches it or is
+    quietly replaced by the default -- the failure this fleet has actually shipped.'''
+    settings = settings_with()
+    if tracing is not None:
+        settings['general'] = {**GENERAL, 'monitoring': {'otlp': {'enabled': False}, 'tracing': tracing}}
+    commands_cli.run(settings, general_config())
+    _, kwargs = run_loop.call_args.args[0]
+    assert kwargs['download_client']._trace_status_poll is expected  # pylint: disable=protected-access
+
+
 def test_run_requires_a_dispatcher_url(run_loop):
     with pytest.raises(DiscordBotException, match='dispatch_http_url'):
         commands_cli.run({'general': {}}, general_config())

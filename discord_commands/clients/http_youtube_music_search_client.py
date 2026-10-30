@@ -21,7 +21,7 @@ from discord_core.interfaces.youtube_music_search_protocols import (
 from discord_core.routes import queue_worker as queue_worker_routes
 from discord_core.routes.queue_worker import QueueWorkerRoutes
 
-from discord_core.clients.http_queue_worker_client import HttpQueueWorkerClient
+from discord_commands.clients.http_queue_worker_client import HttpQueueWorkerClient
 
 __all__ = [
     'YoutubeMusicSearchClient',

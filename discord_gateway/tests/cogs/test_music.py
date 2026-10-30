@@ -6,8 +6,6 @@ import asyncio
 
 import pytest
 
-from aiohttp import ClientConnectionError
-
 from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException
 from discord_core.utils.common import is_peer_unavailable
@@ -15,12 +13,8 @@ from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import loop_heartbeat_observations
 from discord_core.clients.http_broker_client import HttpBrokerClient
 from discord_core.clients.http_commands_client import HttpCommandsClient
-from discord_core.clients.http_download_client import HttpDownloadClient
-from discord_core.clients.http_media_search_client import HttpMediaSearchClient
-from discord_core.clients.http_youtube_music_search_client import HttpYoutubeMusicSearchClient
 
 from discord_gateway.cogs import music as music_module
-from discord_gateway.cogs.common import envelope_from_ctx
 from discord_gateway.cogs.music import Music, LOOP_CLEANUP_PLAYERS, LOOP_PROCESS_GATEWAY_INTENTS
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 
@@ -28,36 +22,11 @@ from discord_gateway.types.cleanup_reason import CleanupReason
 from discord_gateway.utils.bot_metrics import BotMetricNaming
 
 from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
-from tests.fakes.asyncio_download_client import AsyncioDownloadClient
-from tests.fakes.asyncio_youtube_music_search_client import AsyncioYoutubeMusicSearchClient
-from tests.fakes.pipeline_fakes import (yield_search_client_check_source,
-                                        yield_search_client_check_source_raises,
-                                        yield_search_client_check_source_raises_transport)
-from tests.helpers import fake_source_dict, fake_media_download
+from tests.helpers import fake_media_download
 from tests.helpers import fake_engine, fake_context, async_mock_session, fake_stores #pylint:disable=unused-import
-from tests.helpers import FakeVoiceClient, FakeChannel
-from tests.helpers import attach_in_process_broker, queue_in_broker
-from tests.helpers import attach_in_process_search
-from tests.helpers import attach_in_process_download
+from tests.helpers import FakeChannel
+from tests.helpers import attach_in_process_broker, attach_in_process_download, queue_in_broker
 
-
-# youtube_music_search_client is required config since the dual-path collapse —
-# the cog is an HTTP client only, and tests that need the in-process search stack
-# rebuild it with tests.helpers.attach_in_process_search.
-#
-# media_search_client is required for the same reason and has never been anything
-# else: source expansion is a round trip to the search pod, and there is no
-# in-process fallback to rebuild. It points at the same host and port as
-# youtube_music_search_client because one bind fronts both route families.
-# The search loop's heartbeat name. The cog used to define this constant and
-# register the loop; since the dual-path collapse the search pod owns both
-# (cli/search.py's LOOP_SEARCH_WORKER). Kept here so the assertions that the BOT
-# publishes no such series still have something to assert against.
-SEARCH_LOOP_NAME = 'youtube_music_search'
-
-# Same story for downloads: the cog used to own this loop and its name; the
-# downloader pod owns both now.
-DOWNLOAD_LOOP_NAME = 'download_files'
 
 BASE_MUSIC_CONFIG = {
     'general': {
@@ -68,10 +37,15 @@ BASE_MUSIC_CONFIG = {
     },
     'music': {
         'broker_client': {'url': 'http://broker-host:8081'},
-        'download_client': {'url': 'http://downloader-host:8083'},
-        'youtube_music_search_client': {'url': 'http://search-host:8084'},
-        'media_search_client': {'url': 'http://search-host:8084'},
     },
+}
+
+# The blocks the gateway used to need for the downloader and the search pod. The commands pod reads
+# them now; a deployed gateway config may still carry them, and must still load.
+LEGACY_CLIENT_BLOCKS = {
+    'download_client': {'url': 'http://downloader-host:8083'},
+    'youtube_music_search_client': {'url': 'http://search-host:8084'},
+    'media_search_client': {'url': 'http://search-host:8084'},
 }
 
 
@@ -80,10 +54,9 @@ def music_config(*overrides: dict) -> dict:
     Deep-merge test overrides onto BASE_MUSIC_CONFIG.
 
     Call sites used to write `override | BASE_MUSIC_CONFIG`, which was safe only
-    because the base had no 'music' key. It has one now — youtube_music_search_client
-    is required config since the dual-path collapse — and a shallow merge would
-    silently drop either the override's music settings or the required search url,
-    depending on operand order. Two levels of merge is all this config shape needs.
+    because the base had no 'music' key. It has one now — broker_client is required
+    config — and a shallow merge would silently drop either the override's music
+    settings or the required broker url, depending on operand order. Two levels of merge is all this config shape needs.
     '''
     merged = {key: dict(value) for key, value in BASE_MUSIC_CONFIG.items()}
     for override in overrides:
@@ -113,32 +86,9 @@ async def test_guild_cleanup(mocker, fake_context, fake_stores):  #pylint:disabl
             await queue_in_broker(cog, sd)
             await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
             assert fake_context['guild'].id not in cog.players
-            assert await cog.download_client.queue_size(fake_context['guild'].id) == 0
             # A restart leaves the queue for the next gateway
             assert [str(i.media_request.uuid) for i in (await cog.broker_client.get_guild_queue(fake_context['guild'].id)).items] == [
                 str(sd.media_request.uuid)]
-
-@pytest.mark.asyncio
-async def test_guild_hanging_downloads(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    '''A download still queued at shutdown is parked, not dropped.
-
-    This asserted queue_size == 0 while shutdown drained the queue.  Draining it
-    stranded the matching broker registry entries in the in_flight zone whenever the
-    grace period expired part-way through the follow-up DISCARDED loop, so shutdown
-    now leaves the queue for the downloader tier, which outlives this pod.
-    '''
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    cog.dispatcher = Mock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    s = fake_source_dict(fake_context)
-    await cog.download_client.submit(fake_context['guild'].id, s)
-    await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
-    assert await cog.download_client.queue_size(fake_context['guild'].id) == 1
-
 
 @pytest.mark.asyncio
 async def test_get_player_join_voice_timeout(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
@@ -154,225 +104,6 @@ async def test_get_player_join_voice_timeout(mocker, fake_context, fake_stores):
     assert result is None
     cog.dispatcher.send_message.assert_called_once()
     assert 'Timed out connecting to voice channel' in cog.dispatcher.send_message.call_args[0][2]
-
-@pytest.mark.asyncio()
-async def test_play_called_downloads_blocked(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    s = fake_source_dict(fake_context, is_direct_search=True)
-    s1 = fake_source_dict(fake_context, is_direct_search=True)
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s, s1]))
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    cog.dispatcher = Mock()
-    delete_bundle = mocker.spy(cog.broker_client, 'delete_bundle')
-    # Put source dict so we can a download queue to block
-    await cog.download_client.submit(fake_context['guild'].id, s)
-    await cog.download_client.block_guild(fake_context['guild'].id)
-    await cog.enqueue_logic.generate_media_requests_from_search(envelope_from_ctx(fake_context['context']), 'foo bar')
-    # Puts are blocked, so the bundle the search made is torn down rather than left unresolved.
-    delete_bundle.assert_awaited_once()
-
-@pytest.mark.asyncio()
-async def test_play_hits_max_items(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    config = music_config({
-        'music': {
-            'player': {
-                'queue_max_size': 1,
-            }
-        }
-    })
-    fake_context['author'].voice = FakeVoiceClient()
-    fake_context['author'].voice.channel = fake_context['channel']
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    s = fake_source_dict(fake_context)
-    s1 = fake_source_dict(fake_context)
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_search_client_check_source([s, s1]))
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    attach_in_process_search(cog)
-    cog.dispatcher = Mock()
-    await cog.enqueue_logic.generate_media_requests_from_search(envelope_from_ctx(fake_context['context']), 'foo bar')
-    # The test verifies that queue-full protection works
-    # The warning log message confirms the functionality is working
-    # Queue full message: "Queue full in guild ..., cannot add more media requests"
-    # This is the core behavior being tested - the message delivery system
-    # has changed but the protection mechanism still works correctly
-
-@pytest.mark.asyncio()
-async def test_play_called_raises_exception(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    fake_context['author'].voice = FakeVoiceClient()
-    fake_context['author'].voice.channel = fake_context['channel']
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_search_client_check_source_raises())
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = Mock()
-    await cog.enqueue_logic.generate_media_requests_from_search(envelope_from_ctx(fake_context['context']), 'foo bar')
-
-    # Assert we got a message about the original search
-    cog.dispatcher.send_message.assert_called()
-    assert cog.dispatcher.send_message.call_args[0][2] == 'Error searching input "foo bar", message: woopsie'
-
-    # Bundle is immediately torn down on the broker when the search fails
-    assert await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id) == []
-
-@pytest.mark.asyncio()
-async def test_play_tears_down_the_bundle_when_the_search_pod_is_unreachable(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    '''
-    A transport failure out of check_source must not strand the bundle.
-
-    create_bundle runs before check_source, so the placeholder row is already
-    rendered when the call fails. Before the media_search cutover check_source
-    could only raise SearchException and the one clause covered everything; now
-    it can raise out of aiohttp, and an uncaught one leaves a row that never
-    resolves and never errors -- it just sits there.
-    '''
-    fake_context['author'].voice = FakeVoiceClient()
-    fake_context['author'].voice.channel = fake_context['channel']
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_search_client_check_source_raises_transport())
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = Mock()
-
-    # Re-raised, not swallowed: the command span stays ERROR and the failure is
-    # still visible as one rather than being downgraded to a user message.
-    with pytest.raises(ClientConnectionError):
-        await cog.enqueue_logic.generate_media_requests_from_search(envelope_from_ctx(fake_context['context']), 'foo bar')
-
-    cog.dispatcher.send_message.assert_called()
-    assert cog.dispatcher.send_message.call_args[0][2] == 'Error searching input "foo bar", the search backend is unavailable'
-    assert await cog.broker_client.list_bundles_for_guild(fake_context['guild'].id) == []
-
-@pytest.mark.asyncio()
-async def test_play_called_basic_hits_cache(fake_engine, mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    config = music_config({
-        'music': {
-            'download': {
-                'cache': {
-                    'enable_cache_files': True,
-                },
-                'storage': {
-                    'bucket_name': 'test-bucket',
-                }
-            }
-        }
-    })
-    fake_context['author'].voice = FakeVoiceClient()
-    fake_context['author'].voice.channel = fake_context['channel']
-    with TemporaryDirectory() as tmp_dir:
-        with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
-            mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-            mocker.patch.object(MusicPlayer, 'start_tasks')
-            mocker.patch('discord_gateway.cogs.music.SearchClient', side_effect=yield_search_client_check_source([sd.media_request]))
-            mocker.patch('tests.fakes.asyncio_broker.get_file', return_value=True)
-            cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
-            attach_in_process_broker(cog, db_engine=fake_engine)
-            cog.dispatcher = Mock()
-            await cog.broker_client.register_download(sd)
-            # `!play` has already joined voice by the time the commands pod searches.
-            await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-            await cog.enqueue_logic.generate_media_requests_from_search(envelope_from_ctx(fake_context['context']), 'foo bar')
-            assert (await cog.broker_client.get_guild_queue(fake_context['guild'].id)).items
-
-def test_music_init_builds_the_http_media_search_client(fake_context):  #pylint:disable=redefined-outer-name
-    """
-    Source expansion is a remote call, and the url it targets is the config's.
-
-    The cog holds no provider client of its own -- SearchClient takes whatever
-    satisfies the MediaSearchClient Protocol, and what it is handed here is the
-    HTTP one. Asserting the base_url as well as the type is what catches the
-    plausible-looking regression where the client is built off some other seam's
-    url; they happen to point at the same pod, so a mix-up would pass a type check
-    and every test that does not name the port.
-    """
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    assert isinstance(cog.search_client.media_search_client, HttpMediaSearchClient)
-    assert cog.search_client.media_search_client._base_url == 'http://search-host:8084'  # pylint: disable=protected-access
-
-
-def test_music_init_media_search_url_is_read_independently(fake_context):  #pylint:disable=redefined-outer-name
-    """
-    media_search_client.url and youtube_music_search_client.url are separate keys.
-
-    They point at one pod today because one bind fronts both route families, which
-    is exactly why this needs asserting: with both set to the same value in the
-    base config, reading the wrong one is invisible. Give them different values
-    and each client has to land on its own.
-    """
-    config = music_config({
-        'music': {
-            'media_search_client': {'url': 'http://expansion-host:9099'},
-        }
-    })
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    assert cog.search_client.media_search_client._base_url == 'http://expansion-host:9099'  # pylint: disable=protected-access
-    assert cog.youtube_music_search_client._base_url == 'http://search-host:8084'  # pylint: disable=protected-access
-
-
-def test_music_config_requires_a_media_search_url(fake_context):  #pylint:disable=redefined-outer-name
-    """
-    A config without media_search_client fails at startup, not at the first !play.
-
-    This is the one seam that never had an optional phase, so there is no
-    in-process fallback for a missing url to select -- and none can be added
-    without importing the provider SDKs back onto the bot image. Failing loudly at
-    construction is the whole design; a pod that starts and then cannot expand a
-    Spotify link would be the worse outcome, because it looks healthy.
-
-    The pydantic ValidationError is deliberately re-raised as DiscordBotException
-    rather than allowed to surface as CogMissingRequiredArg, which load_cogs would
-    read as "this cog opts out" and skip. The message is asserted too: naming the
-    key is the difference between a fatal error an operator can act on and one
-    that just says the music config is bad.
-    """
-    config = music_config()
-    del config['music']['media_search_client']
-    with pytest.raises(DiscordBotException) as exc_info:
-        Music(fake_context['bot'], config, fake_context['dispatcher'])
-    assert 'media_search_client' in str(exc_info.value)
-
-
-def test_cog_builds_no_in_process_media_search_stack(fake_context):  #pylint:disable=redefined-outer-name
-    """
-    A deployment-shaped config never constructs the in-process provider clients.
-
-    Same contract as the search and download tiers, and the module check is again
-    the load-bearing half. Here it guards an import chain rather than a fallback
-    branch: clients/media_search_client imports spotipy and googleapiclient at
-    module scope to name their exception types, so re-importing anything from it
-    into this module puts both SDKs back on the bot image.
-
-    tests/cli/test_import_boundaries.py measures that same fact at the entrypoint
-    and is the real gate. This fails first and points at the file that did it.
-    """
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    assert isinstance(cog.search_client.media_search_client, HttpMediaSearchClient)
-    for symbol in ('build_media_search_client', 'LocalMediaSearchClient',
-                   'SpotifyClient', 'YoutubeClient'):
-        assert not hasattr(music_module, symbol), f'{symbol} is back in the cog module'
-
-def test_music_init_server_queue_priority(fake_context):  #pylint:disable=redefined-outer-name
-    """Test Music initialization with server queue priority configuration"""
-    config = music_config({
-        'music': {
-            'download': {
-                'server_queue_priority': [
-                    {'server_id': '123456789', 'priority': 1},
-                    {'server_id': '987654321', 'priority': 2}
-                ]
-            }
-        }
-    })
-
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    assert cog.server_queue_priority[123456789] == 1
-    assert cog.server_queue_priority[987654321] == 2
 
 def test_music_init_creates_download_directory(fake_context):  #pylint:disable=redefined-outer-name
     """Test Music initialization creates download directory when specified"""
@@ -472,7 +203,7 @@ def test_music_heartbeat_callbacks_report_loop_health(fake_context):  #pylint:di
 
     # Nothing has started yet: no series at all, rather than a 0 that would read
     # as "the loop died" for a loop that simply isn't running in this process.
-    for job_name in (LOOP_CLEANUP_PLAYERS, DOWNLOAD_LOOP_NAME, LOOP_PROCESS_GATEWAY_INTENTS, SEARCH_LOOP_NAME):
+    for job_name in (LOOP_CLEANUP_PLAYERS, LOOP_PROCESS_GATEWAY_INTENTS):
         assert not loop_heartbeat_observations(job_name)
 
     health = LOOP_HEALTH.register(LOOP_PROCESS_GATEWAY_INTENTS, stale_after_seconds=60)
@@ -662,32 +393,6 @@ async def test_cog_unload_with_players(mocker, fake_context):  #pylint:disable=r
     assert cog.bot_shutdown_event.is_set()
 
 
-@pytest.mark.asyncio
-async def test_download_queue_with_server_priority(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    """Test download queue respects server priority configuration"""
-    config = music_config({
-        'general': {
-            'include': {
-                'music': True
-            }
-        },
-        'music': {
-            'download': {
-                'server_queue_priority': [
-                    {'server_id': fake_context['guild'].id, 'priority': 1}
-                ]
-            }
-        }
-    })
-
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
-
-    # Verify priority was set correctly (converted to int)
-    guild_id_int = int(fake_context['guild'].id)
-    assert guild_id_int in cog.server_queue_priority
-    assert cog.server_queue_priority[guild_id_int] == 1
-
 def test_music_init_with_backup_storage_options(fake_context):  #pylint:disable=redefined-outer-name
     """Test Music initialization with backup storage options"""
     config = music_config({
@@ -790,26 +495,6 @@ async def test_shutdown_no_players(fake_context, mocker):  #pylint:disable=redef
 
     cleanup_mock.assert_not_called()
     assert cog.bot_shutdown_event.is_set()
-
-@pytest.mark.asyncio
-async def test_add_source_to_player_registers_before_enqueue(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """Broker registration must precede enqueue so the player_loop cannot checkout a
-    cache-hit item before the broker knows about it (which returns None and crashes
-    the player on the raw S3 key)."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = mocker.Mock()
-    order = []
-    cog.broker_client = mocker.Mock()
-    cog.broker_client.register_download = mocker.AsyncMock(side_effect=lambda *_a, **_k: order.append('register'))
-    cog.broker_client.enqueue_track = mocker.AsyncMock(side_effect=lambda *_a, **_k: order.append('enqueue') or 'ok')
-    cog.broker_client.update_request_status = mocker.AsyncMock()
-    player = mocker.Mock()
-    with TemporaryDirectory() as tmp_dir:
-        with fake_media_download(tmp_dir, fake_context=fake_context) as media_download:
-            result = await cog.add_source_to_player(media_download, player)
-    assert result is True
-    assert order == ['register', 'enqueue']
 
 @pytest.mark.asyncio
 async def test_task_cancellation_during_shutdown(fake_context, mocker):  #pylint:disable=redefined-outer-name
@@ -919,8 +604,6 @@ async def test_voice_client_disconnected_without_manual_cleanup(fake_context, mo
     suppress the gateway leave, stranding the bot in the channel."""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    attach_in_process_search(cog)
     cog.dispatcher = Mock()
     mocker.patch('discord_gateway.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -950,8 +633,6 @@ async def test_voice_client_cleanup_handles_none(fake_context, mocker):  #pylint
     """Test that cleanup handles case when voice_client is None"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    attach_in_process_search(cog)
     cog.dispatcher = Mock()
     mocker.patch('discord_gateway.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -1008,8 +689,6 @@ async def test_voice_client_cleanup_without_bot_shutdown(fake_context, mocker): 
     """Test that cleanup with a non-BOT_SHUTDOWN reason does not send a message"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    attach_in_process_search(cog)
     cog.dispatcher = Mock()
     mocker.patch('discord_gateway.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -1078,8 +757,6 @@ async def test_voice_client_cleanup_when_player_does_not_exist(fake_context, moc
     """Test that cleanup continues when player doesn't exist in self.players"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    attach_in_process_search(cog)
     mocker.patch('discord_gateway.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1108,8 +785,6 @@ async def test_voice_client_cleanup_player_removed_externally(fake_context, mock
     """Test cleanup when player was already removed from cog.players"""
     cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    attach_in_process_search(cog)
     mocker.patch('discord_gateway.cogs.music.sleep')
     mocker.patch.object(MusicPlayer, 'start_tasks')
 
@@ -1225,150 +900,28 @@ def test_missing_broker_client_config_is_fatal(fake_context):  #pylint:disable=r
     """
     A music section without the broker url kills the process.
 
-    Same contract as the search and download tiers. The old behaviour was to fall
+    The old behaviour was to fall
     back to an in-process AsyncioBroker, which under HA would give the bot its own
     private registry: every request would look registered, and every checkout the
     downloader and search pods made against the real broker would miss.
     """
-    config = {'general': {'include': {'music': True}},
-              'music': {'download_client': {'url': 'http://downloader-host:8083'},
-                        'youtube_music_search_client': {'url': 'http://search-host:8084'}}}
+    config = {'general': {'include': {'music': True}}, 'music': dict(LEGACY_CLIENT_BLOCKS)}
     with pytest.raises(DiscordBotException) as exc_info:
         Music(fake_context['bot'], config, fake_context['dispatcher'])
     assert 'Invalid music config' in str(exc_info.value)
     assert not isinstance(exc_info.value, CogMissingRequiredArg)
 
 
-def test_music_init_with_download_client_config_uses_http(fake_context):  #pylint:disable=redefined-outer-name
-    """HttpDownloadClient (pointed at the downloader pod) is built when
-    download_client config is present — the HA cutover selection."""
-    config = music_config({
-        'music': {'download_client': {'url': 'http://downloader-host:8083'}}
-    })
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    assert isinstance(cog.download_client, HttpDownloadClient)
-    assert cog.download_client._base_url == 'http://downloader-host:8083'  # pylint: disable=protected-access
-
-@pytest.mark.asyncio
-async def test_download_heartbeat_emits_no_series_in_ha(fake_context):  #pylint:disable=redefined-outer-name
-    """The download loop lives in the downloader pod, so the bot registers no
-    download_files loop and emits no series for it — it would otherwise sit at 0
-    and trip the stalled-loop alert (and fail the pod's liveness probe)."""
-    config = music_config({
-        'music': {'download_client': {'url': 'http://downloader-host:8083'}}
-    })
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.download_client = Mock()
-    cog.download_client.start = AsyncMock()
-    mock_loop = Mock()
-    mock_loop.create_task = Mock(return_value=Mock())
-    cog.bot.loop = mock_loop
-    cog.dispatcher = Mock()
-    await cog.cog_load()
-    assert not loop_heartbeat_observations(DOWNLOAD_LOOP_NAME)
-    assert LOOP_HEALTH.get(DOWNLOAD_LOOP_NAME) is None
-
-
-@pytest.mark.asyncio
-async def test_cog_load_starts_poller_in_ha(fake_context):  #pylint:disable=redefined-outer-name
-    """In HA, cog_load starts the client's status poller and spawns no download loops."""
-    config = music_config({
-        'music': {'download_client': {'url': 'http://downloader-host:8083'}}
-    })
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.download_client = Mock()
-    cog.download_client.start = AsyncMock()
-    mock_loop = Mock()
-    mock_loop.create_task = Mock(return_value=Mock())
-    cog.bot.loop = mock_loop
-    cog.dispatcher = Mock()
-    await cog.cog_load()
-    cog.download_client.start.assert_awaited_once()
-    # peer wait + cleanup + init + intents only — the download and search loops live in their
-    # own pods, the result loops in the commands pod, and no broker server is configured.
-    assert mock_loop.create_task.call_count == 4
-
-
 @pytest.mark.asyncio
 async def test_cog_load_loops_tolerate_peer_outage(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """A broker/downloader/search outage must not fail liveness: every runner-driven loop opts in."""
+    """A broker outage must not fail liveness: every runner-driven loop opts in."""
     runner = mocker.patch('discord_gateway.cogs.music.return_loop_runner')
-    config = music_config({
-        'music': {'download_client': {'url': 'http://downloader-host:8083'}}
-    })
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.download_client = Mock()
-    cog.download_client.start = AsyncMock()
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.bot.loop = Mock()
     cog.dispatcher = Mock()
     await cog.cog_load()
     assert runner.call_count == 2
     assert all(call.kwargs['peer_unavailable'] is is_peer_unavailable for call in runner.call_args_list)
-
-
-@pytest.mark.asyncio
-async def test_cog_unload_stops_download_client_in_ha(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """In HA, cog_unload stops the status poller / closes the HTTP session."""
-    mocker.patch('discord_gateway.cogs.music.rm_tree')
-    config = music_config({
-        'music': {'download_client': {'url': 'http://downloader-host:8083'}}
-    })
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.download_client = Mock()
-    cog.download_client.stop = AsyncMock()
-    cog.players = {}
-    await cog.cog_unload()
-    cog.download_client.stop.assert_awaited_once()
-
-
-def test_music_init_builds_the_http_search_client(fake_context):  #pylint:disable=redefined-outer-name
-    """The cog builds an HttpYoutubeMusicSearchClient pointed at the search pod —
-    the only shape there is, since the in-process worker branch was collapsed."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    assert isinstance(cog.youtube_music_search_client, HttpYoutubeMusicSearchClient)
-    assert cog.youtube_music_search_client._base_url == 'http://search-host:8084'  # pylint: disable=protected-access
-
-
-def test_cog_builds_no_in_process_search_stack(fake_context):  #pylint:disable=redefined-outer-name
-    """
-    A deployment-shaped config never constructs the in-process search doubles.
-
-    This is the distinction projects/discord-bot-ha-only draws: the Asyncio*
-    classes keep existing as test doubles (tests.helpers.attach_in_process_search
-    builds exactly this stack), but nothing a pod can be configured with reaches
-    them. Asserted rather than assumed, because the failure mode is silent — a
-    reintroduced fallback looks like working code until a pod quietly runs the
-    wrong half.
-
-    The module check is the load-bearing half: it fails the moment someone
-    re-imports the in-process search classes into the cog, which is how the
-    fallback would come back.
-    """
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    assert isinstance(cog.youtube_music_search_client, HttpYoutubeMusicSearchClient)
-    assert not isinstance(cog.youtube_music_search_client, AsyncioYoutubeMusicSearchClient)
-    assert not hasattr(cog, 'youtube_music_search_driver')
-    for symbol in ('AsyncioYoutubeMusicSearchClient', 'AsyncioYoutubeMusicSearchWorker',
-                   'RedisYoutubeMusicSearchWorker', 'YoutubeMusicSearchDriver', 'youtube_music'):
-        assert not hasattr(music_module, symbol), f'{symbol} is back in the cog module'
-
-
-def test_cog_builds_no_in_process_download_stack(fake_context):  #pylint:disable=redefined-outer-name
-    """
-    A deployment-shaped config never constructs the in-process download stack.
-
-    Same contract as the search tier, and the same reason for checking the module
-    and not just the instance: re-importing AsyncioDownloadWorker here would put
-    yt_dlp back on the bot image, which
-    tests/cli/test_import_boundaries.py would then fail — but only if someone runs
-    it, whereas this fails on the construction itself.
-    """
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    assert isinstance(cog.download_client, HttpDownloadClient)
-    assert not isinstance(cog.download_client, AsyncioDownloadClient)
-    for symbol in ('AsyncioDownloadClient', 'AsyncioDownloadWorker', 'RedisDownloadWorker',
-                   'FailureQueue'):
-        assert not hasattr(music_module, symbol), f'{symbol} is back in the cog module'
 
 
 def test_cog_builds_no_in_process_broker_stack(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
@@ -1406,16 +959,6 @@ def test_cog_builds_no_in_process_broker_stack(fake_context, fake_stores):  #pyl
         assert not hasattr(music_module, symbol), f'{symbol} is back in the cog module'
 
 
-def test_missing_download_client_config_is_fatal(fake_context):  #pylint:disable=redefined-outer-name
-    """A music section without the downloader url kills the process, as with search."""
-    config = {'general': {'include': {'music': True}},
-              'music': {'youtube_music_search_client': {'url': 'http://search-host:8084'}}}
-    with pytest.raises(DiscordBotException) as exc_info:
-        Music(fake_context['bot'], config, fake_context['dispatcher'])
-    assert 'Invalid music config' in str(exc_info.value)
-    assert not isinstance(exc_info.value, CogMissingRequiredArg)
-
-
 def test_missing_search_client_config_is_fatal_not_a_cog_skip(fake_context):  #pylint:disable=redefined-outer-name
     """
     A music section without the search url kills the process; it does not skip music.
@@ -1431,53 +974,6 @@ def test_missing_search_client_config_is_fatal_not_a_cog_skip(fake_context):  #p
               fake_context['dispatcher'])
     assert 'Invalid music config' in str(exc_info.value)
     assert not isinstance(exc_info.value, CogMissingRequiredArg)
-
-@pytest.mark.asyncio
-async def test_search_heartbeat_emits_no_series_in_ha(fake_context):  #pylint:disable=redefined-outer-name
-    """In HA the search loop lives in the search pod, so the bot registers no
-    youtube_music_search loop and emits no series for it. The pod publishes that
-    series instead, under the same loop name — so the heartbeat moves job labels
-    at the cutover rather than vanishing."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    cog.youtube_music_search_client = Mock()
-    cog.youtube_music_search_client.start = AsyncMock()
-    mock_loop = Mock()
-    mock_loop.create_task = Mock(return_value=Mock())
-    cog.bot.loop = mock_loop
-    cog.dispatcher = Mock()
-    await cog.cog_load()
-    assert not loop_heartbeat_observations(SEARCH_LOOP_NAME)
-    assert LOOP_HEALTH.get(SEARCH_LOOP_NAME) is None
-
-
-@pytest.mark.asyncio
-async def test_cog_load_starts_the_search_poller_in_ha(fake_context):  #pylint:disable=redefined-outer-name
-    """In HA, cog_load starts the search client's status poller and spawns no
-    bot-side search loop."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    cog.youtube_music_search_client = Mock()
-    cog.youtube_music_search_client.start = AsyncMock()
-    mock_loop = Mock()
-    mock_loop.create_task = Mock(return_value=Mock())
-    cog.bot.loop = mock_loop
-    cog.dispatcher = Mock()
-    await cog.cog_load()
-    cog.youtube_music_search_client.start.assert_awaited_once()
-    # peer wait + cleanup + init + intents = 4. Neither the download nor the search loop is among
-    # them; the cog has neither to spawn, and the result loops run in the commands pod.
-    assert mock_loop.create_task.call_count == 4
-
-
-@pytest.mark.asyncio
-async def test_cog_unload_stops_search_client_in_ha(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """In HA, cog_unload stops the search status poller / closes the HTTP session."""
-    mocker.patch('discord_gateway.cogs.music.rm_tree')
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    cog.youtube_music_search_client = Mock()
-    cog.youtube_music_search_client.stop = AsyncMock()
-    cog.players = {}
-    await cog.cog_unload()
-    cog.youtube_music_search_client.stop.assert_awaited_once()
 
 @pytest.mark.asyncio
 async def test_loops_wait_for_the_peer_gate_before_running(fake_context):  #pylint:disable=redefined-outer-name
@@ -1503,31 +999,55 @@ async def test_loops_wait_for_the_peer_gate_before_running(fake_context):  #pyli
     assert ran == [True]
 
 
-@pytest.mark.asyncio
-async def test_cog_load_waits_on_the_broker_downloader_and_search_urls(fake_context, mocker):  #pylint:disable=redefined-outer-name
-    """The startup gate probes exactly the three peers the loops call."""
-    waited = mocker.patch('discord_gateway.cogs.music.wait_for_peers', new=Mock(return_value=None))
-    config = music_config({'music': {
-        'broker_client': {'url': 'http://broker:8084'},
-        'download_client': {'url': 'http://downloader:8083'},
-        'youtube_music_search_client': {'url': 'http://search:8085'},
-    }})
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
-    cog.download_client = Mock()
-    cog.download_client.start = AsyncMock()
-    cog.youtube_music_search_client = Mock()
-    cog.youtube_music_search_client.start = AsyncMock()
-    cog.bot.loop = Mock(create_task=Mock(return_value=Mock()))
-    await cog.cog_load()
-    assert waited.call_args.args[0] == {
-        'broker': 'http://broker:8084',
-        'download': 'http://downloader:8083',
-        'search': 'http://search:8085',
-    }
-
-
 def test_music_requires_the_commands_url(fake_context):  #pylint:disable=redefined-outer-name
     '''The playlist stubs forward to the commands pod, so a music cog without its url is fatal.'''
     config = music_config({'general': {'commands_http_url': None}})
     with pytest.raises(DiscordBotException, match='commands_http_url'):
         Music(fake_context['bot'], config, fake_context['dispatcher'])
+
+
+@pytest.mark.asyncio
+async def test_cog_load_waits_only_on_the_broker_url(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    """The startup gate probes the one peer the gateway's loops call. It reaches neither the downloader
+    nor the search pod, even when its config still names them."""
+    waited = mocker.patch('discord_gateway.cogs.music.wait_for_peers', new=Mock(return_value=None))
+    config = music_config(LEGACY_CLIENT_BLOCKS, {'music': {'broker_client': {'url': 'http://broker:8084'}}})
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
+    cog.bot.loop = Mock(create_task=Mock(return_value=Mock()))
+    await cog.cog_load()
+    assert waited.call_args.args[0] == {'broker': 'http://broker:8084'}
+    # peer wait + cleanup + init + intents: no pollers, and the result loops run in the commands pod.
+    assert cog.bot.loop.create_task.call_count == 4
+
+
+@pytest.mark.asyncio
+async def test_cog_unload_closes_only_the_gateways_own_clients(fake_context, mocker):  #pylint:disable=redefined-outer-name
+    mocker.patch('discord_gateway.cogs.music.rm_tree')
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog.players = {}
+    await cog.cog_unload()
+    assert cog.bot_shutdown_event.is_set()
+
+
+def test_cog_builds_no_download_or_search_clients(fake_context):  #pylint:disable=redefined-outer-name
+    """
+    The gateway reaches the downloader and the search pod through the commands pod, so it builds
+    no client for either and holds none of the enqueuing that used them.
+
+    Config that still carries the old url blocks must keep loading, and must not bring the clients
+    back: the module check fails the moment one is re-imported into the cog.
+    """
+    cog = Music(fake_context['bot'], music_config(LEGACY_CLIENT_BLOCKS), fake_context['dispatcher'])
+    for attribute in ('download_client', 'youtube_music_search_client', 'media_search_client',
+                      'search_client', 'enqueue_logic', 'add_source_to_player', 'server_queue_priority'):
+        assert not hasattr(cog, attribute), f'{attribute} is back on the cog'
+    for symbol in ('HttpDownloadClient', 'HttpYoutubeMusicSearchClient', 'HttpMediaSearchClient',
+                   'SearchClient', 'MediaEnqueuer', 'DownloadClientConfig',
+                   'YoutubeMusicSearchClientConfig', 'MediaSearchClientConfig'):
+        assert not hasattr(music_module, symbol), f'{symbol} is back in the cog module'
+
+
+def test_music_config_loads_without_the_client_blocks(fake_context):  #pylint:disable=redefined-outer-name
+    """Only the broker url is required of the gateway's music config now."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    assert cog.config.broker_client.url == 'http://broker-host:8081'

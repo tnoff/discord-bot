@@ -167,7 +167,7 @@ hand-maintained list here):
   `http_youtube_music_search_client.py`, `http_guild_analytics_store.py`, the
   markov and playlist stores, `search_client.py`) are in `discord_core/clients/`
   because the commands pod builds them too, and so is the `MediaEnqueuer`
-  (`discord_core/utils/media_enqueuer.py`). `clients/` here keeps only what is
+  (`discord_commands/utils/media_enqueuer.py`). `clients/` here keeps only what is
   the gateway's own. Commands are forwarding stubs in `cogs/` for the groups that have
   moved to the commands pod (all but `role`); `command_logic/` holds the logic of
   the `role` commands.
