@@ -13,6 +13,9 @@ Awaitable fetch endpoints (POST → 202 with request_id, GET → 200 result | 20
     /dispatch/fetch_history
     /dispatch/fetch_emojis
     /dispatch/results/{request_id}
+
+The guild-roles fetches (fetch_roles, fetch_member, fetch_role_members, change_member_role) answer the
+same way and are served from guild_roles_handlers.py.
 '''
 import logging
 
@@ -28,10 +31,12 @@ from discord_core.types import requests as dispatch_requests
 from discord_core.types import dispatch_responses
 from discord_core.utils.dispatch_queue import dispatch_request_id
 
+from discord_dispatcher.servers.guild_roles_handlers import GuildRolesHandlersMixin
+
 logger = logging.getLogger(__name__)
 
 
-class DispatchHttpServer(AiohttpServerBase):
+class DispatchHttpServer(GuildRolesHandlersMixin, AiohttpServerBase):
     '''
     aiohttp HTTP server wrapping a MessageDispatcher instance.
 
@@ -65,6 +70,7 @@ class DispatchHttpServer(AiohttpServerBase):
             dispatch_routes.FETCH_HISTORY: self._handle_fetch_history,
             dispatch_routes.FETCH_EMOJIS: self._handle_fetch_emojis,
             dispatch_routes.GET_RESULT: self._handle_get_result,
+            **self.guild_roles_handlers(),
         }
 
     def build_app(self) -> web.Application:
