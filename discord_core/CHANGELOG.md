@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.17.0] - 2026-10-30
+
+### Changed
+
+- Added the guild-roles contract (#1030): `routes/guild_roles.py` and `types/guild_roles.py`, the four dispatch fetches the commands pod will use for `role` (roles, one member, a role's members, add or remove a role). Declared ahead of the dispatcher that serves them, outside `dispatch.ALL`.
+
 ## [3.16.0] - 2026-10-30
 
 ### Changed
