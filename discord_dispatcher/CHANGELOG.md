@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.0] - 2026-10-31
+
+### Changed
+
+- Serves the four guild-roles fetches the commands pod will use for the `role` commands (#1030): `fetch_roles`, `fetch_member`, `fetch_role_members` and `change_member_role`, over Discord REST (`workers/guild_roles.py`, `servers/guild_roles_handlers.py`). `fetch_role_members` needs `members` in `general.intents`. Each request's id includes its `call_id`, so two calls never share a stored result.
+
 ## [3.1.12] - 2026-10-30
 
 ### Changed
