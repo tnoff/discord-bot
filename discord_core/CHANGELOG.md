@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.18.0] - 2026-10-31
+
+### Changed
+
+- The guild-roles routes are part of `dispatch.ALL` (#1030): the dispatcher has served them since #1166, so every dispatch client's peer route check now demands them of it. `routes/guild_roles` comes off `SHIPS_AHEAD_OF_CONSUMER`.
+
 ## [3.17.0] - 2026-10-30
 
 ### Changed
