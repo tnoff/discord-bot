@@ -17,11 +17,10 @@ second `role add` for the same member and role would be answered with the first 
 without touching Discord. `call_id` makes each call its own request, while a retried POST (same
 `call_id`) still lands on the one request.
 
-Declared in its own module rather than in `routes/dispatch.py`'s ALL, for the deploy-order reason
-routes/gateway_intents.py records: every `HttpDispatchClient` demands everything in
-`dispatch.ALL` of its peer, so folding these in before the dispatcher serves them would fail the
-peer route check on every pod that talks to the dispatcher. The dispatcher serves them next, and a
-later change folds them into `dispatch.ALL`.
+Declared in its own module, and part of `routes/dispatch.py`'s ALL: they shipped ahead of the
+dispatcher for the deploy-order reason routes/gateway_intents.py records (every `HttpDispatchClient`
+demands everything in `dispatch.ALL` of its peer, so they could not join it before the dispatcher
+served them), and the dispatcher has served them since #1166.
 '''
 from discord_core.routes.route import Route, collect
 

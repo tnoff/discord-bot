@@ -11,6 +11,7 @@ polls this route for the outcome. So a client that can submit but cannot poll is
 functional right up to the point it needs an answer — which is exactly the shape
 the subset check exists to catch before a user does.
 '''
+from discord_core.routes import guild_roles
 from discord_core.routes.route import Route, collect
 
 ROUTE_PREFIX = '/dispatch'
@@ -24,4 +25,6 @@ FETCH_HISTORY = Route('POST', f'{ROUTE_PREFIX}/fetch_history')
 FETCH_EMOJIS = Route('POST', f'{ROUTE_PREFIX}/fetch_emojis')
 GET_RESULT = Route('GET', f'{ROUTE_PREFIX}/results/{{request_id}}')
 
-ALL = collect(globals())
+# The guild-roles fetches are declared in routes/guild_roles.py; the dispatcher has served them since
+# #1166, so they are part of what every dispatch client's peer route check demands of it.
+ALL = collect(globals()) + guild_roles.ALL

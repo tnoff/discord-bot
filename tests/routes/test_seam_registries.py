@@ -185,6 +185,8 @@ EXPECTED_WIRE_PATHS = {
         'POST /dispatch/update_mutable', 'POST /dispatch/remove_mutable',
         'POST /dispatch/update_mutable_channel', 'POST /dispatch/fetch_history',
         'POST /dispatch/fetch_emojis', 'GET /dispatch/results/{request_id}',
+        'POST /dispatch/fetch_roles', 'POST /dispatch/fetch_member',
+        'POST /dispatch/fetch_role_members', 'POST /dispatch/change_member_role',
     },
     'media_search': {'POST /search/spotify', 'POST /search/youtube'},
     'queue_worker': {

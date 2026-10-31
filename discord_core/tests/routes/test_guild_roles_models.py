@@ -31,13 +31,13 @@ def test_every_guild_roles_route_has_its_models():
             assert inspect.isclass(model) and issubclass(model, BaseModel)
 
 
-def test_the_routes_are_posts_under_the_dispatch_prefix_and_not_yet_in_dispatch_all():
-    '''Outside `dispatch.ALL` until the dispatcher serves them (routes/guild_roles.py).'''
+def test_the_routes_are_posts_under_the_dispatch_prefix_and_part_of_dispatch_all():
+    '''Folded into `dispatch.ALL` now the dispatcher serves them (routes/guild_roles.py).'''
     assert len(guild_roles.ALL) == len(ROUTE_MODELS)
     for route in guild_roles.ALL:
         assert route.method == 'POST'
         assert route.template.startswith(f'{dispatch_routes.ROUTE_PREFIX}/')
-        assert route not in dispatch_routes.ALL
+        assert route in dispatch_routes.ALL
 
 
 @pytest.mark.parametrize('name', sorted(ROUTE_MODELS))
