@@ -245,22 +245,23 @@ call the history/emoji fetch path today (the commands pod only sends).
 
 | Span name | Kind | Pod | Source |
 |---|---|---|---|
-| `dispatch.delete` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:110` |
-| `dispatch.fetch_emojis` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:170` |
-| `dispatch.fetch_history` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:157` |
-| `dispatch.remove_mutable` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:126` |
-| `dispatch.send` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:101` |
-| `dispatch.update_mutable` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:118` |
-| `dispatch.update_mutable_channel` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:133` |
+| `dispatch.delete` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:116` |
+| `dispatch.fetch_emojis` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:176` |
+| `dispatch.fetch_history` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:163` |
+| `dispatch.remove_mutable` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:132` |
+| `dispatch.send` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:107` |
+| `dispatch.update_mutable` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:124` |
+| `dispatch.update_mutable_channel` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:139` |
 | `dispatch_client.fetch_emojis` | CLIENT | core (shared) | `discord_core/clients/dispatch_client_base.py:169` |
 | `dispatch_client.fetch_history` | CLIENT | core (shared) | `discord_core/clients/dispatch_client_base.py:141` |
-| `message_dispatcher.delete` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:770` |
-| `message_dispatcher.fetch_emojis` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:821` |
-| `message_dispatcher.fetch_history` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:800` |
-| `message_dispatcher.process_mutable` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:640` |
-| `message_dispatcher.remove_mutable` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:728` |
-| `message_dispatcher.send` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:756` |
-| `message_dispatcher.update_mutable_channel` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:785` |
+| `message_dispatcher.delete` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:784` |
+| `message_dispatcher.fetch_emojis` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:835` |
+| `message_dispatcher.fetch_history` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:814` |
+| `message_dispatcher.guild_roles` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:855` |
+| `message_dispatcher.process_mutable` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:654` |
+| `message_dispatcher.remove_mutable` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:742` |
+| `message_dispatcher.send` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:770` |
+| `message_dispatcher.update_mutable_channel` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:799` |
 
 <!-- END GENERATED(dispatcher-span-table) -->
 
@@ -303,6 +304,7 @@ which constructs it does and does not follow.
 |---|---|---|
 | `discord_core/clients/http_store_base.py:101` | span name not statically determinable | `f'{self.SPAN_PREFIX}.{route}'` |
 | `discord_db/servers/database_server.py:251` | span name not statically determinable | `f'{SPAN_PREFIX}.{span_name}'` |
+| `discord_dispatcher/servers/guild_roles_handlers.py:70` | span name not statically determinable | `f'dispatch.{call.kind}'` |
 | `discord_gateway/utils/otel_command.py:61` | span name not statically determinable | `span_name` |
 
 <!-- END GENERATED(exempt-span-appendix) -->

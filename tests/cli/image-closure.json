@@ -334,6 +334,7 @@
         "discord_core.routes",
         "discord_core.routes.contract",
         "discord_core.routes.dispatch",
+        "discord_core.routes.guild_roles",
         "discord_core.routes.route",
         "discord_core.servers",
         "discord_core.servers.base",
@@ -345,6 +346,7 @@
         "discord_core.types.dispatch_result",
         "discord_core.types.download",
         "discord_core.types.fetched_message",
+        "discord_core.types.guild_roles",
         "discord_core.types.media_request",
         "discord_core.types.playlist_add_request",
         "discord_core.types.requests",
@@ -370,10 +372,12 @@
         "discord_dispatcher.servers",
         "discord_dispatcher.servers.dispatch_health_server",
         "discord_dispatcher.servers.dispatch_server",
+        "discord_dispatcher.servers.guild_roles_handlers",
         "discord_dispatcher.utils",
         "discord_dispatcher.utils.discord_retry",
         "discord_dispatcher.workers",
         "discord_dispatcher.workers.delete_schedule",
+        "discord_dispatcher.workers.guild_roles",
         "discord_dispatcher.workers.message_dispatcher"
       ]
     },
