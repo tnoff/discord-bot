@@ -43,7 +43,11 @@ def test_heartbeat_is_emitted_by_every_pod_that_should():
     '''
     resolved, _exempt = measure()
     heartbeat_pods = {e.pod for e in resolved if e.name == 'heartbeat'}
-    assert heartbeat_pods == {'gateway', 'broker', 'dispatcher', 'downloader', 'search'}
+    # The gateway and the commands pod also emit it, but from gauges built in a loop over the loops'
+    # names and descriptions (music.py, workers/result_loops.py, workers/dispatch_loops.py), which a
+    # static read cannot resolve and the census therefore leaves out. The gateway was measured while
+    # the markov cog spelled its own out; that cog no longer builds any.
+    assert heartbeat_pods == {'broker', 'dispatcher', 'downloader', 'search'}
 
 
 def test_subclass_fanout_resolves_queue_worker_metrics_to_both_pods():

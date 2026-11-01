@@ -112,7 +112,7 @@ def test_empty_stores_bundle_reads_as_absent():
     "configured with no stores" for "configured".
     '''
     assert not DatabaseStores()
-    assert DatabaseStores(markov=object())
+    assert DatabaseStores(playlist=object())
 
 
 # ---------------------------------------------------------------------------

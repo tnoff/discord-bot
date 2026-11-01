@@ -92,11 +92,9 @@ missing:
 - **Bot → Broker / Search / Downloader** (`HttpBrokerClient`,
   `HttpMediaSearchClient` + `HttpYoutubeMusicSearchClient`,
   `HttpDownloadClient`): constructed by the music cog only.
-- **Bot → DB** (`HttpPlaylistStore` / `HttpMarkovStore` /
-  `HttpGuildAnalyticsStore`, all `HttpStoreBase` subclasses built by
-  `build_http_stores()`): one store per db-backed cog. The markov loops still
-  run in the gateway and use the markov store; the markov, playlist and
-  music-stats *commands* use the commands pod's own stores.
+- **Bot → DB** (`HttpPlaylistStore`, an `HttpStoreBase` subclass built by
+  `build_http_stores()`): the music cog's. The markov, playlist and
+  music-stats *commands*, and the markov loops, use the commands pod's own stores.
 - **Downloader → Broker**, **Search → Broker** (`HttpBrokerClient`):
   unconditional in both pods' `run()`.
 - **Broker → Dispatcher** (`HttpDispatchClient`): only if
@@ -168,8 +166,6 @@ composite app.
 | `discord-downloader` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
 | `discord-gateway` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
 | `discord-gateway` | `discord-commands` | commands | — | `HttpCommandsClient` | 2 |
-| `discord-gateway` | `discord-db` | database | `/database/guild_analytics` | `HttpGuildAnalyticsStore` | 2 |
-| `discord-gateway` | `discord-db` | database | `/database/markov` | `HttpMarkovStore` | 9 |
 | `discord-gateway` | `discord-db` | database | `/database/playlist` | `HttpPlaylistStore` | 16 |
 | `discord-gateway` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 12 |
 | `discord-search` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
@@ -240,7 +236,7 @@ command has now moved:
 | `play`, `join`, `stop`, `skip`, `clear`, `shuffle`, `remove`, `bump`, `move-messages`, `history`, `random-play`, `music-stats`, `playlist item-add / queue / save-queue / save-history` | commands pod |
 | `role list / users / available / add / remove` | commands pod (reads and changes roles through the dispatcher's REST fetches) |
 | music result loops (`process_search_results`, `process_download_results`) | commands pod |
-| markov and delete-messages loops | gateway (not moved yet) |
+| markov and delete-messages loops | commands pod (`general.include`), through the dispatcher's history and emoji fetches |
 
 The commands pod answers 501 for a known command it has no handler for, and
 the gateway never asks it for one.

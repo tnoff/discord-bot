@@ -8,6 +8,9 @@ Configure with:
     general.database_http_url — discord-db pod URL; the markov and playlist commands read and write
                                 through it (required — raises DiscordBotException if missing)
     markov.server_reject_list — optional guild ids markov refuses to run for
+    general.include           — which optional loops run here (markov, delete_messages), as for the cogs
+    markov.*                  — loop_sleep_interval, message_check_limit, history_retention_days (see docs/markov.md)
+    delete_messages.*         — discord_channels and loop_sleep_interval (see docs/delete_messages.md)
     role.*                    — per-guild role rules for the role commands, see docs/role.md (optional)
     music.playlist.server_playlist_max_size — most items a playlist holds (default 64; merge and save honour it)
     music.general.message_delete_after — seconds before music and playlist replies are removed (default 300)
@@ -31,14 +34,14 @@ from discord_core.cli._lib.common import (
 )
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.clients.http_broker_client import HttpBrokerClient
-from discord_core.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
-from discord_core.clients.http_markov_store import HttpMarkovStore
 from discord_core.clients.http_playlist_store import HttpPlaylistStore
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig, tracing_config_from_settings
 
+from discord_commands.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
 from discord_commands.clients.http_guild_roles_client import HttpGuildRolesClient
 from discord_commands.clients.http_download_client import HttpDownloadClient
+from discord_commands.clients.http_markov_store import HttpMarkovStore
 from discord_commands.clients.http_media_search_client import HttpMediaSearchClient
 from discord_commands.clients.http_youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_commands.clients.search_client import SearchClient
@@ -54,6 +57,7 @@ from discord_commands.servers.commands_server import CommandsHttpServer
 from discord_commands.types.role_config import RoleConfig
 from discord_commands.utils.media_enqueuer import MediaEnqueuer, TrackQueuer
 from discord_commands.workers.command_executor import CommandExecutor
+from discord_commands.workers.dispatch_loops import DispatchLoopPair, build_dispatch_loops
 from discord_commands.workers.guild_teardown import GuildTeardown
 from discord_commands.workers.result_loops import ResultLoops
 
@@ -71,7 +75,8 @@ async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, 
                     dispatcher: HttpGuildRolesClient | None = None,
                     closers: list[Callable[[], Awaitable]] | None = None,
                     download_client: HttpDownloadClient | None = None,
-                    result_loops: ResultLoops | None = None):
+                    result_loops: ResultLoops | None = None,
+                    dispatch_loops: list[DispatchLoopPair] | None = None):
     '''
     Serve until SIGTERM/SIGINT, then drain the HTTP server, stop the executor and close the clients.
 
@@ -82,6 +87,8 @@ async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, 
         queue_size reads from.
     result_loops : the search-result and download-result loops, started here and stopped first on
         shutdown so no popped result is dropped while the clients they use are closing.
+    dispatch_loops : the markov and delete-messages loops (general.include), started and stopped with
+        the result loops.
     '''
     logger = logging.getLogger('main')
     with shutdown_event_signals() as stop_event:
@@ -95,11 +102,15 @@ async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, 
             await download_client.start()
         if result_loops:
             result_loops.start(stop_event)
+        for loop in dispatch_loops or []:
+            loop.start(stop_event)
         logger.info('Main :: commands running')
         await stop_event.wait()
         if result_loops:
             logger.info('Main :: Stopping result loops...')
             await result_loops.stop()
+        for loop in dispatch_loops or []:
+            await loop.stop()
         # Drain the HTTP server first so nothing is accepted after the executor stops, which would
         # be a 202 for a command that is never run.
         logger.info('Main :: Draining commands server...')
@@ -195,7 +206,8 @@ def run(settings: dict, general_config: GeneralConfig):
     closers = [markov_store.close, playlist_store.close, analytics_store.close, broker_client.close,
                download_client.stop, youtube_music_search_client.close, media_search_client.close]
     run_loop(main_loop(http_server, executor, teardown, health_server=health_server, dispatcher=dispatcher,
-                       closers=closers, download_client=download_client, result_loops=result_loops))
+                       closers=closers, download_client=download_client, result_loops=result_loops,
+                       dispatch_loops=build_dispatch_loops(settings, dispatcher, markov_store, logger)))
 
 
 if __name__ == '__main__':  # pragma: no cover

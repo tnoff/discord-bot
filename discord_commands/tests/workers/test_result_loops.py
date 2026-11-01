@@ -9,7 +9,7 @@ from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import loop_heartbeat_observations
 
 from discord_commands.workers.result_loops import (LOOP_PROCESS_DOWNLOAD_RESULTS, LOOP_PROCESS_SEARCH_RESULTS,
-                                                   ResultLoops, _StopEventBot)  #pylint:disable=protected-access
+                                                   ResultLoops, StopEventBot)
 
 
 def make_loops(**kwargs):
@@ -23,7 +23,7 @@ def make_loops(**kwargs):
 @pytest.mark.asyncio()
 async def test_stop_event_bot_is_ready_and_closed_with_the_event():
     event = asyncio.Event()
-    bot = _StopEventBot(event)
+    bot = StopEventBot(event)
     await bot.wait_until_ready()
     assert not bot.is_closed()
     event.set()

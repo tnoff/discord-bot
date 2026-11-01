@@ -4,9 +4,9 @@ from typing import Optional
 from dappertable import DapperTable, Columns, Column, PaginationLength
 
 from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
-from discord_core.clients.http_markov_store import HttpMarkovStore
 from discord_core.types.command_envelope import CommandEnvelope
 
+from discord_commands.clients.http_markov_store import HttpMarkovStore
 from discord_commands.command_logic.reply import Reply
 
 
