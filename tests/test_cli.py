@@ -890,23 +890,24 @@ def test_bot_run_raises_when_dispatch_http_url_missing():
         assert 'dispatch_http_url required' in str(result.exception)
 
 
-def test_bot_run_raises_when_database_http_url_missing():
-    '''cli/bot.py run() refuses to start without the db pod's URL.
+def test_bot_run_needs_no_database_url_and_loads_cogs_without_stores(mocker):
+    '''cli/bot.py run() starts without database_http_url, and hands load_cogs no stores.
 
-    Deliberately fatal rather than degraded. Before the cutover a missing DSN
-    left managed_db returning None and the cogs quietly running without
-    persistence -- playlists, markov and analytics absent on a bot that came up
-    green. Now that the database is a pod deployed alongside this one, a missing
-    URL is a misconfiguration to surface at startup, not a mode to fall back to.
+    The gateway holds no database client: the history playlist is the broker's to create when it
+    opens a guild, and every other playlist, markov and analytics call is the commands pod's.
     '''
     with NamedTemporaryFile(suffix='.yml') as temp_config:
         config_data = {'general': {'discord_token': 'foo',
-                                   'dispatch_http_url': 'http://localhost:8082'}}
+                                   'dispatch_http_url': 'http://localhost:8082',
+                                   'commands_http_url': 'http://localhost:8086'}}
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
+        mocker.patch('discord_core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
+        load_cogs = mocker.patch('discord_gateway.cli.bot.load_cogs', return_value=[])
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
-        assert 'database_http_url required' in str(result.exception)
+        assert result.exception is None
+        assert load_cogs.call_args.args[3] is None
 
 
 def test_bot_run_raises_when_commands_http_url_missing():
@@ -917,8 +918,7 @@ def test_bot_run_raises_when_commands_http_url_missing():
     '''
     with NamedTemporaryFile(suffix='.yml') as temp_config:
         config_data = {'general': {'discord_token': 'foo',
-                                   'dispatch_http_url': 'http://localhost:8082',
-                                   'database_http_url': 'http://localhost:8083'}}
+                                   'dispatch_http_url': 'http://localhost:8082'}}
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
         runner = CliRunner()

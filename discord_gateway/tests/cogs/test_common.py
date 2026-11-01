@@ -10,7 +10,6 @@ from discord_core.interfaces.commands_client import CommandsUnavailable
 
 from discord_core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult
 
-from discord_gateway.clients.database_stores import DatabaseStores
 from discord_gateway.cogs.common import (
     COMMANDS_UNAVAILABLE_MESSAGE, CogHelperBase, build_commands_client, envelope_from_ctx,
 )
@@ -100,19 +99,10 @@ def test_stores_bundle_is_stored_and_defaults_to_none(fake_context):  #pylint:di
     place -- the base class carries whatever persistence handle it was given and
     does not interpret it.
     '''
-    stores = DatabaseStores(playlist=object())
+    stores = object()
     cog = CogHelperBase(fake_context['bot'], {}, fake_context['dispatcher'], stores)
     assert cog.stores is stores
     assert CogHelperBase(fake_context['bot'], {}, fake_context['dispatcher']).stores is None
-
-
-def test_empty_stores_bundle_reads_as_absent():
-    '''
-    A bundle with nothing in it is falsey, so `if self.stores:` cannot mistake
-    "configured with no stores" for "configured".
-    '''
-    assert not DatabaseStores()
-    assert DatabaseStores(playlist=object())
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 
 from discord_gateway.tests.cogs.test_music import BASE_MUSIC_CONFIG
-from tests.helpers import fake_engine, fake_context, fake_stores  # pylint: disable=unused-import
+from tests.helpers import fake_engine, fake_context  # pylint: disable=unused-import
 from tests.helpers import attach_in_process_broker
 
 
@@ -18,20 +18,6 @@ async def test_get_player(mocker, fake_context):  # pylint: disable=redefined-ou
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     assert fake_context['guild'].id in cog.players
-
-
-@pytest.mark.asyncio
-async def test_get_player_creates_the_history_playlist(mocker, fake_context, fake_stores):  # pylint: disable=redefined-outer-name
-    """The playlist list leads with history, so it has to exist before the first play is recorded"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    mocker.patch.object(MusicPlayer, 'start_tasks')
-    assert await cog.playlist_store.get_history_playlist(fake_context['guild'].id) is None
-
-    await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-
-    history = await cog.playlist_store.get_history_playlist(fake_context['guild'].id)
-    assert history is not None and history.is_history
 
 
 @pytest.mark.asyncio
@@ -70,9 +56,9 @@ async def test_cog_load_creates_background_tasks(fake_context):  # pylint: disab
 
 
 @pytest.mark.asyncio
-async def test_cog_load_starts_the_resume_task(fake_context, fake_stores):  # pylint: disable=redefined-outer-name
+async def test_cog_load_starts_the_resume_task(fake_context):  # pylint: disable=redefined-outer-name
     """cog_load starts the one-shot that picks guilds back up after a restart."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     cog.dispatcher = MagicMock()
     loop_mock = MagicMock()
     loop_mock.create_task = MagicMock(return_value=MagicMock())

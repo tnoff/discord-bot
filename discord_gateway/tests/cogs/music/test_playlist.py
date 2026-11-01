@@ -1,78 +1,12 @@
 from unittest.mock import MagicMock, AsyncMock
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.sql.functions import count as sql_count
-
-from discord_core.types.playlist import PlaylistItemWrite
-
 from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.common import envelope_from_ctx
 from discord_gateway.tests.cogs.test_music import BASE_MUSIC_CONFIG
 
-from discord_db.database import Playlist, PlaylistItem
-
-from tests.helpers import async_mock_session
-from tests.helpers import fake_engine, fake_context, fake_stores #pylint:disable=unused-import
+from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 from tests.helpers import attach_in_process_broker
-
-
-@pytest.mark.asyncio
-async def test_playlist_insert_item_method(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """The cog's store writes an item row.
-
-    This drove `__playlist_insert_item`, a private cog method that took the
-    caller's session. That method is gone: counting the items, comparing to the
-    ceiling and inserting are one transaction in the store now, because split
-    across a caller they are a check-then-act two players can both pass. The
-    behaviour it covered is the same, reached through the seam.
-    """
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-
-    playlist = await cog.playlist_store.create_playlist(fake_context['guild'].id, 'test-playlist')
-    outcomes = await cog.playlist_store.add_items(
-        playlist.id,
-        [PlaylistItemWrite(video_url='https://example.com/video',
-                           title='Test Video Title', uploader='Test Uploader')],
-        cog.config.playlist.server_playlist_max_size)
-
-    assert [outcome.status.value for outcome in outcomes] == ['added']
-    async with async_mock_session(fake_engine) as session:
-        items = (await session.execute(select(PlaylistItem))).scalars().all()
-    assert len(items) == 1
-    assert items[0].playlist_id == playlist.id
-    assert items[0].title == 'Test Video Title'
-    assert items[0].video_url == 'https://example.com/video'
-    assert items[0].uploader == 'Test Uploader'
-
-@pytest.mark.asyncio
-async def test_get_history_playlist_method(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """Test __get_history_playlist private method"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-
-    # Call the private method - it returns playlist ID
-    result = await cog._Music__get_history_playlist(fake_context['guild'].id)  # pylint: disable=protected-access
-
-    # Verify a playlist ID was returned
-    assert result is not None
-    assert isinstance(result, int)
-
-    # Verify it was saved to database
-    async with async_mock_session(fake_engine) as session:
-        playlists = (await session.execute(select(Playlist))).scalars().all()
-        assert len(playlists) == 1
-        assert playlists[0].server_id == fake_context['guild'].id
-        assert playlists[0].name.startswith('__playhistory__')
-        assert playlists[0].is_history is True
-
-            # The message should contain the playlist name and indicate limit hit
-            # We can't easily test the exact message without executing the partial function
-
-
-            # Message should mention "Channel History" not the database playlist name
-            # This is set by the special is_history logic
 
 
 # ---------------------------------------------------------------------------
@@ -88,19 +22,6 @@ async def test_playlist_group_no_subcommand(fake_context):  #pylint:disable=rede
     fake_context['context'].invoked_subcommand = None
     await cog.playlist.callback(cog, fake_context['context'])
     assert 'Invalid sub command' in cog.dispatcher.send_message.call_args[0][2]
-
-
-@pytest.mark.asyncio
-async def test_get_history_playlist_existing(fake_engine, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    """__get_history_playlist returns existing id on second call without creating a new one"""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
-    attach_in_process_broker(cog)
-    # pylint: disable=protected-access
-    playlist_id1 = await cog._Music__get_history_playlist(fake_context['guild'].id)
-    playlist_id2 = await cog._Music__get_history_playlist(fake_context['guild'].id)
-    assert playlist_id1 == playlist_id2
-    async with async_mock_session(fake_engine) as db_session:
-        assert (await db_session.execute(select(sql_count()).select_from(Playlist).where(Playlist.is_history == True))).scalar() == 1  #pylint:disable=singleton-comparison
 
 
 @pytest.mark.asyncio

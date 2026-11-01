@@ -55,8 +55,6 @@ Configure with:
     general.dispatch_http_url — Dispatcher pod URL; cogs route all outbound
                                 messages through it (required — raises
                                 DiscordBotException if missing)
-    general.database_http_url — discord-db pod URL (required for HA bot mode —
-                                raises DiscordBotException if missing)
     general.commands_http_url — Commands pod URL; the command stubs forward to it (required —
                                 raises DiscordBotException if missing)
     general.include           — which optional cogs to load (markov, urban, music, role;
@@ -225,16 +223,17 @@ general:
 ## Database
 
 Certain cogs, such as markov or music, have functions that require database
-support — but neither the bot nor the commands pod has a direct database
-connection. Both are HTTP clients of the `discord-db` pod and need that pod's
-URL (`general.database_http_url`):
+support — but no pod except `discord-db` has a direct database connection. The
+commands pod, the broker (for the history worker and the video cache) and the
+db pod's other clients reach it over HTTP with `general.database_http_url`; the
+gateway holds no database client and takes none:
 
 ```
 ---
 general:
   discord_token: blah-blah-blah-discord-token
   dispatch_http_url: http://dispatcher:8082
-  database_http_url: http://db:8085
+  database_http_url: http://db:8085   # the commands pod's (and the broker's), not the gateway's
 ```
 
 `discord-db` is the pod that actually opens a database connection, and it

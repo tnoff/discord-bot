@@ -23,7 +23,7 @@ from discord_gateway.utils.bot_metrics import BotMetricNaming
 
 from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
 from tests.helpers import fake_media_download
-from tests.helpers import fake_engine, fake_context, async_mock_session, fake_stores #pylint:disable=unused-import
+from tests.helpers import fake_engine, fake_context, async_mock_session #pylint:disable=unused-import
 from tests.helpers import FakeChannel
 from tests.helpers import attach_in_process_broker, attach_in_process_download, queue_in_broker
 
@@ -74,8 +74,8 @@ def fixture_teardown_guild(mocker):
 
 
 @pytest.mark.asyncio
-async def test_guild_cleanup(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
+async def test_guild_cleanup(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = Mock()
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
@@ -91,8 +91,8 @@ async def test_guild_cleanup(mocker, fake_context, fake_stores):  #pylint:disabl
                 str(sd.media_request.uuid)]
 
 @pytest.mark.asyncio
-async def test_get_player_join_voice_timeout(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'], fake_stores)
+async def test_get_player_join_voice_timeout(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
     attach_in_process_broker(cog)
     cog.dispatcher = Mock()
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
@@ -924,7 +924,7 @@ async def test_cog_load_loops_tolerate_peer_outage(fake_context, mocker):  #pyli
     assert all(call.kwargs['peer_unavailable'] is is_peer_unavailable for call in runner.call_args_list)
 
 
-def test_cog_builds_no_in_process_broker_stack(fake_context, fake_stores):  #pylint:disable=redefined-outer-name
+def test_cog_builds_no_in_process_broker_stack(fake_context):  #pylint:disable=redefined-outer-name
     """
     A deployment-shaped config never constructs the in-process broker stack.
 
@@ -949,7 +949,7 @@ def test_cog_builds_no_in_process_broker_stack(fake_context, fake_stores):  #pyl
             },
         },
     })
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
     assert isinstance(cog.broker_client, HttpBrokerClient)
     assert not isinstance(cog.broker_client, AsyncioBrokerClient)
     assert not hasattr(cog, 'media_broker')

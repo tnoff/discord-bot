@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager, contextmanager
+from dataclasses import dataclass
 from functools import partial
 from datetime import datetime, timezone
 from random import choice
@@ -33,7 +34,6 @@ from discord_core.types.dispatch_request import (
 from discord_core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, encode_error
 from discord_core.types.fetched_message import FetchedMessage
 
-from discord_gateway.clients.database_stores import DatabaseStores
 from discord_search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
 from discord_db.cli._lib.db import setup_db
@@ -183,22 +183,27 @@ def fake_context() -> Generator[dict[str, Any], None, None]:
     yield generate_fake_context()
 
 
-@pytest_asyncio.fixture(scope="function")
-async def fake_stores(fake_engine) -> AsyncGenerator[DatabaseStores, None]:  #pylint:disable=redefined-outer-name
-    '''
-    A DatabaseStores bundle backed by the local test engine.
+@dataclass(frozen=True)
+class FakeStores:
+    '''The stores a test hands to the commands logic; only the playlist store is used.'''
+    playlist: Any
 
-    Production builds this bundle out of the HTTP stores and points them at the
-    db pod. Tests build it out of the in-process clients over `fake_engine`, so
-    a cog exercises real queries against real postgres rather than a mock of
-    what the db pod might answer. That substitution is the point of the
-    Protocols: the cog cannot tell the two apart, and a test that asserts on
-    rows afterwards is asserting on the same engine the cog wrote through.
+
+@pytest_asyncio.fixture(scope="function")
+async def fake_stores(fake_engine) -> AsyncGenerator[FakeStores, None]:  #pylint:disable=redefined-outer-name
+    '''
+    The commands pod's playlist store over the local test engine.
+
+    Production points an HTTP store at the db pod. Tests use the in-process client over
+    `fake_engine`, so the commands logic exercises real queries rather than a mock of what the db
+    pod might answer. That substitution is the point of the Protocols: the logic cannot tell the
+    two apart, and a test that asserts on rows afterwards asserts on the engine it wrote through.
+    The gateway holds no store any more, so its tests do not take this fixture.
 
     Request `fake_engine` alongside this fixture to read those rows back.
     '''
     session_generator = partial(async_mock_session, fake_engine)
-    yield DatabaseStores(playlist=PlaylistClient(session_generator))
+    yield FakeStores(playlist=PlaylistClient(session_generator))
 
 @pytest_asyncio.fixture(scope="function")
 async def fake_markov_store(fake_engine) -> AsyncGenerator[MarkovClient, None]:  #pylint:disable=redefined-outer-name
