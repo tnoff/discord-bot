@@ -45,9 +45,11 @@ BUILT_CLIENTS = {
     'discord-dispatcher': set(),
     # Serves the commands seam and replies through the dispatcher. The markov, playlist and
     # music-stats commands read and write through the db pod. The music commands reach the player
-    # through the broker, and queue tracks through the downloader and the search pod.
+    # through the broker, and queue tracks through the downloader and the search pod. The role
+    # commands read and change roles through the dispatcher, whose client is the one that replies.
     'discord-commands': {
         'HttpBrokerClient', 'HttpDispatchClient', 'HttpDownloadClient', 'HttpGuildAnalyticsStore',
+        'HttpGuildRolesClient',
         'HttpMarkovStore', 'HttpMediaSearchClient', 'HttpPlaylistStore', 'HttpYoutubeMusicSearchClient',
     },
 }

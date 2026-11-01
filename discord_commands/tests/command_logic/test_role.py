@@ -1,8 +1,8 @@
 import pytest
 
 from discord_core.types.command_envelope import CommandEnvelope
-from discord_gateway.command_logic.role import RoleCommands
-from discord_gateway.command_logic.role_gateway import MemberInfo, RoleInfo
+from discord_commands.command_logic.role import RoleCommands
+from discord_commands.command_logic.role_gateway import MemberInfo, RoleInfo
 
 GUILD = 11
 STAFF = RoleInfo(id=100, name='Staff')

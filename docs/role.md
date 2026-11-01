@@ -13,16 +13,22 @@ For most servers this probably isn't a real problem, but for some larger server 
 
 This cog allows you to set granular permissions for roles, so some roles can only control who is a member of certain other roles. It will require you to setup the bot with a role and certain permissions to do so.
 
+## Where it runs
+
+The `!role` commands run in the commands pod, which reads the `role` config below and asks Discord for roles and members through the dispatcher (REST, no gateway cache). The gateway's cog only parses the command and forwards it, so the commands pod needs the `role` section in its config as well as the gateway.
+
 ## Intents
 
-Note that to use all functions, this cog requires the `members` intent. You will not be allowed to start the cog unless this intent is added.
+Listing the members of a role (`!role users`) pages the guild's members over REST, which discord.py allows only when the `members` intent is set on the dispatcher's bot. The dispatcher never opens a gateway connection, so this costs nothing. The Discord application still needs the Server Members privileged intent enabled in the developer portal.
 
 ```
+# dispatcher config
 general:
   intents:
     - members
 ```
 
+The gateway no longer requires the intent to start the cog.
 
 ## Setup
 

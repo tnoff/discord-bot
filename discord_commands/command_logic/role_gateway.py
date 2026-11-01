@@ -1,10 +1,9 @@
 '''
 What the role commands need from Discord, as plain data and one Protocol.
 
-Roles and members live in discord.py's cache, so command logic reaches them only through
-``RoleGateway`` and sees only these dataclasses, never a ``Member`` or ``Role``. The cog
-implements it in-process today; the commands pod (#1030, Phase 2) would put an HTTP
-client behind the same Protocol.
+Roles and members live in Discord, so command logic reaches them only through ``RoleGateway`` and
+sees only these dataclasses. ``clients/http_guild_roles_client.py`` implements it over the
+dispatcher, which asks Discord over REST.
 '''
 from dataclasses import dataclass
 from typing import Protocol

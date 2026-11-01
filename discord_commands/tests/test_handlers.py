@@ -9,6 +9,8 @@ from discord_core.types.command_wire import parse_args
 
 from discord_commands.command_logic.music import MusicCommands
 from discord_commands.command_logic.playlist import PlaylistCommands
+from discord_commands.command_logic.role import RoleCommands
+from discord_commands.command_logic.role_gateway import MemberInfo, RoleInfo
 from discord_commands.handlers import build_handlers
 
 ENVELOPE = CommandEnvelope(guild_id=11, channel_id=22, author_id=33, author_display_name='Tyler')
@@ -44,6 +46,30 @@ class FakeMarkovStore:
         return ['one', 'two']
 
 
+class FakeRoleGateway:
+    '''Guild state for the role handlers to be seen reaching it; the logic has its own tests.'''
+    def __init__(self):
+        self.changes = []
+
+    async def list_roles(self, _guild_id):
+        return [RoleInfo(id=5, name='dj')]
+
+    async def get_role(self, _guild_id, role_id):
+        return RoleInfo(id=role_id, name='dj')
+
+    async def role_members(self, _guild_id, _role_id):
+        return [MemberInfo(id=33, display_name='Tyler', role_ids=(5,))]
+
+    async def get_member(self, _guild_id, user_id):
+        return MemberInfo(id=user_id, display_name='Tyler')
+
+    async def add_role(self, guild_id, user_id, role_id):
+        self.changes.append(('add', guild_id, user_id, role_id))
+
+    async def remove_role(self, guild_id, user_id, role_id):
+        self.changes.append(('remove', guild_id, user_id, role_id))
+
+
 @pytest.fixture(name='store')
 def fixture_store():
     return FakeMarkovStore()
@@ -57,11 +83,12 @@ def fixture_handlers(sent, store):
     logger = logging.getLogger('test')
     playlist = PlaylistCommands(reply, logger, MagicMock(), 300, 64, MagicMock(), MagicMock(), MagicMock())
     music = MusicCommands(reply, MagicMock(), MagicMock(), MagicMock(), logger, 300, MagicMock(), playlist)
-    return build_handlers(reply, logger, store, [], playlist, music)
+    role = RoleCommands(reply, FakeRoleGateway(), {})
+    return build_handlers(reply, logger, store, [], playlist, music, role)
 
 
-def test_every_command_but_the_role_ones_is_served(handlers):
-    assert set(handlers) == set(COMMAND_ARGS) - {'role.list', 'role.users', 'role.available', 'role.add', 'role.remove'}
+def test_every_command_is_served(handlers):
+    assert set(handlers) == set(COMMAND_ARGS)
 
 
 def test_every_handler_is_a_command_the_contract_knows(handlers):
@@ -169,3 +196,24 @@ async def test_playlist_commands_that_need_the_player_pass_their_arguments_throu
     logic = mocker.patch.object(PlaylistCommands, method, new_callable=AsyncMock)
     await handlers[command](ENVELOPE, parse_args(command, wire))
     logic.assert_awaited_once_with(ENVELOPE, *call_args, **call_kwargs)
+
+
+@pytest.mark.asyncio
+async def test_role_commands_reach_the_role_logic(handlers, sent):
+    await handlers['role.list'](ENVELOPE, parse_args('role.list', {}))
+    await handlers['role.users'](ENVELOPE, parse_args('role.users', {'role_input': '5'}))
+    await handlers['role.available'](ENVELOPE, parse_args('role.available', {}))
+    assert '@dj' in sent[0][2]
+    assert '@Tyler' in sent[1][2]
+    assert len(sent) == 3
+
+
+@pytest.mark.asyncio
+async def test_role_add_and_remove_reach_the_role_logic(handlers, sent):
+    env = CommandEnvelope(guild_id=11, channel_id=22, author_id=33, author_display_name='Tyler',
+                          author_role_ids=(5,))
+    await handlers['role.remove'](env, parse_args('role.remove', {'inputs': '<@33> 5'}))
+    await handlers['role.add'](env, parse_args('role.add', {'inputs': '<@33> 5'}))
+    # No role config, so nobody manages the role: the logic answers rather than changing anything.
+    assert [message.split(',')[0] for _, _, message in sent] == [
+        'Cannot remove users from role "dj"', 'Cannot add users to role "dj"']

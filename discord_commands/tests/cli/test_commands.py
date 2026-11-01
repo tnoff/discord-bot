@@ -5,10 +5,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from click.testing import CliRunner
+from pydantic import ValidationError
 
 from discord_core.exceptions import DiscordBotException
 
 from discord_commands.cli import commands as commands_cli
+from discord_commands.clients.http_guild_roles_client import HttpGuildRolesClient
 from discord_commands.workers.result_loops import ResultLoops
 
 
@@ -106,7 +108,7 @@ def test_run_gives_the_music_settings_to_the_logic(run_loop, mocker):
              'player': {'queue_max_size': 9},
              'download': {'server_queue_priority': [{'server_id': '5', 'priority': 2}]}}
     commands_cli.run(settings_with(music), general_config())
-    playlist, music_commands = build.call_args.args[4:]
+    playlist, music_commands = build.call_args.args[4:6]
     assert (playlist.message_delete_after, playlist.server_playlist_max_size) == (60, 512)
     assert music_commands.message_delete_after == 60
     enqueuer = music_commands.enqueuer
@@ -119,10 +121,36 @@ def test_run_gives_the_music_settings_to_the_logic(run_loop, mocker):
 def test_run_defaults_the_music_settings(mocker):
     build = mocker.patch.object(commands_cli, 'build_handlers', return_value={})
     commands_cli.run(settings_with(), general_config())
-    playlist, music_commands = build.call_args.args[4:]
+    playlist, music_commands = build.call_args.args[4:6]
     assert (playlist.message_delete_after, playlist.server_playlist_max_size) == (300, 64)
     enqueuer = music_commands.enqueuer
     assert (enqueuer.queue_max_size, enqueuer.server_queue_priority) == (128, {})
+
+
+def test_run_gives_the_role_config_and_the_dispatcher_to_the_role_logic(run_loop, mocker):
+    build = mocker.patch.object(commands_cli, 'build_handlers', return_value={})
+    settings = settings_with()
+    settings['role'] = {11: {'self_service_role_list': [5], 7: {'manages_roles': [8]}}}
+    commands_cli.run(settings, general_config())
+    role = build.call_args.args[6]
+    assert role.settings == {11: {'self_service_role_list': [5], 7: {'manages_roles': [8]}}}
+    assert isinstance(role.role_gateway, HttpGuildRolesClient)
+    run_loop.assert_called_once()
+
+
+@pytest.mark.usefixtures('run_loop')
+def test_run_without_role_config_gives_the_role_logic_no_rules(mocker):
+    build = mocker.patch.object(commands_cli, 'build_handlers', return_value={})
+    commands_cli.run(settings_with(), general_config())
+    assert build.call_args.args[6].settings == {}
+
+
+def test_run_refuses_a_role_rule_that_manages_nothing(run_loop):
+    settings = settings_with()
+    settings['role'] = {11: {7: {'manages_roles': []}}}
+    with pytest.raises(ValidationError):
+        commands_cli.run(settings, general_config())
+    run_loop.assert_not_called()
 
 
 @pytest.mark.parametrize('client', list(MUSIC))

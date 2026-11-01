@@ -161,6 +161,7 @@ composite app.
 | `discord-commands` | `discord-db` | database | `/database/markov` | `HttpMarkovStore` | 9 |
 | `discord-commands` | `discord-db` | database | `/database/playlist` | `HttpPlaylistStore` | 16 |
 | `discord-commands` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 12 |
+| `discord-commands` | `discord-dispatcher` | dispatch | — | `HttpGuildRolesClient` | 12 |
 | `discord-commands` | `discord-search` | media_search | — | `HttpMediaSearchClient` | 2 |
 | `discord-commands` | `discord-downloader` | queue_worker | `/downloads` | `HttpDownloadClient` | 4 |
 | `discord-commands` | `discord-search` | queue_worker | `/search/ytmusic` | `HttpYoutubeMusicSearchClient` | 4 |
@@ -229,7 +230,7 @@ shared secret: only the gateway may reach the commands port.
 
 Command groups move to the pod one at a time, in the same change that makes
 the gateway forward them, so a command is never served by neither pod. Every
-command has now moved except `role *`:
+command has now moved:
 
 | Group | Where it runs |
 |---|---|
@@ -237,13 +238,12 @@ command has now moved except `role *`:
 | `markov on / off / list-channels / speak` | commands pod |
 | `playlist create / list / show / delete / rename / item-remove / merge` | commands pod |
 | `play`, `join`, `stop`, `skip`, `clear`, `shuffle`, `remove`, `bump`, `move-messages`, `history`, `random-play`, `music-stats`, `playlist item-add / queue / save-queue / save-history` | commands pod |
-| `role *` | gateway (not moved yet) |
+| `role list / users / available / add / remove` | commands pod (reads and changes roles through the dispatcher's REST fetches) |
 | music result loops (`process_search_results`, `process_download_results`) | commands pod |
 | markov and delete-messages loops | gateway (not moved yet) |
 
-A command whose group has not moved still runs in the gateway; the commands
-pod answers 501 for a known command it has no handler for, and the gateway
-never asks it for one.
+The commands pod answers 501 for a known command it has no handler for, and
+the gateway never asks it for one.
 
 Two small things cross the boundary that the commands pod cannot look up
 itself. `markov on` sends `channel_is_text_or_voice`, because the gateway

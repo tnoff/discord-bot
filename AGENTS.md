@@ -169,8 +169,7 @@ hand-maintained list here):
   because the commands pod builds them too, and so is the `MediaEnqueuer`
   (`discord_commands/utils/media_enqueuer.py`). `clients/` here keeps only what is
   the gateway's own. Commands are forwarding stubs in `cogs/` for the groups that have
-  moved to the commands pod (all but `role`); `command_logic/` holds the logic of
-  the `role` commands.
+  moved to the commands pod (every group); `command_logic/` keeps only the reply helper.
 - **`discord_dispatcher/`** — the `discord-dispatcher` pod. `workers/message_dispatcher.py`
   is the `MessageDispatcher` worker (Redis-backed, per-guild); `servers/`
   serves its HTTP API.
@@ -196,7 +195,8 @@ hand-maintained list here):
   logic of a command group moves into `command_logic/` in the same change that
   makes the gateway stub forward it, one group at a time: so far `hello`,
   `roll`, `meta`, `urban`, the `markov` commands, the `playlist` commands and all the
-  music commands (everything but `role`). `command_logic/broker_player_gateway.py`
+  music commands and the `role` commands (the role config is read here, and roles and
+  members come from the dispatcher through `clients/http_guild_roles_client.py`). `command_logic/broker_player_gateway.py`
   is the pod's `PlayerGateway`: it reads the player from the broker and asks the
   gateway to act with gateway intents.
 
