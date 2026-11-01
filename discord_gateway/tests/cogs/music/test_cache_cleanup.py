@@ -13,7 +13,7 @@ from discord_gateway.tests.cogs.test_music import music_config
 from discord_db.database import VideoCache
 
 from tests.helpers import async_mock_session, fake_media_download
-from tests.helpers import fake_engine, fake_context, fake_stores #pylint:disable=unused-import
+from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 from tests.helpers import attach_in_process_broker
 
 
@@ -36,7 +36,7 @@ def test_cache_cleanup_enable_cache_files_requires_storage(fake_context):  #pyli
         Music(fake_context['bot'], config, fake_context['bot'])
 
 @pytest.mark.asyncio
-async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
+async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
     '''In S3 mode, upload_file is called by AsyncioDownloadClient during create_source.
     cache_cleanup is a no-op while the entry is still in the broker registry.'''
     config = music_config({
@@ -51,7 +51,7 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
             }
         }
     })
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
     broker = attach_in_process_broker(cog, db_engine=fake_engine)
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
@@ -72,7 +72,7 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
             assert result is False
 
 @pytest.mark.asyncio
-async def test_cache_cleanup_removes(fake_engine, mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
+async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
     config = music_config({
         'music': {
             'download': {
@@ -86,7 +86,7 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context, fake_sto
             }
         }
     })
-    cog = Music(fake_context['bot'], config, fake_context['dispatcher'], fake_stores)
+    cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
     broker = attach_in_process_broker(cog, db_engine=fake_engine)
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')

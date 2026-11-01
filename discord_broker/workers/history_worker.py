@@ -84,8 +84,8 @@ class HistoryWorker:
         return [Observation(self._depth, attributes={
             AttributeNaming.BACKGROUND_JOB.value: LOOP_HISTORY_WORKER})]
 
-    async def _history_playlist_id(self, guild_id: int) -> int:
-        '''The guild's history playlist, asked for once per guild per process.'''
+    async def ensure_history_playlist(self, guild_id: int) -> int:
+        '''The guild's history playlist, created if need be and asked for once per guild per process.'''
         if guild_id not in self._history_playlist_ids:
             self._history_playlist_ids[guild_id] = await self._playlists.ensure_history_playlist(guild_id)
         return self._history_playlist_ids[guild_id]
@@ -108,7 +108,7 @@ class HistoryWorker:
             raise ValueError('play record has no webpage_url')
         item = PlaylistItemWrite(video_url=event['webpage_url'], title=event.get('title'),
                                  uploader=event.get('uploader'))
-        playlist_id = await self._history_playlist_id(guild_id)
+        playlist_id = await self.ensure_history_playlist(guild_id)
         if not await self._playlists.record_history_item(playlist_id, item, self._max_size):
             # The playlist was deleted since we looked it up. The next record asks again.
             del self._history_playlist_ids[guild_id]

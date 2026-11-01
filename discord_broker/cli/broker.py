@@ -236,7 +236,9 @@ def run(settings: dict, general_config: GeneralConfig):
             'No general.database_http_url configured — the broker cannot record plays, so no '
             'track will be counted or added to a guild history.'
         )
-    guild_queue = GuildQueueBroker(broker, guild_queues, dispatcher, record_plays=history_worker is not None)
+    guild_queue = GuildQueueBroker(
+        broker, guild_queues, dispatcher, record_plays=history_worker is not None,
+        ensure_history_playlist=history_worker.ensure_history_playlist if history_worker else None)
 
     # Redis-backed bot-ready queues so multiple broker pods share them and a
     # pod restart doesn't lose in-flight DownloadResults / SearchResolutions.

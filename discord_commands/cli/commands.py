@@ -34,7 +34,6 @@ from discord_core.cli._lib.common import (
 )
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.clients.http_broker_client import HttpBrokerClient
-from discord_core.clients.http_playlist_store import HttpPlaylistStore
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig, tracing_config_from_settings
 
@@ -43,6 +42,7 @@ from discord_commands.clients.http_guild_roles_client import HttpGuildRolesClien
 from discord_commands.clients.http_download_client import HttpDownloadClient
 from discord_commands.clients.http_markov_store import HttpMarkovStore
 from discord_commands.clients.http_media_search_client import HttpMediaSearchClient
+from discord_commands.clients.http_playlist_store import HttpPlaylistStore
 from discord_commands.clients.http_youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_commands.clients.search_client import SearchClient
 from discord_commands.command_logic.broker_player_gateway import BrokerPlayerGateway

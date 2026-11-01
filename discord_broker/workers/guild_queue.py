@@ -7,7 +7,9 @@ uuid is on the guild's list, and the playing track is the entry CHECKED_OUT by t
 by the now-playing record.  Keeping it a separate class keeps both of those small, and means the
 player queue can change without touching how media moves through the broker.
 '''
+import asyncio
 import logging
+from typing import Awaitable, Callable
 
 from discord_core.cogs.music_helpers.common import MultipleMutableType
 from discord_core.types.checkout_result import CheckoutResult
@@ -33,18 +35,26 @@ class GuildQueueBroker:
     '''
 
     def __init__(self, broker: RedisBroker, queues: GuildQueueRegistry,
-                 dispatcher: BundleDispatchSink | None = None, record_plays: bool = False):
+                 dispatcher: BundleDispatchSink | None = None, record_plays: bool = False,
+                 ensure_history_playlist: Callable[[int], Awaitable[int]] | None = None):
         '''
         dispatcher: where the play-order message is pushed.  None disables the message entirely
         (the queue still works), the way the broker's bundle UI does without a dispatcher.
         record_plays: queue every track that plays out for the history worker (workers/
         history_worker).  Off when the broker has no db pod to record them in, so records do not
         pile up in Redis with nothing to drain them.
+        ensure_history_playlist: called, off the request, when a gateway opens a guild, so the guild's
+        history playlist exists from the first command and holds playlist index 0 (the history worker
+        creates it on the first play otherwise). Best-effort: a failure is logged and never fails the
+        open. None when there is no db pod.
         '''
         self._broker = broker
         self._queues = queues
         self._dispatcher = dispatcher
         self._record_plays = record_plays
+        self._ensure_history_playlist = ensure_history_playlist
+        # Strong references: the loop holds a running task only weakly.
+        self._ensures: set[asyncio.Task] = set()
 
     @staticmethod
     def _play_order_key(guild_id: int) -> str:
@@ -245,6 +255,22 @@ class GuildQueueBroker:
         await self._render(guild_id)
         return len(uuids)
 
+    def _spawn_ensure_history_playlist(self, guild_id: int) -> None:
+        '''Make sure the guild has a history playlist, without making the caller wait for the db pod.'''
+        if self._ensure_history_playlist is None:
+            return
+
+        async def ensure() -> None:
+            try:
+                await self._ensure_history_playlist(guild_id)
+            except Exception:  # pylint: disable=broad-except
+                # The first recorded play creates it anyway; opening the guild must not depend on it.
+                logger.warning('Could not ensure the history playlist for guild %s', guild_id, exc_info=True)
+
+        task = asyncio.create_task(ensure())
+        self._ensures.add(task)
+        task.add_done_callback(self._ensures.discard)
+
     async def open(self, guild_id: int, text_channel_id: int) -> str | None:
         '''
         A gateway takes ownership of the guild's player.
@@ -254,6 +280,7 @@ class GuildQueueBroker:
         finished back at the head of the queue.  Returns that track's uuid, or None.
         '''
         previous, recovered = await self._queues.queue_open(guild_id, text_channel_id)
+        self._spawn_ensure_history_playlist(guild_id)
         if previous is not None and previous != text_channel_id and self._dispatcher is not None:
             self._dispatcher.update_mutable_channel(self._play_order_key(guild_id), guild_id,
                                                     text_channel_id)

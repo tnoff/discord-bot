@@ -14,8 +14,6 @@ Configure with:
     general.dispatch_http_url — Dispatcher pod URL; cogs route all outbound
                                 messages through it (required — raises
                                 DiscordBotException if missing)
-    general.database_http_url — discord-db pod URL (required for HA bot mode —
-                                raises DiscordBotException if missing)
     general.commands_http_url — Commands pod URL; the command stubs forward to it (required —
                                 raises DiscordBotException if missing)
     general.include           — which optional cogs to load (markov, urban, music, role;
@@ -49,7 +47,6 @@ from discord_core.clients.http_dispatch_client import HttpDispatchClient
 
 from discord_gateway.cli._lib.cog_registry import POSSIBLE_COGS
 from discord_gateway.cli.health import setup_health_server
-from discord_gateway.clients.database_stores import build_http_stores
 from discord_gateway.cogs.error import CommandErrorHandler
 
 
@@ -96,7 +93,7 @@ def register_seam_checks(bot: Bot) -> None:
 
     Takes no client list. Every client that was given a seam contract config
     enrolled itself when it was built, so this covers the ones this process owns
-    directly (its dispatch client and database stores) AND anything a cog built
+    directly (its dispatch client) AND anything a cog built
     in ``cog_load``, which runs first. The music cog also calls
     ``start_seam_checks`` itself; both calls are no-ops for a check already
     running, and between them nothing built in either place can be missed.
@@ -114,31 +111,19 @@ def run(settings: dict, general_config: GeneralConfig):
     dispatch_http_url = general_settings.get('dispatch_http_url')
     if not dispatch_http_url:
         raise DiscordBotException('dispatch_http_url required for HA bot mode')
-    # Required, not optional. Before MR 4b a missing DSN left managed_db returning
-    # None and the cogs degrading to no-persistence — playlists, markov and
-    # analytics silently absent on a bot that otherwise came up fine. That was
-    # survivable when the fallback was "no database"; it is not a mode worth
-    # keeping now that the database is a pod this one is deployed alongside, and a
-    # bot that silently loses half its commands is the failure this project has
-    # spent its whole length removing.
-    database_http_url = general_settings.get('database_http_url')
-    if not database_http_url:
-        raise DiscordBotException('database_http_url required for HA bot mode')
-    # Required for the same reason: a stub with no commands pod to forward to would answer every
+    # Required, not optional: a stub with no commands pod to forward to would answer every
     # command with "unavailable", which is a bot that came up fine and does nothing.
     if not general_settings.get('commands_http_url'):
         raise DiscordBotException('commands_http_url required for HA bot mode')
 
     http_dispatcher = HttpDispatchClient(dispatch_http_url,
                                          seam_contract=general_config.seam_contract)
-    stores = build_http_stores(database_http_url,
-                               seam_contract=general_config.seam_contract)
     bot = build_bot(general_config)
     cog_list = [CommandErrorHandler(bot, settings, http_dispatcher)]
-    cog_list += load_cogs(bot, POSSIBLE_COGS, settings, stores, http_dispatcher)
+    cog_list += load_cogs(bot, POSSIBLE_COGS, settings, None, http_dispatcher)
 
     register_on_ready(bot, general_config, logger)
-    # No client list: the dispatch client, the three stores and the music cog's
+    # No client list: the dispatch client and the music cog's
     # four all enrolled themselves at construction. See SeamClientRegistry.
     register_seam_checks(bot)
     run_bot(general_config, bot, cog_list,

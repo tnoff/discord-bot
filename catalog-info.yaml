@@ -45,13 +45,11 @@ spec:
   dependsOn:
     - component:default/discord-broker
     - component:default/discord-commands
-    - component:default/discord-db
     - component:default/discord-dispatcher
     - resource:default/discord-data-cache-bucket
   consumesApis:
     - api:default/broker
     - api:default/commands
-    - api:default/database
     - api:default/dispatch
     - api:default/image-bump
 

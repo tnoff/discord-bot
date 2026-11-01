@@ -82,7 +82,7 @@ def test_run_constructs_broker_with_dispatcher_and_health(mocker):
     m['guild_queue_registry'].assert_called_once_with(m['redis_manager'].from_general_config.return_value)
     m['guild_queue'].assert_called_once_with(
         m['broker'].return_value, m['guild_queue_registry'].return_value, m['dispatch'].return_value,
-        record_plays=True)
+        record_plays=True, ensure_history_playlist=m['history_worker'].return_value.ensure_history_playlist)
     assert m['server'].call_args.kwargs['guild_queue'] is m['guild_queue'].return_value
     # Metrics poller built from the result queue + registry + search queue, handed to run_broker.
     m['metrics'].assert_called_once_with(
@@ -133,6 +133,7 @@ def test_run_without_a_db_pod_records_nothing_and_says_so(mocker, caplog):
     m['history_worker'].assert_not_called()
     m['history_playlists'].assert_not_called()
     assert m['guild_queue'].call_args.kwargs['record_plays'] is False
+    assert m['guild_queue'].call_args.kwargs['ensure_history_playlist'] is None
     assert m['run_broker'].call_args.kwargs['history_worker'] is None
     assert 'cannot record plays' in caplog.text
 

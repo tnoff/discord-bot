@@ -67,11 +67,9 @@ class CogHelperBase(Cog):
         bot                 :   Discord bot object
         settings            :   Common settings config
         dispatcher          :   Dispatch service (MessageDispatcher or HttpDispatchClient)
-        stores              :   DatabaseStores bundle, or None. Accepted but unused at this
-                                level; present so load_cogs can call all cog constructors
-                                uniformly. Replaced db_engine with the MR 4b cutover -- this
-                                process holds no engine, so what gets threaded through is the
-                                set of remote stores rather than a connection to open.
+        stores              :   Always None now: the gateway holds no database client. Kept so
+                                load_cogs (discord_core) can still call every cog constructor
+                                with the same arguments.
         settings_prefix     :   (Optional) Settings prefix, will load settings if given
         config_model        :   (Optional) Pydantic model to validate config against;
                                 settings_prefix must also be given

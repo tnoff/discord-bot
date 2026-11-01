@@ -22,9 +22,9 @@ from discord_core.routes import commands as command_routes
 from discord_core.routes import gateway_intents as gateway_intent_routes
 from discord_core.routes import guild_queue as guild_queue_routes
 
-from discord_core.clients.http_playlist_store import HttpPlaylistStore
 from discord_commands.clients.http_download_client import HttpDownloadClient
 from discord_commands.clients.http_markov_store import HttpMarkovStore
+from discord_commands.clients.http_playlist_store import HttpPlaylistStore
 from discord_commands.clients.http_youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_search.servers.composite_server import CompositeHttpServer
 from discord_search.servers.media_search_server import MediaSearchHttpServer

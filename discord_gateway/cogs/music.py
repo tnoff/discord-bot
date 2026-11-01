@@ -25,7 +25,6 @@ from discord_core.utils.common import (is_peer_unavailable, rm_tree,
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations
-from discord_core.interfaces.database_protocols import PlaylistStore
 from discord_core.types.video_cache import MusicCacheConfig
 from discord_core.clients.http_broker_client import HttpBrokerClient
 from discord_core.interfaces.broker_client_protocol import BrokerClient
@@ -225,14 +224,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         # Keep track of when bot is in shutdown mode
         self.bot_shutdown_event = asyncio.Event()
         self._message_delete_after = self.config.general.message_delete_after
-
-        # Every playlist read and write goes through this. It was annotated against
-        # the Protocol rather than PlaylistClient so the HTTP store could drop in
-        # without touching a call site -- which is what MR 4b did, and no call site
-        # below changed.
-        self.playlist_store: PlaylistStore | None = None
-        if self.stores:
-            self.playlist_store = self.stores.playlist
 
         storage_bucket_name = self.config.download.storage.bucket_name if self.config.download.storage else None
 
@@ -519,25 +510,6 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
 
         if await self.intents_logic.poll() == 0:
             await sleep(_INTENT_POLL_INTERVAL_SECONDS)
-
-    async def __get_history_playlist(self, guild_id: int):
-        '''
-        Make sure the guild has a history playlist, and return it.
-
-        The broker's history worker records plays into it, but it only gets there after a
-        track has played. Creating it as the guild's player starts keeps the playlist list
-        (where history is index 0) stable from the first command, as it was when the gateway
-        recorded plays itself.
-
-        guild_id : Guild id
-        '''
-        if not self.stores:
-            return None
-        # Get-or-create in one call. Split across a read and a conditional write
-        # it is a race between any two players starting at once, and the table's
-        # unique constraint on (name, server_id) would surface that as an error
-        # on a path with nowhere to report one.
-        return await self.playlist_store.ensure_history_playlist(guild_id)
 
     async def _save_player_session(self, guild, player: MusicPlayer) -> bool:
         '''
@@ -858,9 +830,9 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                 # Generate and start player
                 # Take ownership of the guild's queue before the player exists: this reopens it,
                 # tells the broker which channel the play-order message belongs in, and hands back
-                # a track a previous gateway had started and never finished.
+                # a track a previous gateway had started and never finished. The broker also makes sure
+                # the guild has its history playlist, so playlist index 0 is stable from the first command.
                 await self.broker_client.open_guild(target_guild.id, target_text_channel.id)
-                await self.__get_history_playlist(target_guild.id)
                 player = MusicPlayer(self.bot, target_guild, target_text_channel,
                                      self.logging_config,
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,

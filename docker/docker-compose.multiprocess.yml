@@ -224,8 +224,6 @@ services:
         condition: service_healthy
       commands:
         condition: service_started
-      postgres:
-        condition: service_healthy
-      # No downloader or search entry: the gateway does not call them, the commands
-      # pod does.
+      # No downloader, search or database entry: the gateway does not call them, the commands
+      # pod and the broker do.
     restart: unless-stopped

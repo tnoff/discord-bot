@@ -214,10 +214,9 @@ packages at the repo root, shared across all of them.
   gateway cog actually receives does not have this method, so calling
   `dispatch_fetch` from a real cog raises `AttributeError` today. Treat it as
   dead code until that's reconciled, not as a pattern to copy.
-- No cog in `discord_gateway` holds a database session — that pod has no DB
-  engine at all. Reach data through the HTTP store wrappers in
-  `discord_gateway/clients/database_stores.py` (`HttpPlaylistStore`), which calls the
-  `discord-db` pod. `select()` / `delete()` / `AsyncSession` and an actual
+- No cog in `discord_gateway` holds a database session or client — that pod has no DB
+  engine and does not call the db pod. Reach data from the commands pod, through the HTTP
+  store wrappers in `discord_commands/clients/`, which call the `discord-db` pod. `select()` / `delete()` / `AsyncSession` and an actual
   commit-retry helper only exist inside `discord_db` itself
   (`discord_db/cli/database.py`), for code that runs in that pod.
 - Use `async_otel_span_wrapper` with `async with` for spans, or

@@ -4,7 +4,6 @@ from time import time
 
 from dappertable import shorten_string, DapperTable, Columns, Column, PaginationLength
 
-from discord_core.clients.http_playlist_store import HttpPlaylistStore
 from discord_core.cogs.music_helpers.common import PLAYHISTORY_PREFIX, SearchType
 from discord_core.common import DISCORD_MAX_MESSAGE_LENGTH
 from discord_core.interfaces.broker_client_protocol import BrokerClient
@@ -14,6 +13,7 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
 from discord_core.types.search import SearchResult
 
+from discord_commands.clients.http_playlist_store import HttpPlaylistStore
 from discord_commands.clients.search_client import check_youtube_video
 from discord_commands.command_logic.reply import Reply
 from discord_commands.utils.media_enqueuer import MediaEnqueuer

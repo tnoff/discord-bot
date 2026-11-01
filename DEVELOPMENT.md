@@ -224,9 +224,8 @@ mode; `discord_dispatcher` runs a single Redis-backed worker
 ### Cog skeleton
 
 Every cog inherits `CogHelperBase` (`discord_gateway/cogs/common.py`) — there
-is no separate database-aware subclass. Cogs reach the database, if they
-need it, through an HTTP store wrapper (`discord_gateway/clients/database_stores.py`)
-passed in via `stores`, not a local `AsyncEngine`. See [Dispatch
+is no separate database-aware subclass. The gateway's cogs reach no database: persistence belongs to the commands pod and the broker,
+which call the db pod through HTTP store wrappers, not a local `AsyncEngine`. See [Dispatch
 helpers](#dispatch-helpers) below for the dispatcher methods every cog gets.
 
 ```python
@@ -322,11 +321,11 @@ for the canonical pattern; new `MetricNaming` entries go in
 
 ## Database
 
-No cog in `discord_gateway` holds a database session — that pod has no DB
-engine at all. Cogs reach data through the HTTP store wrappers in
-`discord_gateway/clients/database_stores.py` (`HttpMarkovStore`,
-`HttpPlaylistStore`, `HttpGuildAnalyticsStore`, `HttpVideoCacheStore`, …),
-which call the `discord-db` pod over HTTP.
+No cog in `discord_gateway` holds a database session or a database client: that pod has no DB
+engine and does not call the db pod at all. The commands pod reaches data through the HTTP store
+wrappers in `discord_commands/clients/` (`HttpMarkovStore`, `HttpPlaylistStore`,
+`HttpGuildAnalyticsStore`), and the broker through its own narrower ones, all of which call the
+`discord-db` pod over HTTP.
 
 The only package with a real SQLAlchemy engine is `discord_db` itself.
 SQLAlchemy 2.x, fully async (`AsyncEngine`; asyncpg or aiosqlite). PostgreSQL
