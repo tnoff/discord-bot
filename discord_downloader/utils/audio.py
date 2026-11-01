@@ -26,7 +26,16 @@ def get_editing_path(path: Path) -> Path:
     '''
     return path.parent / (path.stem + '.edited.pcm')
 
-def edit_audio_file(file_path: Path, normalize_audio: bool, logging_config: LoggingConfig) -> Path:
+# s16le, 2 channels, 48 kHz: the format edit_audio_file asks ffmpeg for
+PCM_BYTES_PER_SECOND = 48000 * 2 * 2
+# A decoded file may be this much shorter than yt-dlp's reported duration before
+# it counts as truncated: the larger of a flat allowance (yt-dlp reports whole
+# seconds, containers pad and trim) and a fraction of the track.
+DURATION_TOLERANCE_SECONDS = 3
+DURATION_TOLERANCE_FRACTION = 0.05
+
+def edit_audio_file(file_path: Path, normalize_audio: bool, logging_config: LoggingConfig,
+                    expected_duration: float | None = None) -> Path:
     '''
     Normalize audio for file and convert to PCM.
 
@@ -34,6 +43,10 @@ def edit_audio_file(file_path: Path, normalize_audio: bool, logging_config: Logg
     then writes raw s16le stereo PCM at 48 kHz suitable for Discord playback.
 
     file_path: Audio file to edit
+    expected_duration: Seconds yt-dlp reported for the track, or None to skip the
+        completeness check (live streams and extractors that report no duration).
+        A download that decodes cleanly but comes out shorter than this is a
+        truncated one, which ffmpeg alone does not reject.
     '''
     logger = get_logger('audio_editing', logging_config)
     finished_path = get_finished_path(file_path)
@@ -73,6 +86,21 @@ def edit_audio_file(file_path: Path, normalize_audio: bool, logging_config: Logg
             raise AudioProcessingError(
                 f'PCM output {editing_path} size {actual_size} is not divisible by 4, file is corrupt'
             )
+        if expected_duration:
+            actual_duration = actual_size / PCM_BYTES_PER_SECOND
+            allowed_shortfall = max(DURATION_TOLERANCE_SECONDS, expected_duration * DURATION_TOLERANCE_FRACTION)
+            if actual_duration < expected_duration - allowed_shortfall:
+                # Drop the source too: yt-dlp treats a file already on disk as
+                # downloaded, so the retry would otherwise reuse the truncated one.
+                editing_path.unlink()
+                file_path.unlink()
+                error = AudioProcessingError(
+                    f'Decoded audio is {actual_duration:.1f}s but yt-dlp reported {expected_duration}s for {file_path}, download is truncated'
+                )
+                logger.error(str(error))
+                span.record_exception(error)
+                span.set_status(StatusCode.ERROR)
+                raise error
     file_path.unlink()
     editing_path.rename(finished_path)
     return finished_path

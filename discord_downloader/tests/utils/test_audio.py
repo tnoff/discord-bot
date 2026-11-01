@@ -171,3 +171,92 @@ def test_edit_audio_file_subprocess_error_records_otel_span(mocker, tmp_path):
             edit_audio_file(audio_file, False, None)
     mock_span.record_exception.assert_called_once()
     mock_span.set_status.assert_called_once()
+
+
+def run_with_decoded_seconds(mocker, tmp_path, seconds, expected_duration):
+    '''
+    Run edit_audio_file with a mocked ffmpeg that decodes to the given length.
+
+    PCM_BYTES_PER_SECOND is patched to 4 (one stereo frame) so a "600 second"
+    track is 2400 bytes rather than 115 MB.
+    '''
+    mocker.patch('discord_downloader.utils.audio.PCM_BYTES_PER_SECOND', 4)
+    audio_file = tmp_path / 'audio.mp3'
+    audio_file.touch()
+    editing_path = tmp_path / 'audio.edited.pcm'
+
+    def create_pcm(*_args, **_kwargs):
+        editing_path.write_bytes(bytes(4 * seconds))
+
+    mocker.patch('discord_downloader.utils.audio.subprocess.run', side_effect=create_pcm)
+    return audio_file, edit_audio_file(audio_file, False, None, expected_duration)
+
+
+def test_edit_audio_file_truncated_raises_and_removes_files(mocker, tmp_path):
+    '''Audio decoding to well under the reported duration is rejected, source and output removed.'''
+    mocker.patch('discord_downloader.utils.audio.PCM_BYTES_PER_SECOND', 4)
+    audio_file = tmp_path / 'audio.mp3'
+    audio_file.touch()
+    editing_path = tmp_path / 'audio.edited.pcm'
+    mocker.patch('discord_downloader.utils.audio.subprocess.run',
+                 side_effect=lambda *_a, **_k: editing_path.write_bytes(bytes(4 * 100)))
+    mock_logger = MagicMock()
+    mocker.patch('discord_downloader.utils.audio.get_logger', return_value=mock_logger)
+
+    with pytest.raises(AudioProcessingError, match='truncated'):
+        edit_audio_file(audio_file, False, None, 600)
+
+    assert not audio_file.exists()
+    assert not editing_path.exists()
+    assert not (tmp_path / 'audio.pcm').exists()
+    mock_logger.error.assert_called_once()
+
+
+def test_edit_audio_file_truncated_records_otel_span(mocker, tmp_path):
+    '''A truncated download is recorded on the otel span and its status set to ERROR.'''
+    mocker.patch('discord_downloader.utils.audio.PCM_BYTES_PER_SECOND', 4)
+    audio_file = tmp_path / 'audio.mp3'
+    audio_file.touch()
+    editing_path = tmp_path / 'audio.edited.pcm'
+    mocker.patch('discord_downloader.utils.audio.subprocess.run',
+                 side_effect=lambda *_a, **_k: editing_path.write_bytes(bytes(4 * 100)))
+    mocker.patch('discord_downloader.utils.audio.get_logger', return_value=MagicMock())
+    mock_span = MagicMock()
+    with patch('discord_downloader.utils.audio.otel_span_wrapper') as mock_wrapper:
+        mock_wrapper.return_value.__enter__ = MagicMock(return_value=mock_span)
+        mock_wrapper.return_value.__exit__ = MagicMock(return_value=False)
+        with pytest.raises(AudioProcessingError):
+            edit_audio_file(audio_file, False, None, 600)
+    mock_span.record_exception.assert_called_once()
+    mock_span.set_status.assert_called_once()
+
+
+@pytest.mark.parametrize('seconds,expected', [
+    (10, 10),    # exact
+    (8, 10),     # 2s short: inside the 3s flat allowance
+    (575, 600),  # 25s short: inside 5% of 600
+    (300, 10),   # longer than reported is not truncation
+])
+def test_edit_audio_file_duration_within_tolerance(mocker, tmp_path, seconds, expected):
+    '''Output at or near the reported duration, or longer, is accepted.'''
+    audio_file, result = run_with_decoded_seconds(mocker, tmp_path, seconds, expected)
+    assert result.suffix == '.pcm'
+    assert result.exists()
+    assert not audio_file.exists()
+
+
+@pytest.mark.parametrize('seconds,expected', [
+    (6, 10),     # 4s short: past the 3s flat allowance
+    (560, 600),  # 40s short: past 5% of 600
+])
+def test_edit_audio_file_duration_beyond_tolerance(mocker, tmp_path, seconds, expected):
+    '''Output short of the reported duration by more than the tolerance is rejected.'''
+    with pytest.raises(AudioProcessingError, match='truncated'):
+        run_with_decoded_seconds(mocker, tmp_path, seconds, expected)
+
+
+@pytest.mark.parametrize('expected', [None, 0])
+def test_edit_audio_file_no_expected_duration_skips_check(mocker, tmp_path, expected):
+    '''A missing or zero reported duration (live streams) skips the completeness check.'''
+    _, result = run_with_decoded_seconds(mocker, tmp_path, 1, expected)
+    assert result.exists()
