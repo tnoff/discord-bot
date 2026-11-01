@@ -691,6 +691,47 @@ async def test_cache_cleanup_evicts_via_batch_fetch():
     mock_delete.assert_called_once_with('my-bucket', '/s3/other.mp3')
 
 
+@pytest.mark.asyncio
+async def test_evict_cache_evict_all_flags_every_row_and_counts():
+    '''evict_all asks the catalog to flag every row, and the return value is the number removed.'''
+    video_cache = MagicMock()
+    deletable = [VideoCacheEntry(id=1, video_url='https://example.com/a', base_path='cache/a.pcm'),
+                 VideoCacheEntry(id=2, video_url='https://example.com/b', base_path='cache/b.pcm')]
+    video_cache.ready_remove = AsyncMock()
+    video_cache.get_deletable_entries = AsyncMock(return_value=deletable)
+    video_cache.remove_video_cache = AsyncMock()
+    broker = _make_broker(video_cache=video_cache, bucket_name='my-bucket')
+    with patch('discord_broker.interfaces.broker_protocols.delete_file') as mock_delete:
+        removed = await broker.evict_cache(evict_all=True)
+    assert removed == 2
+    video_cache.ready_remove.assert_awaited_once_with(evict_all=True)
+    assert [call.args for call in mock_delete.call_args_list] == [('my-bucket', 'cache/a.pcm'), ('my-bucket', 'cache/b.pcm')]
+    video_cache.remove_video_cache.assert_awaited_once_with([1, 2])
+
+
+@pytest.mark.asyncio
+async def test_evict_cache_evict_all_keeps_entries_in_use():
+    '''An entry a queue or player holds is not deleted, even under evict_all.'''
+    video_cache = MagicMock()
+    in_use = VideoCacheEntry(id=7, video_url='https://example.com/queued', base_path='cache/queued.pcm')
+    video_cache.ready_remove = AsyncMock()
+    video_cache.get_deletable_entries = AsyncMock(return_value=[in_use])
+    video_cache.remove_video_cache = AsyncMock()
+    broker = _make_broker(video_cache=video_cache, bucket_name='my-bucket')
+    broker.can_evict_base = AsyncMock(return_value=False)
+    with patch('discord_broker.interfaces.broker_protocols.delete_file') as mock_delete:
+        removed = await broker.evict_cache(evict_all=True)
+    assert removed == 0
+    mock_delete.assert_not_called()
+    video_cache.remove_video_cache.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_evict_cache_without_video_cache_removes_nothing():
+    '''No catalog configured: nothing to flag, nothing removed.'''
+    assert await _make_broker().evict_cache(evict_all=True) == 0
+
+
 # ---------------------------------------------------------------------------
 # Bundle lifecycle backed by Redis
 # ---------------------------------------------------------------------------

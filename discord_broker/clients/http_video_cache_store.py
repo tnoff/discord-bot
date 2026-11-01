@@ -103,9 +103,12 @@ class HttpVideoCacheStore(HttpStoreBase):
             return await self._call('remove_video_cache',
                                     {'video_cache_ids': list(video_cache_ids)})
 
-    async def ready_remove(self) -> bool:
+    async def ready_remove(self, evict_all: bool = False) -> bool:
         '''
         Apply the eviction policy, flagging excess rows `ready_for_deletion`.
+
+        evict_all : Flag every row instead of applying the policy. This is a request
+            for an action, not a policy value, so it does not break the rule below.
 
         Marks only. The count-then-mark this runs is two queries against one
         catalog and stays one request, because split across the wire another
@@ -113,7 +116,7 @@ class HttpVideoCacheStore(HttpStoreBase):
         a count that is already wrong.
         '''
         async with self._span('ready_remove'):
-            return await self._call('ready_remove')
+            return await self._call('ready_remove', {'evict_all': True} if evict_all else None)
 
     async def get_deletable_entries(self) -> List[VideoCacheEntry]:
         '''Return the rows currently flagged `ready_for_deletion`.'''

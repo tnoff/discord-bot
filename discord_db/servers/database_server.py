@@ -45,7 +45,7 @@ this yet. The entrypoint that does is MR 3.
     POST /database/video_cache/get_webpage_url_item {media_request}
                                                   -> MediaDownload | null
     POST /database/video_cache/remove_video_cache  {video_cache_ids} -> bool
-    POST /database/video_cache/ready_remove        {} -> bool
+    POST /database/video_cache/ready_remove        {evict_all?} -> bool
     POST /database/video_cache/get_deletable_entries {} -> [VideoCacheEntry]
     POST /database/video_cache/get_cache_count     {} -> int
 
@@ -627,11 +627,12 @@ class DatabaseHttpServer(AiohttpServerBase):
         return await self._respond('video_cache.remove_video_cache', ctx, call)
 
     async def _handle_ready_remove(self, request: web.Request) -> web.Response:
-        '''POST /database/video_cache/ready_remove — apply the eviction policy.'''
-        ctx, _body = await self._read_body(request)
+        '''POST /database/video_cache/ready_remove — apply the eviction policy, or flag every row.'''
+        ctx, body = await self._read_body(request)
+        evict_all = bool(body.get('evict_all', False))
 
         async def call():
-            return await self._video_cache_store.ready_remove()
+            return await self._video_cache_store.ready_remove(evict_all=evict_all)
 
         return await self._respond('video_cache.ready_remove', ctx, call)
 

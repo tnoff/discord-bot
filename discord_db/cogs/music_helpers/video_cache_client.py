@@ -121,11 +121,18 @@ class VideoCacheClient():
                     await async_retry_database_commands(db_session, lambda vid=video_cache_id: database_functions.delete_video_cache(db_session, vid))
             return True
 
-    async def ready_remove(self) -> bool:
+    async def ready_remove(self, evict_all: bool = False) -> bool:
         '''
         Mark the oldest excess cache entries ready_for_deletion.
+
+        evict_all : Mark every entry instead, ignoring the count and size limits.
+            Only marks: the broker still skips entries a queue or a player is using.
         '''
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.ready_remove', kind=SpanKind.INTERNAL):
+            if evict_all:
+                async with self.session_generator() as db_session:
+                    await async_retry_database_commands(db_session, lambda: database_functions.video_cache_mark_all_deletion(db_session))
+                return True
             async with self.session_generator() as db_session:
                 cache_count = await async_retry_database_commands(db_session, lambda: database_functions.count_video_cache(db_session))
                 num_to_remove = cache_count - self.max_cache_files

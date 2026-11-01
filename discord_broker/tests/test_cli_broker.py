@@ -226,5 +226,5 @@ def test_main_parses_config_and_runs(mocker):
     mocker.patch('discord_broker.cli.broker.parse_and_validate_config',
                  return_value=({'k': 'v'}, 'gc'))
     mock_run = mocker.patch('discord_broker.cli.broker.run')
-    broker_cli.main.callback('config.cnf')
+    broker_cli.main.callback('config.cnf', flush_cache=False, yes=False)
     mock_run.assert_called_once_with({'k': 'v'}, 'gc')
