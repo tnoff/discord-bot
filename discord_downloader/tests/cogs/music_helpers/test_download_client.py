@@ -124,6 +124,18 @@ def test_worker_applies_extra_ytdlp_options_and_filter():
     assert isinstance(x._egress, HttpProxyEgress)
 
 
+def test_worker_aborts_on_unavailable_fragments_by_default():
+    '''yt-dlp is told to fail, not skip, a fragment it cannot fetch.'''
+    x = make_download_client()
+    assert x._egress._client.params['skip_unavailable_fragments'] is False
+
+
+def test_worker_extra_ytdlp_options_can_restore_fragment_skipping():
+    '''extra_ytdlp_options is applied after the default, so config can turn skipping back on.'''
+    x = make_download_client(extra_ytdlp_options={'skip_unavailable_fragments': True})
+    assert x._egress._client.params['skip_unavailable_fragments'] is True
+
+
 def test_worker_pool_mode_requires_exits():
     '''A pool mode with an empty exit list fails loudly at construction.'''
     with pytest.raises(ValueError):
@@ -456,7 +468,8 @@ async def test_prepare_source_logs_chosen_format(mocker):
             return {'entries': [{'id': 'abc', 'webpage_url': 'https://example.foo.com', 'title': 'T',
                                  'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
                                  'requested_downloads': [{'filepath': str(file_path), 'format_id': '251',
-                                                          'acodec': 'opus', 'abr': 130.5, 'ext': 'webm'}]}]}
+                                                          'acodec': 'opus', 'abr': 130.5, 'ext': 'webm',
+                                                          'protocol': 'https'}]}]}
 
     fake_context = generate_fake_context()
     x = make_download_client(MockYTDLPWithFormat())
@@ -467,8 +480,8 @@ async def test_prepare_source_logs_chosen_format(mocker):
         result = await x.create_source(y, 3)
     assert result.status.success
     mock_logger.warning.assert_not_called()
-    mock_logger.info.assert_any_call('Downloaded audio format: id=%s format_id=%s acodec=%s abr=%s ext=%s',
-                                     'abc', '251', 'opus', 130.5, 'webm')
+    mock_logger.info.assert_any_call('Downloaded audio format: id=%s format_id=%s acodec=%s abr=%s ext=%s protocol=%s',
+                                     'abc', '251', 'opus', 130.5, 'webm', 'https')
 
 
 @pytest.mark.asyncio(loop_scope="session")

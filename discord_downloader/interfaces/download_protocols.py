@@ -274,6 +274,12 @@ class DownloadWorkerBase(ABC):
             # client. The filename stays per-video, so the S3 cache key is unchanged.
             'outtmpl': YTDLP_OUTPUT_TEMPLATE,
             'paths': {'home': str(download_dir)},
+            # yt-dlp's default is to skip a fragment it cannot fetch and report the
+            # download as complete, which hands back audio with a hole in it (seen in
+            # prod: the last HLS fragment dropped after "Did not get any data blocks").
+            # Fail instead so the request retries on another exit. Set before the
+            # extras below so extra_ytdlp_options can turn it back on.
+            'skip_unavailable_fragments': False,
         }
         if extra_ytdlp_options:
             for key, value in extra_ytdlp_options.items():
@@ -818,12 +824,16 @@ class DownloadWorkerBase(ABC):
                     'acodec': chosen.get('acodec'),
                     'abr': chosen.get('abr'),
                     'ext': chosen.get('ext'),
+                    # m3u8_native / http_dash_segments are the fragmented protocols
+                    # skip_unavailable_fragments applies to; this shows how often
+                    # downloads take them.
+                    'protocol': chosen.get('protocol'),
                 }
                 for key, value in chosen_format.items():
                     span.set_attribute(f'{DOWNLOAD_FORMAT_ATTRIBUTE_PREFIX}.{key}', value if value is not None else 'unknown')
-                self.logger.info('Downloaded audio format: id=%s format_id=%s acodec=%s abr=%s ext=%s',
+                self.logger.info('Downloaded audio format: id=%s format_id=%s acodec=%s abr=%s ext=%s protocol=%s',
                                  data.get('id'), chosen_format['format_id'], chosen_format['acodec'],
-                                 chosen_format['abr'], chosen_format['ext'])
+                                 chosen_format['abr'], chosen_format['ext'], chosen_format['protocol'])
             return DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=data, file_name=file_path, file_size_bytes=file_size_bytes if media_request.download_file else None, span_context=span_context)
 
     def __upload_s3(self, file_path: Path):
