@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.6.1] - 2026-11-01
+
+### Changed
+
+- Add `discord-broker CONFIG --flush-cache` (`--yes` skips the prompt), run inside the broker pod to delete every cached download no queue, bundle or player holds. `MediaBrokerBase.evict_cache(evict_all=...)` returns the number of entries removed and `cache_cleanup` is now a wrapper around it. `HttpVideoCacheStore.ready_remove` takes `evict_all`.
+
 ## [3.6.0] - 2026-11-01
 
 ### Changed

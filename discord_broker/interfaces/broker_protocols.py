@@ -160,18 +160,29 @@ class MediaBrokerBase(PlayerSessionStore, ABC):
 
     async def cache_cleanup(self) -> bool:
         '''Evict stale cache entries. Returns True if at least one file was removed.'''
+        return await self.evict_cache() > 0
+
+    async def evict_cache(self, evict_all: bool = False) -> int:
+        '''
+        Evict cache entries and return how many were removed.
+
+        evict_all : Flag every catalog row instead of only the ones over the limits.
+            Entries a queue or player still holds are skipped as always; they stay
+            flagged, so the regular cleanup removes them once they are free.
+        '''
         if not self.video_cache:
-            return False
+            return 0
         async with async_otel_span_wrapper('music.broker.cache_cleanup', kind=SpanKind.INTERNAL) as span:
-            await self.video_cache.ready_remove()
+            span.set_attribute('music.broker.evict_all', evict_all)
+            await self.video_cache.ready_remove(evict_all=evict_all)
             to_delete = await self._get_evictable_entries()
             span.set_attribute('music.broker.evicted_count', len(to_delete))
             if not to_delete:
-                return False
+                return 0
             for vc in to_delete:
                 delete_file(self.bucket_name, str(vc.base_path))
             await self.video_cache.remove_video_cache([vc.id for vc in to_delete])
-            return True
+            return len(to_delete)
 
     # ------------------------------------------------------------------
     # Abstract interface

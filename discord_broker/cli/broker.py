@@ -44,6 +44,7 @@ import click
 from discord_core.cli._lib.common import parse_and_validate_config, run_loop, setup_observability
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.clients.redis_client import RedisManager
+from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig
 from discord_core.clients.http_dispatch_client import HttpDispatchClient
 from discord_core.workers.redis_queues import RedisDownloadResultQueue, RedisSearchResultQueue
@@ -72,9 +73,17 @@ DEFAULT_MESSAGE_DELETE_AFTER = 300
 
 @click.command()
 @click.argument('config_file', type=click.Path(dir_okay=False))
-def main(config_file):
+@click.option('--flush-cache', is_flag=True,
+              help='Instead of serving, delete every cached download that no queue or player '
+                   'holds, then exit. Run it inside the running broker pod.')
+@click.option('--yes', is_flag=True, help='With --flush-cache, do not ask for confirmation.')
+def main(config_file, flush_cache, yes):
     '''Run the standalone media broker process (HTTP, Redis state, remote DB).'''
     settings, general_config = parse_and_validate_config(config_file)
+    if flush_cache:
+        logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+        asyncio.run(flush_cache_entries(settings, general_config, assume_yes=yes))
+        return
     run(settings, general_config)
 
 
@@ -107,6 +116,54 @@ def _build_video_cache(cache_cfg: dict, database_http_url: str | None,
         )
         return None
     return HttpVideoCacheStore(database_http_url, seam_contract=seam_contract)
+
+
+async def flush_cache_entries(settings: dict, general_config: GeneralConfig,
+                              assume_yes: bool = False) -> int:
+    '''
+    Delete every cached download that nothing holds, and return how many were removed.
+
+    This is `discord-broker CONFIG --flush-cache`, run inside the broker pod so it has
+    the config, Redis, the db pod URL and the S3 gateway sidecar this needs:
+
+        kubectl exec -it -n discord deploy/discord-broker -- \\
+            discord-broker /opt/discord/cnf/discord.cnf --flush-cache
+
+    Every catalog row is flagged on the db pod, then the broker's normal eviction runs:
+    the S3 object and the row go for each entry no queue, bundle or player holds.
+    Entries still in use are kept and stay flagged, so the regular cache cleanup removes
+    them once they are free. Nothing playing or queued loses its file.
+
+    It is a command rather than an HTTP route on purpose: the routes are defined in
+    discord_core, which the pods pin by release tag, and a flush reachable by any pod in
+    the cluster is more than this needs. kubectl access to the pod is the permission check.
+
+    Raises DiscordBotException if the video cache is not enabled on this pod.
+    '''
+    general_settings = settings.get('general', {})
+    music_settings = settings.get('music', {})
+    bucket_name = music_settings.get('storage', {}).get('bucket_name')
+    video_cache = _build_video_cache(music_settings.get('download', {}).get('cache', {}),
+                                     general_settings.get('database_http_url'), bucket_name,
+                                     seam_contract=general_config.seam_contract)
+    if video_cache is None:
+        raise DiscordBotException('Video cache is not enabled on this pod, nothing to flush')
+
+    redis_manager = RedisManager.from_general_config(general_config)
+    await redis_manager.start()
+    try:
+        broker = RedisBroker(RedisBrokerRegistry(redis_manager), video_cache=video_cache,
+                             bucket_name=bucket_name)
+        click.echo(f'{await broker.get_cache_count()} cached entries in bucket {bucket_name}')
+        if not assume_yes:
+            click.confirm('Delete every entry that is not queued or playing?', abort=True)
+        removed = await broker.evict_cache(evict_all=True)
+        click.echo(f'Removed {removed}, kept {await broker.get_cache_count()} still in use '
+                   '(flagged, so the regular cleanup removes them once they are free)')
+        return removed
+    finally:
+        await video_cache.close()
+        await redis_manager.close()
 
 
 async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manager: RedisManager,

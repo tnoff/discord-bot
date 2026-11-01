@@ -270,6 +270,18 @@ music:
 
 Both limits can be used together; each evicts independently and the effects compose.
 
+#### Flushing the cache
+
+To empty the cache by hand (for example after a bad download was cached), run the broker with `--flush-cache` inside the running broker pod:
+
+```
+kubectl exec -it -n discord deploy/discord-broker -- discord-broker /opt/discord/cnf/discord.cnf --flush-cache
+```
+
+It prints the entry count and asks before deleting; `--yes` skips the prompt. The S3 object and the catalog row go for every entry that no queue, bundle or player holds. Entries still in use are kept, so nothing queued or playing loses its file. They are flagged for deletion and the regular cleanup removes them once they are free.
+
+Do not empty the bucket by hand. The catalog rows would still count as cache hits and point at objects that no longer exist, and queued tracks use the same `cache/` keys.
+
 Here is a diagram of how the layers of caching interact with each other:
 
 

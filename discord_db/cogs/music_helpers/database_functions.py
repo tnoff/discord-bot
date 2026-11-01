@@ -12,7 +12,7 @@ checkout registry and the S3 object in one loop, so the orchestration cannot
 follow the rows across without dragging the broker's Redis registry into the
 persistence tier. See interfaces/database_protocols.VideoCacheStore.
 """
-from sqlalchemy import select, asc
+from sqlalchemy import select, asc, update
 from sqlalchemy.sql.functions import count as sql_count
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -54,6 +54,12 @@ async def video_cache_mark_deletion(db_session: AsyncSession, num_to_remove: int
     )).scalars().all()
     for video_cache in items:
         video_cache.ready_for_deletion = True
+    await db_session.commit()
+
+
+async def video_cache_mark_all_deletion(db_session: AsyncSession):
+    """Mark every item for deletion, regardless of the count or size limits"""
+    await db_session.execute(update(VideoCache).values(ready_for_deletion=True))
     await db_session.commit()
 
 

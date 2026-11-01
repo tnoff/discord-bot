@@ -97,8 +97,8 @@ class _RecordingStore:
         self._record('remove_video_cache', video_cache_ids)
         return True
 
-    async def ready_remove(self):
-        self._record('ready_remove')
+    async def ready_remove(self, evict_all=False):
+        self._record('ready_remove', evict_all)
         return True
 
     async def get_deletable_entries(self):
@@ -232,6 +232,24 @@ async def test_eviction_is_decided_remotely(fake_engine, tmp_path):  #pylint:dis
     assert entries, 'the ceiling was exceeded but nothing was flagged'
     assert all(isinstance(entry, VideoCacheEntry) for entry in entries)
     assert all(entry.base_path for entry in entries)
+
+
+@pytest.mark.asyncio
+async def test_evict_all_flags_every_row_remotely(fake_engine, tmp_path):  #pylint:disable=redefined-outer-name
+    '''evict_all crosses the wire as a flag and every row comes back flagged, limits unexceeded.'''
+    server = DatabaseHttpServer(video_cache_store=_live_store(fake_engine))
+    async with TestClient(TestServer(server.build_app())) as tc:
+        client = HttpVideoCacheStore(str(tc.make_url('')), session=tc.session)
+        for index in range(2):
+            request = _media_request(f'https://foo.example/{index}')
+            await client.iterate_file(_media_download(tmp_path, request, title=f'track{index}'))
+
+        await client.ready_remove()
+        assert not await client.get_deletable_entries()
+        assert await client.ready_remove(evict_all=True) is True
+        entries = await client.get_deletable_entries()
+
+    assert len(entries) == 2
 
 
 @pytest.mark.asyncio
