@@ -19,26 +19,20 @@ never fills would invite somebody to fill it.
 '''
 from dataclasses import dataclass
 
-from discord_core.interfaces.database_protocols import (GuildAnalyticsStore, MarkovStore,
-                                                       PlaylistStore)
+from discord_core.interfaces.database_protocols import PlaylistStore
 
-from discord_core.clients.http_markov_store import HttpMarkovStore
 from discord_core.clients.http_playlist_store import HttpPlaylistStore
-from discord_core.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
 
 
 @dataclass(frozen=True)
 class DatabaseStores:
     '''The persistence Protocols a gateway process holds, or None for each absent one.
 
-    Annotated against the Protocols rather than the HTTP classes so a caller
-    cannot come to depend on the transport. Frozen because the bundle is wiring:
-    it is built once at startup and read thereafter, and a cog reassigning a
-    member would be changing where another cog's rows come from.
+    Annotated against the Protocol rather than the HTTP class so a caller cannot come to depend on
+    the transport. Frozen because the bundle is wiring: it is built once at startup and read
+    thereafter, and a cog reassigning a member would be changing where another cog's rows come from.
     '''
     playlist: PlaylistStore | None = None
-    markov: MarkovStore | None = None
-    guild_analytics: GuildAnalyticsStore | None = None
 
     def __bool__(self) -> bool:
         '''True when any store is present.
@@ -48,28 +42,17 @@ class DatabaseStores:
         bundle and None both read as absent, so a caller cannot accidentally treat
         "configured with nothing" as "configured".
         '''
-        return any((self.playlist, self.markov, self.guild_analytics))
+        return bool(self.playlist)
 
 
 def build_http_stores(base_url: str, seam_contract=None) -> DatabaseStores:
     '''
-    Build the three HTTP stores a bot process needs, all against one db pod.
+    Build the stores a bot process needs against the db pod.
 
-    One session per store rather than one shared across them: HttpStoreBase makes
-    its session lazily on first use, so three idle stores cost nothing, and the
-    entrypoint closes each on shutdown.
-
-    Each store gets its own seam check for the same reason it gets its own
-    session: ROUTES_CALLED is derived per GROUP, so a markov store claims only
-    the markov routes. One check over the merged seam would demand all four
-    groups of a db pod configured with fewer -- which is a supported state, and
-    would turn it into a permanent breach.
+    The markov and guild-analytics stores left with the loops and commands that used them (#1030); the
+    gateway keeps the playlist store the music cog reads.
 
     base_url : Root URL of the db pod, e.g. http://discord-db:8085
     seam_contract : a SeamContractConfig enabling the peer route check
     '''
-    return DatabaseStores(
-        playlist=HttpPlaylistStore(base_url, seam_contract=seam_contract),
-        markov=HttpMarkovStore(base_url, seam_contract=seam_contract),
-        guild_analytics=HttpGuildAnalyticsStore(base_url, seam_contract=seam_contract),
-    )
+    return DatabaseStores(playlist=HttpPlaylistStore(base_url, seam_contract=seam_contract))

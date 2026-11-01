@@ -9,7 +9,7 @@ from discord_core.clients.dispatch_client_base import DispatchRemoteError
 from discord_core.types.dispatch_result import ChannelHistoryResult, GuildEmojisResult, UNKNOWN_MESSAGE_CODE
 from discord_core.types.fetched_message import FetchedMessage
 
-from discord_gateway.loop_logic.markov import MarkovLoop, clean_message
+from discord_commands.loop_logic.markov import MarkovLoop, clean_message
 
 GUILD = 11
 CHANNEL = 22
@@ -117,7 +117,7 @@ def history(messages=(), error=None, after_message_id=None):
 @pytest.mark.asyncio
 @freeze_time(NOW)
 async def test_request_starts_a_new_channel_from_the_retention_cutoff(mocker):
-    sleep = mocker.patch('discord_gateway.loop_logic.markov.sleep')
+    sleep = mocker.patch('discord_commands.loop_logic.markov.sleep')
     channel = SimpleNamespace(server_id=GUILD, channel_id=CHANNEL, last_message_id=None)
     loop, store, recorder = make_loop(mocker, [channel])
     await loop.request()
@@ -130,7 +130,7 @@ async def test_request_starts_a_new_channel_from_the_retention_cutoff(mocker):
 @pytest.mark.asyncio
 @freeze_time(NOW)
 async def test_request_continues_a_known_channel_from_its_last_message(mocker):
-    mocker.patch('discord_gateway.loop_logic.markov.sleep')
+    mocker.patch('discord_commands.loop_logic.markov.sleep')
     channel = SimpleNamespace(server_id=GUILD, channel_id=CHANNEL, last_message_id=777)
     loop, _, recorder = make_loop(mocker, [channel])
     await loop.request()
@@ -140,7 +140,7 @@ async def test_request_continues_a_known_channel_from_its_last_message(mocker):
 @pytest.mark.asyncio
 @freeze_time(NOW)
 async def test_request_with_no_channels_still_prunes(mocker):
-    mocker.patch('discord_gateway.loop_logic.markov.sleep')
+    mocker.patch('discord_commands.loop_logic.markov.sleep')
     loop, store, recorder = make_loop(mocker)
     await loop.request()
     assert not recorder.history_requests

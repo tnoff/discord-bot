@@ -7,7 +7,7 @@ import pytest
 from discord_core.types.dispatch_result import ChannelHistoryResult
 from discord_core.types.fetched_message import FetchedMessage
 
-from discord_gateway.loop_logic.delete_messages import DELETE_AFTER_DEFAULT, DeleteMessagesLoop
+from discord_commands.loop_logic.delete_messages import DELETE_AFTER_DEFAULT, DeleteMessagesLoop
 
 GUILD = 11
 CHANNEL = 22
@@ -89,7 +89,7 @@ async def test_process_result_logs_an_error_result_and_deletes_nothing(mocker):
 
 @pytest.mark.asyncio
 async def test_request_asks_for_each_channel_after_the_sleep(mocker):
-    sleep = mocker.patch('discord_gateway.loop_logic.delete_messages.sleep')
+    sleep = mocker.patch('discord_commands.loop_logic.delete_messages.sleep')
     channels = [{'server_id': GUILD, 'channel_id': CHANNEL}, {'server_id': 33, 'channel_id': 44}]
     loop, recorder = make_loop(channels)
     await loop.request()

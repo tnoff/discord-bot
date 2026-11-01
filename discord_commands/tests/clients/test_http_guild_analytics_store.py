@@ -26,7 +26,7 @@ from discord_core.exceptions import DatabaseUnavailable
 from discord_core.interfaces.database_protocols import GuildAnalyticsStore
 from discord_core.types.guild_analytics import GuildAnalyticsEntry
 
-from discord_core.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
+from discord_commands.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
 from discord_broker.clients.http_history_stores import HttpPlayAnalyticsStore
 from discord_db.clients.guild_analytics_client import GuildAnalyticsClient
 from discord_db.servers.database_server import DatabaseHttpServer

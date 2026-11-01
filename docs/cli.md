@@ -74,17 +74,10 @@ Each cog performs specific cleanup during `cog_unload()`:
   dispatcher, the db pod and the commands pod
 - Removes temporary download/player directories
 
-#### Markov Cog
-- Cancels its init/check/result background tasks and marks their loop
-  health stopped
-- Holds no database connection to worry about — persistence goes through
-  an HTTP store client to the `discord-db` pod, not a local session
-
-#### Delete Messages Cog
-- Cancels its init/result background tasks
-
 #### Commands pod (`discord-commands`)
-- Has no cogs. On SIGTERM it drains its HTTP server first (so nothing is
+- Has no cogs. It runs the music result loops, and the markov and
+  delete-messages loops when `general.include` turns them on; on SIGTERM it
+  cancels those first (a result lost there is fetched again on the next sweep). On SIGTERM it drains its HTTP server first (so nothing is
   accepted after the executor stops, which would be a 202 for a command that
   never runs), then stops the command executor, then closes the dispatcher and
   db clients — in that order, because a command still running needs the
@@ -97,8 +90,6 @@ The bot logs the shutdown process for monitoring and debugging:
 ```
 Main :: Received SIGTERM, triggering graceful shutdown...
 Main :: Calling cog_unload on Music
-Main :: Calling cog_unload on Markov
-Main :: Calling cog_unload on DeleteMessages
 Main :: Graceful shutdown complete
 ```
 

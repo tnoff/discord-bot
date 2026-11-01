@@ -37,7 +37,6 @@ from discord_gateway.clients.database_stores import DatabaseStores
 from discord_search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
 from discord_db.cli._lib.db import setup_db
-from discord_db.clients.guild_analytics_client import GuildAnalyticsClient
 from discord_db.clients.markov_client import MarkovClient
 from discord_db.clients.playlist_client import PlaylistClient
 from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
@@ -199,11 +198,18 @@ async def fake_stores(fake_engine) -> AsyncGenerator[DatabaseStores, None]:  #py
     Request `fake_engine` alongside this fixture to read those rows back.
     '''
     session_generator = partial(async_mock_session, fake_engine)
-    yield DatabaseStores(
-        playlist=PlaylistClient(session_generator),
-        markov=MarkovClient(session_generator),
-        guild_analytics=GuildAnalyticsClient(session_generator),
-    )
+    yield DatabaseStores(playlist=PlaylistClient(session_generator))
+
+@pytest_asyncio.fixture(scope="function")
+async def fake_markov_store(fake_engine) -> AsyncGenerator[MarkovClient, None]:  #pylint:disable=redefined-outer-name
+    '''
+    The markov store over the local test engine, for the commands pod's markov logic.
+
+    The gateway's DatabaseStores bundle no longer carries it: the markov commands and loops run in the
+    commands pod, which holds the store itself.
+    '''
+    yield MarkovClient(partial(async_mock_session, fake_engine))
+
 
 @asynccontextmanager
 async def async_mock_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:

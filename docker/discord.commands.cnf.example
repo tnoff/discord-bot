@@ -5,6 +5,11 @@ general:
   dispatch_http_url: http://dispatcher:8082
   # The markov and playlist commands read and write through the db pod.
   database_http_url: http://db:8085
+  # Which background loops run in this pod, as the cogs used to (the gateway keeps its own include for
+  # the cogs it loads).
+  include:
+    markov: true
+    delete_messages: true
   commands_server:
     host: 0.0.0.0
     port: 8086
@@ -32,3 +37,11 @@ music:
     url: http://search:8084
   media_search_client:
     url: http://search:8084
+# The loops' settings, the same keys the cogs read (docs/markov.md, docs/delete_messages.md).
+markov:
+  loop_sleep_interval: 300
+  message_check_limit: 16
+  history_retention_days: 365
+delete_messages:
+  loop_sleep_interval: 300
+  discord_channels: []

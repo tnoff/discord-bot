@@ -18,18 +18,18 @@ Configure with:
                                 raises DiscordBotException if missing)
     general.commands_http_url — Commands pod URL; the command stubs forward to it (required —
                                 raises DiscordBotException if missing)
-    general.include           — which optional cogs to load (markov, urban, music,
-                                delete_messages default off; default and
-                                message_dispatcher default on) — see IncludeConfig
+    general.include           — which optional cogs to load (markov, urban, music, role;
+                                default and message_dispatcher default on) — see IncludeConfig.
+                                delete_messages has no cog here: the commands pod runs it
     general.intents           — extra discord.py Intents to enable beyond
                                 Intents.default()
     general.rejectlist_guilds — guild IDs the bot leaves on sight (on_ready)
     general.monitoring        — optional OTLP / health-server config
     music.*                   — Music cog, see docs/music.md
-    markov.*                  — Markov cog, see docs/markov.md
+    markov.*                  — Markov cog (read by the commands pod), see docs/markov.md
     role.*                    — RoleAssignment cog (read by the commands pod), see docs/role.md
     urban.*                   — UrbanDictionary cog, see docs/urban.md
-    delete_messages.*         — DeleteMessages cog, see docs/delete_messages.md
+    delete_messages.*         — read by the commands pod, see docs/delete_messages.md
 '''
 import logging
 

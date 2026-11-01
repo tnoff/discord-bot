@@ -8,7 +8,6 @@ groups that have moved, never asks for it.
 '''
 from logging import Logger
 
-from discord_core.clients.http_markov_store import HttpMarkovStore
 from discord_core.types.command_args import (
     MarkovOnArgs, MarkovSpeakArgs, PlayArgs, PlaylistCreateArgs, PlaylistIndexArgs,
     PlaylistItemAddArgs, PlaylistItemRemoveArgs, PlaylistMergeArgs, PlaylistQueueArgs,
@@ -16,6 +15,7 @@ from discord_core.types.command_args import (
 )
 from discord_core.types.command_envelope import CommandEnvelope
 
+from discord_commands.clients.http_markov_store import HttpMarkovStore
 from discord_commands.command_logic.general import GeneralCommands
 from discord_commands.command_logic.markov import MarkovCommands
 from discord_commands.command_logic.music import MusicCommands

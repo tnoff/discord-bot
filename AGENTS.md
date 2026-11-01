@@ -162,13 +162,10 @@ hand-maintained list here):
   `POSSIBLE_COGS`. `cogs/` holds every cog (`common.py` is `CogHelperBase`);
   `cogs/music_helpers/` holds the gateway-side pieces of the music
   subsystem (`music_player.py` — download, search, broker and db-side pieces
-  live in their own pods below). The HTTP clients for talking to the other
-  pods (`http_download_client.py`, `http_media_search_client.py`,
-  `http_youtube_music_search_client.py`, `http_guild_analytics_store.py`, the
-  markov and playlist stores, `search_client.py`) are in `discord_core/clients/`
-  because the commands pod builds them too, and so is the `MediaEnqueuer`
-  (`discord_commands/utils/media_enqueuer.py`). `clients/` here keeps only what is
-  the gateway's own. Commands are forwarding stubs in `cogs/` for the groups that have
+  live in their own pods below). The clients for the downloader, the search pod,
+  the markov and analytics stores and the role fetches, and the `MediaEnqueuer`, are
+  in `discord_commands/` (`clients/`, `utils/`): only the commands pod builds them.
+  `clients/` here keeps only what is the gateway's own. Commands are forwarding stubs in `cogs/` for the groups that have
   moved to the commands pod (every group); `command_logic/` keeps only the reply helper.
 - **`discord_dispatcher/`** — the `discord-dispatcher` pod. `workers/message_dispatcher.py`
   is the `MessageDispatcher` worker (Redis-backed, per-guild); `servers/`
@@ -217,8 +214,7 @@ packages at the repo root, shared across all of them.
   dead code until that's reconciled, not as a pattern to copy.
 - No cog in `discord_gateway` holds a database session — that pod has no DB
   engine at all. Reach data through the HTTP store wrappers in
-  `discord_gateway/clients/database_stores.py` (`HttpMarkovStore`,
-  `HttpPlaylistStore`, `HttpGuildAnalyticsStore`, …), which call the
+  `discord_gateway/clients/database_stores.py` (`HttpPlaylistStore`), which calls the
   `discord-db` pod. `select()` / `delete()` / `AsyncSession` and an actual
   commit-retry helper only exist inside `discord_db` itself
   (`discord_db/cli/database.py`), for code that runs in that pod.
