@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.1] - 2026-11-01
+
+### Changed
+
+- Bump the `discord_core` pin to core-v3.18.0: the dispatch seam's route check now includes the guild-roles routes, so this pod expects the dispatcher to serve them (it has since #1166). The pin moves with the other six (tests/cli/test_package_pins.py requires them to agree).
+
 ## [3.2.0] - 2026-10-31
 
 ### Changed
