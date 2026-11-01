@@ -16,11 +16,10 @@ via `CogHelperBase.__init__`. There is no `CogHelper._dispatcher` property
 and no in-process fallback: `discord_gateway/cli/bot.py::run()` raises
 `DiscordBotException` at startup if `general.dispatch_http_url` is missing.
 
-The gateway pod separately requires `general.database_http_url`, pointing at the
-`discord-db` pod, and `general.commands_http_url`, pointing at the
-`discord-commands` pod — equally hard-required, equally no fallback (see
-[Database](./configuration.md#database) and [The commands
-pod](#the-commands-pod)).
+The gateway pod separately requires `general.commands_http_url`, pointing at the
+`discord-commands` pod — equally hard-required, equally no fallback (see [The
+commands pod](#the-commands-pod)). It takes no `database_http_url`: the gateway
+holds no database client (see [Database](./configuration.md#database)).
 
 There are seven pods: `discord-gateway`, `discord-commands`,
 `discord-dispatcher`, `discord-broker`, `discord-db`, `discord-downloader`
@@ -49,7 +48,6 @@ flowchart LR
     BOT -->|"dispatch (cog messages)"| DISPATCHER
     BOT -->|forward commands| COMMANDS
     BOT -->|"player queue, gateway intents, sessions"| BROKER
-    BOT -->|playlists| DB
     COMMANDS -->|"replies, history / emoji / role fetches, deletes"| DISPATCHER
     COMMANDS -->|"markov / playlists / analytics"| DB
     COMMANDS -->|"play queue, results, gateway intents"| BROKER
@@ -67,9 +65,10 @@ flowchart LR
     DB -.-> DATABASE
 ```
 
-The gateway talks only to the dispatcher, the broker, the db pod and the
-commands pod: it holds no client for the downloader or the search pod. Those
-two, with the markov and analytics stores, belong to the commands pod.
+The gateway talks only to the dispatcher, the broker and the commands pod: it
+holds no client for the downloader, the search pod or the db pod. Those, with
+the markov, playlist and analytics stores, belong to the commands pod (the
+broker has its own narrower db clients).
 
 Every solid arrow is an unconditional `Http*Client` the source pod always
 constructs when the relevant cog/feature is enabled; every dashed arrow is
@@ -97,10 +96,11 @@ missing:
   `music.*_client.url` keys are hard-required by the commands pod. The broker
   is how the pod sees a guild's player and how it asks the gateway to act on
   it.
-- **Bot → DB** (`HttpPlaylistStore`, an `HttpStoreBase` subclass built by
-  `build_http_stores()`): the music cog's, and the only store the gateway
-  holds. The markov, playlist and music-stats *commands*, and the markov
-  loops, use the commands pod's own stores.
+- **Bot → DB**: none. The gateway used to make one call, creating a guild's
+  history playlist when its player started; the broker does that now, when the
+  gateway opens the guild's queue (best-effort, off the request). The markov,
+  playlist and music-stats *commands* and the markov loops use the commands
+  pod's own stores.
 - **Downloader → Broker**, **Search → Broker** (`HttpBrokerClient`):
   unconditional in both pods' `run()`.
 - **Broker → Dispatcher** (`HttpDispatchClient`): only if
@@ -172,7 +172,6 @@ composite app.
 | `discord-downloader` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
 | `discord-gateway` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
 | `discord-gateway` | `discord-commands` | commands | — | `HttpCommandsClient` | 2 |
-| `discord-gateway` | `discord-db` | database | `/database/playlist` | `HttpPlaylistStore` | 16 |
 | `discord-gateway` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 12 |
 | `discord-search` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
 
@@ -182,7 +181,7 @@ composite app.
 |---|---|---|---|
 | broker | `discord-broker` | `discord-commands`, `discord-downloader`, `discord-gateway`, `discord-search` | 39 |
 | commands | `discord-commands` | `discord-gateway` | 2 |
-| database | `discord-db` | `discord-broker`, `discord-commands`, `discord-gateway` | 33 |
+| database | `discord-db` | `discord-broker`, `discord-commands` | 33 |
 | dispatch | `discord-dispatcher` | `discord-broker`, `discord-commands`, `discord-gateway` | 12 |
 | media_search | `discord-search` | `discord-commands` | 2 |
 | queue_worker | `discord-downloader`, `discord-search` | `discord-commands` | 8 |
@@ -467,7 +466,6 @@ these keys). Without `general.include`, neither loop runs.
 general:
   discord_token: "YOUR_TOKEN"      # gateway connection
   dispatch_http_url: "http://dispatcher:8082"   # all dispatch calls go here
-  database_http_url: "http://db:8085"           # all database calls go here
   commands_http_url: "http://commands:8086"     # forwarded commands go here
   include:
     default: true
@@ -483,12 +481,11 @@ The gateway's `include` decides which command stubs it loads; the commands pod's
 belongs to the commands pod's config only.
 
 `dispatch_http_url` activates `HttpDispatchClient`, and `discord_gateway/cli/bot.py`
-refuses to start without it — equally for `database_http_url`, which activates
-this pod's HTTP store clients to `discord-db`, and `commands_http_url`, which
-activates `HttpCommandsClient`. There is no longer an
+refuses to start without it — equally for `commands_http_url`, which
+activates `HttpCommandsClient`. The gateway takes no `database_http_url`. There is no longer an
 in-process fallback to fall back *to*: the single-process entrypoint that
 built a local `MessageDispatcher` was retired, and the bot's own database
-engine went with the same migration, so either URL being unset is a startup
+engine went with the same migration, so a missing URL is a startup
 error rather than a quiet mode switch. `message_dispatcher` is not a valid
 `include` key on this pod — `MessageDispatcher` is the separate dispatcher
 pod's own worker, not one of `POSSIBLE_COGS`.
@@ -531,10 +528,10 @@ core services have no profile and always start:
 8085) is a real, separate pod in production, but nothing in
 `docker/docker-compose.multiprocess.yml` builds or runs it — the `postgres`
 service above is bare postgres with no HTTP API in front of it. Since
-`discord_gateway/cli/bot.py::run()` and the commands pod's `run()` both
-hard-require `general.database_http_url`, neither the `bot` nor the `commands`
-service as checked in can actually reach a database through this compose
-file. Treat the compose file's database wiring as incomplete rather than a
+the commands pod's `run()` hard-requires `general.database_http_url` (and the
+broker needs it to record plays), the `commands` and `broker` services as
+checked in cannot actually reach a database through this compose file; the
+`bot` service needs none. Treat the compose file's database wiring as incomplete rather than a
 working reference until a `db` service is added.
 
 **Contributor default — no Mullvad account needed:**
@@ -582,7 +579,7 @@ what it actually needs, and compose only serializes along those edges:
 | `broker` | `redis`, `postgres` | started, healthy |
 | `downloader-direct` (`local`), `search` | `redis`, `broker` | started, started |
 | `downloader-vpn` (`vpn`) | `gluetun`, `redis`, `broker` | healthy, started, started |
-| `bot` | `redis`, `dispatcher`, `commands`, `postgres` | started, healthy, started, healthy |
+| `bot` | `redis`, `dispatcher`, `commands` | started, healthy, started |
 
 Two things worth calling out, since the pod diagram above could suggest
 otherwise:
