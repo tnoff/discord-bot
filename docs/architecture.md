@@ -46,17 +46,15 @@ flowchart LR
     REDIS["Redis"]
     DATABASE["Postgres or SQLite"]
 
-    BOT -->|dispatch| DISPATCHER
+    BOT -->|"dispatch (cog messages)"| DISPATCHER
     BOT -->|forward commands| COMMANDS
-    COMMANDS -->|replies| DISPATCHER
-    COMMANDS -->|markov / playlists / analytics| DB
-    COMMANDS -->|play queue, gateway intents| BROKER
-    COMMANDS -->|source expansion, search queue| SEARCH
-    COMMANDS -->|download queue| DOWNLOADER
-    BOT -->|media broker| BROKER
-    BOT -->|source expansion, search queue| SEARCH
-    BOT -->|download queue| DOWNLOADER
-    BOT -->|markov / playlists / analytics| DB
+    BOT -->|"player queue, gateway intents, sessions"| BROKER
+    BOT -->|playlists| DB
+    COMMANDS -->|"replies, history / emoji / role fetches, deletes"| DISPATCHER
+    COMMANDS -->|"markov / playlists / analytics"| DB
+    COMMANDS -->|"play queue, results, gateway intents"| BROKER
+    COMMANDS -->|"source expansion, search queue"| SEARCH
+    COMMANDS -->|"download queue, teardown"| DOWNLOADER
     DOWNLOADER -->|upload files| BROKER
     SEARCH -->|lifecycle updates| BROKER
     BROKER -.->|"bundle UI updates (optional)"| DISPATCHER
@@ -69,6 +67,10 @@ flowchart LR
     DB -.-> DATABASE
 ```
 
+The gateway talks only to the dispatcher, the broker, the db pod and the
+commands pod: it holds no client for the downloader or the search pod. Those
+two, with the markov and analytics stores, belong to the commands pod.
+
 Every solid arrow is an unconditional `Http*Client` the source pod always
 constructs when the relevant cog/feature is enabled; every dashed arrow is
 config-gated and silently skipped (with a warning) if the required URL is
@@ -79,22 +81,26 @@ missing:
 - **Bot → Commands** (`HttpCommandsClient`): hard-required — `bot.py::run()`
   raises at startup if `commands_http_url` is missing. One attempt per
   command, no retry; see [The commands pod](#the-commands-pod).
-- **Commands → Dispatcher** (`HttpDispatchClient`) and **Commands → DB**
+- **Bot → Broker** (`HttpBrokerClient`): constructed by the music cog. The gateway
+  reads the broker's play queue and gateway intents, and plays what is queued.
+- **Commands → Dispatcher** (`HttpGuildRolesClient`, a subclass of
+  `HttpDispatchClient`) and **Commands → DB**
   (`HttpMarkovStore` / `HttpPlaylistStore` / `HttpGuildAnalyticsStore`): both
   hard-required — the commands pod raises at startup if `dispatch_http_url`
   or `database_http_url` is missing. Every reply a command makes goes out
-  through the dispatcher.
+  through the dispatcher, and so do the markov and delete-messages loops'
+  history and emoji fetches and deletes, and the `role` commands' reads and
+  changes of roles and members.
 - **Commands → Broker / Search / Downloader** (`HttpBrokerClient`,
   `HttpMediaSearchClient` + `HttpYoutubeMusicSearchClient`,
-  `HttpDownloadClient`): the music commands. All four `music.*_client.url`
-  keys are hard-required by the commands pod. The broker is how the pod sees
-  a guild's player and how it asks the gateway to act on it.
-- **Bot → Broker / Search / Downloader** (`HttpBrokerClient`,
-  `HttpMediaSearchClient` + `HttpYoutubeMusicSearchClient`,
-  `HttpDownloadClient`): constructed by the music cog only.
+  `HttpDownloadClient`): the music commands and result loops. All four
+  `music.*_client.url` keys are hard-required by the commands pod. The broker
+  is how the pod sees a guild's player and how it asks the gateway to act on
+  it.
 - **Bot → DB** (`HttpPlaylistStore`, an `HttpStoreBase` subclass built by
-  `build_http_stores()`): the music cog's. The markov, playlist and
-  music-stats *commands*, and the markov loops, use the commands pod's own stores.
+  `build_http_stores()`): the music cog's, and the only store the gateway
+  holds. The markov, playlist and music-stats *commands*, and the markov
+  loops, use the commands pod's own stores.
 - **Downloader → Broker**, **Search → Broker** (`HttpBrokerClient`):
   unconditional in both pods' `run()`.
 - **Broker → Dispatcher** (`HttpDispatchClient`): only if
@@ -142,7 +148,7 @@ where one seam is served by more than one pod.
 **A seam is a route shape, not a pod.** Four of the five are served by exactly
 one pod, but `queue_worker` is an abstract base subclassed twice -- at
 `/downloads` on the downloader and `/search/ytmusic` on the search pod -- so
-`discord-gateway` has two separate dependencies there, not one. The search pod also
+`discord-commands` has two separate dependencies there, not one. The search pod also
 answers two different seams, `media_search` and `queue_worker`, behind one
 composite app.
 
@@ -285,6 +291,22 @@ gateway tries twice; if the pod stays unreachable it logs a warning and goes on
 (queued work is then left to the result loop, bundles to their 24h TTL). A bot
 restart skips the teardown: the queues are parked, not drained.
 
+The **markov and delete-messages loops** run here too
+(`discord_commands/workers/dispatch_loops.py`), when `general.include.markov` /
+`delete_messages` are on in this pod's config. Each is a producer that asks the
+dispatcher for channel history (and, for markov, guild emojis) on a timer and a
+consumer of the per-cog result queue the dispatch client keeps; markov writes
+the messages to the db pod, and delete-messages sends delete requests back
+through the dispatcher. Nothing in them is destructive, so on shutdown they are
+cancelled at once, and a result lost there is fetched again on the next sweep.
+Run in only one pod at a time: two markov loops would write the same messages
+twice. Their heartbeat and queue-depth series are published by `discord-commands`.
+
+The `role` commands read the `role` section of this pod's config and ask
+Discord for roles and members through the dispatcher (see [Awaitable
+fetches](#awaitable-fetches-channel-history-guild-emojis-guild-roles)), since the
+pod has no guild cache.
+
 Because the executor runs a guild's commands one at a time, a `play` that is
 still searching a large playlist holds up that guild's next command (a
 `skip`, say) until it finishes enqueuing.
@@ -307,9 +329,10 @@ still searching a large playlist holds up that guild's next command (a
 
 The cog does not wait for the Discord call to complete.
 
-### Awaitable fetches (channel history, guild emojis)
+### Awaitable fetches (channel history, guild emojis, guild roles)
 
-1. A cog submits a `FetchChannelHistoryRequest` via `submit_request`.
+1. A cog, or one of the commands pod's loops, submits a `FetchChannelHistoryRequest`
+   via `submit_request`.
 2. `HttpDispatchClient` POSTs to `POST /dispatch/fetch_history`.
 3. The server computes a stable `request_id` (SHA-256 of params), enqueues the
    fetch, and returns `{"request_id": "<hex>"}` with 202.
@@ -321,6 +344,17 @@ The cog does not wait for the Discord call to complete.
    poll returns 200 with the result body.
 6. `HttpDispatchClient` decodes the result and delivers it to the cog's result
    queue (registered via `register_cog_queue`).
+
+The `role` commands use the same submit-and-poll shape for four more fetches —
+`fetch_roles`, `fetch_member`, `fetch_role_members` and `change_member_role` —
+through `HttpGuildRolesClient`, which awaits the polled result instead of
+queueing it. Because `request_id` is a hash of the body and a result is kept for a
+day, each of these requests carries a fresh `call_id` that goes into the hash:
+without it a second `role add` for the same member and role would be answered
+with the first one's stored outcome and never reach Discord. Listing a role's
+members pages the guild's members over REST, which needs `members` in the
+dispatcher's `general.intents` (the dispatcher opens no gateway connection, so
+this costs nothing there).
 
 ### Mutable bundle deduplication across pods
 
@@ -394,23 +428,38 @@ process that opens Redis.
 general:
   dispatch_http_url: "http://dispatcher:8082"   # every reply goes through it
   database_http_url: "http://db:8085"           # markov and playlist commands read and write here
+  include:                                      # which background loops run in this pod
+    markov: true
+    delete_messages: true
   commands_server:
     host: 0.0.0.0
     port: 8086
 markov:
   server_reject_list: []                        # guild ids markov refuses to run for
+  loop_sleep_interval: 300                      # the markov loop's settings, as the cog had them
+delete_messages:
+  discord_channels: []                          # {server_id, channel_id, delete_after}
+role: {}                                        # per-guild role rules, see role.md
 music:
   general:
     message_delete_after: 300                   # seconds before playlist replies are removed
   playlist:
     server_playlist_max_size: 64                # most items a playlist holds; merge honours it
+  player:
+    queue_max_size: 128
+  broker_client: {url: "http://broker:8081"}                 # all four urls are required
+  download_client: {url: "http://downloader-host:8083"}
+  youtube_music_search_client: {url: "http://search:8084"}
+  media_search_client: {url: "http://search:8084"}
 ```
 
 No `discord_token`, no `redis_url`. `discord_commands/cli/commands.py::run()`
-raises `DiscordBotException` at startup if `dispatch_http_url` or
-`database_http_url` is missing. `markov.server_reject_list` and the two `music.*` playlist
-settings above are read from this pod's config, since those commands run here
-(the pod has no `music` cog; it only reads these keys).
+raises `DiscordBotException` at startup if `dispatch_http_url`,
+`database_http_url` or one of the four `music.*_client.url` keys is missing, and
+a `role` section that does not validate stops it too. The `music.*` settings,
+`markov.*`, `delete_messages.*` and `role.*` are read from this pod's config,
+since those commands and loops run here (the pod has no cogs; it only reads
+these keys). Without `general.include`, neither loop runs.
 
 ### Bot / cog pod
 
@@ -423,9 +472,15 @@ general:
   include:
     default: true
     markov: true
-    delete_messages: true
     music: true
+    role: true
+music:
+  broker_client: {url: "http://broker:8081"}    # the only music client the gateway holds
 ```
+
+The gateway's `include` decides which command stubs it loads; the commands pod's
+`include` decides which loops run. `delete_messages` is not a cog any more, so it
+belongs to the commands pod's config only.
 
 `dispatch_http_url` activates `HttpDispatchClient`, and `discord_gateway/cli/bot.py`
 refuses to start without it — equally for `database_http_url`, which activates
@@ -465,9 +520,9 @@ core services have no profile and always start:
 | `postgres` | — | `postgres:16-alpine` | Bare postgres — **no `discord-db` service sits on top of it** (see caveat below) |
 | `dispatcher` | — | `Dockerfile.dispatcher` | HTTP server + Redis worker; makes outbound Discord REST calls on the bot's behalf |
 | `broker` | — | `Dockerfile.broker` | S3 media checkout/release; persists and serves download/search results to the bot |
-| `search` | — | `Dockerfile.search` | Standalone search tier; resolutions return via the broker |
-| `commands` | — | `Dockerfile.commands` | Runs the commands the gateway forwards (no Discord token); replies through the dispatcher |
-| `bot` | — | `Dockerfile.gateway` | Holds the actual Discord gateway connection; parses commands and forwards them; cog logic; enqueues to the downloader + reads results from the broker |
+| `search` | — | `Dockerfile.search` | Standalone search tier; the commands pod's search and media-search clients call it, and resolutions return via the broker |
+| `commands` | — | `Dockerfile.commands` | Runs the commands the gateway forwards and the music, markov and delete-messages loops (no Discord token); replies through the dispatcher |
+| `bot` | — | `Dockerfile.gateway` | Holds the actual Discord gateway connection and the voice player; parses commands and forwards them; plays what the broker has queued |
 | `downloader-direct` | `local` | `Dockerfile.downloader` | Download worker with no tunnel — default egress, **no Mullvad key** |
 | `gluetun` | `vpn` | `qmcgaw/gluetun` | One Mullvad WireGuard tunnel; `downloader-vpn` shares its netns |
 | `downloader-vpn` | `vpn` | `Dockerfile.downloader` | Download worker, in-tunnel, per-download SOCKS5 exits (prod shape) |
@@ -523,11 +578,11 @@ what it actually needs, and compose only serializes along those edges:
 |---|---|---|
 | `redis`, `postgres` | — | (no dependencies) |
 | `dispatcher` | `redis` | started |
-| `commands` | `dispatcher` | healthy |
+| `commands` | `dispatcher`, `broker`, `search` | healthy, started, started |
 | `broker` | `redis`, `postgres` | started, healthy |
 | `downloader-direct` (`local`), `search` | `redis`, `broker` | started, started |
 | `downloader-vpn` (`vpn`) | `gluetun`, `redis`, `broker` | healthy, started, started |
-| `bot` | `redis`, `dispatcher`, `commands`, `postgres`, `search` | started, healthy, started, healthy, started |
+| `bot` | `redis`, `dispatcher`, `commands`, `postgres` | started, healthy, started, healthy |
 
 Two things worth calling out, since the pod diagram above could suggest
 otherwise:
@@ -536,25 +591,19 @@ otherwise:
 `search` at all** — it only waits on `redis`, so compose is free to start it
 in parallel with `broker` rather than strictly after it.
 
-**`bot` waits on `search`, but not on `broker` or either downloader
-flavour**, even though the bot pod is an `HttpBrokerClient` and
-`HttpDownloadClient` of both (see [Components](#components)). The
-downloader is skipped because compose can't make a profile-less service
-depend on a profiled one — see the comment above `bot`'s `depends_on` block,
-which also notes the bot's downloader-status poller tolerates the
-downloader being absent, late, or mid-restart. The broker has no such
-comment, but the mechanism is the same at the call level: every
-`Http*Client`, including `HttpBrokerClient`, routes its outbound calls
-through `HttpClientMixin._call()`, which retries via
-`async_retry_broker_command()` — up to 3 attempts with exponential backoff
-on a connection failure — so a `!play` command issued before the broker is
-ready fails and retries on that one call rather than blocking bot startup.
-`dispatcher` is the one pod bot *does* hard-gate on
-(`condition: service_healthy`), even though `HttpDispatchClient` layers its
-own circuit breaker on top of the same retry primitive; the compose file
-doesn't say why dispatcher gets a startup gate and broker/search don't, so
-treat that as a real asymmetry rather than an oversight until confirmed
-otherwise.
+**`bot` waits on `commands` but not on `broker`**, although the gateway is an
+`HttpBrokerClient` of it (see [Components](#components)), and it names no
+downloader or search entry at all: the gateway no longer calls either, the
+commands pod does. The broker has no startup gate because every `Http*Client`,
+including `HttpBrokerClient`, routes its outbound calls through
+`HttpClientMixin._call()`, which retries via `async_retry_broker_command()` — up
+to 3 attempts with exponential backoff on a connection failure — so a call made
+before the broker is ready fails and retries on that one call rather than
+blocking startup. `dispatcher` is the one pod `bot` hard-gates on
+(`condition: service_healthy`), even though `HttpDispatchClient` layers its own
+circuit breaker on top of the same retry primitive; the compose file doesn't say
+why dispatcher gets a startup gate and broker doesn't, so treat that as a real
+asymmetry rather than an oversight until confirmed otherwise.
 
 ### Testing SOCKS5 egress
 
