@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.13.0] - 2026-11-01
+
+### Changed
+
+- The markov and delete-messages loops left the gateway (#1030), so it holds no background loop for either. The `Markov` cog is a forwarding stub that no longer needs a markov store, the `DeleteMessages` cog is gone, and the gateway builds only the playlist store (`HttpMarkovStore` and `HttpGuildAnalyticsStore` are no longer constructed). The commands pod runs the loops, so its config needs `general.include` and the `markov` / `delete_messages` sections.
+
 ## [3.12.0] - 2026-11-01
 
 ### Changed

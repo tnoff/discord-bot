@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.19.0] - 2026-11-01
+
+### Changed
+
+- `clients/http_markov_store` and `clients/http_guild_analytics_store` moved to `discord_commands/clients/` (#1030): since the markov loops left the gateway the commands pod is the only image that reaches them. Nothing outside the commands pod imports them, so no pod needs a pin bump; the db routes and the store Protocols stay here.
+
 ## [3.18.0] - 2026-10-31
 
 ### Changed
