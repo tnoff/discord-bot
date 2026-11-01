@@ -23,7 +23,6 @@ from asyncio import QueueEmpty, sleep
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from functools import partial
-import hashlib
 from pathlib import Path
 import random
 import shutil
@@ -156,6 +155,10 @@ class BotDownloadFlagged(RetryableException):
     '''
 
 OTEL_SPAN_PREFIX = 'music.download_client'
+# Span attributes for the format yt-dlp chose (<prefix>.format_id, .acodec, .abr, .ext).
+# Plain strings here rather than AttributeNaming members: this pod installs
+# discord_core from its pinned tag, so a new member would need a core release first.
+DOWNLOAD_FORMAT_ATTRIBUTE_PREFIX = 'download.format'
 # Idle backoff for the run() consumer loop when no request is pending. Sleeping
 # ONLY on the empty path (not before a successful dequeue) keeps back-to-back
 # downloads at full throughput while cutting idle allocation churn (OOM fix).
@@ -271,6 +274,12 @@ class DownloadWorkerBase(ABC):
             # client. The filename stays per-video, so the S3 cache key is unchanged.
             'outtmpl': YTDLP_OUTPUT_TEMPLATE,
             'paths': {'home': str(download_dir)},
+            # yt-dlp's default is to skip a fragment it cannot fetch and report the
+            # download as complete, which hands back audio with a hole in it (seen in
+            # prod: the last HLS fragment dropped after "Did not get any data blocks").
+            # Fail instead so the request retries on another exit. Set before the
+            # extras below so extra_ytdlp_options can turn it back on.
+            'skip_unavailable_fragments': False,
         }
         if extra_ytdlp_options:
             for key, value in extra_ytdlp_options.items():
@@ -806,11 +815,25 @@ class DownloadWorkerBase(ABC):
                     span.set_status(StatusCode.ERROR)
                     return self._make_error_result(DownloadErrorType.FILE_NOT_FOUND, media_request, span_context, 'No file path returned from download')
                 file_size_bytes = file_path.stat().st_size
-                # bandit B324: corruption check against yt-dlp's reported MD5, not used for security
-                computed_md5 = hashlib.md5(file_path.read_bytes(), usedforsecurity=False).hexdigest()
-                ytdlp_md5 = data.get('requested_downloads', [{}])[0].get('md5')
-                if ytdlp_md5 and ytdlp_md5 != computed_md5:
-                    self.logger.warning('Checksum mismatch after yt-dlp download: expected=%s actual=%s file=%s', ytdlp_md5, computed_md5, file_path)
+                # Record what 'bestaudio/best' actually picked. requested_downloads is
+                # dropped when DownloadResult projects ytdlp_data, so this is the only
+                # place a low-bitrate or video-container fallback is visible.
+                chosen = data['requested_downloads'][0]
+                chosen_format = {
+                    'format_id': chosen.get('format_id'),
+                    'acodec': chosen.get('acodec'),
+                    'abr': chosen.get('abr'),
+                    'ext': chosen.get('ext'),
+                    # m3u8_native / http_dash_segments are the fragmented protocols
+                    # skip_unavailable_fragments applies to; this shows how often
+                    # downloads take them.
+                    'protocol': chosen.get('protocol'),
+                }
+                for key, value in chosen_format.items():
+                    span.set_attribute(f'{DOWNLOAD_FORMAT_ATTRIBUTE_PREFIX}.{key}', value if value is not None else 'unknown')
+                self.logger.info('Downloaded audio format: id=%s format_id=%s acodec=%s abr=%s ext=%s protocol=%s',
+                                 data.get('id'), chosen_format['format_id'], chosen_format['acodec'],
+                                 chosen_format['abr'], chosen_format['ext'], chosen_format['protocol'])
             return DownloadResult(status=DownloadStatus(success=True), media_request=media_request, ytdlp_data=data, file_name=file_path, file_size_bytes=file_size_bytes if media_request.download_file else None, span_context=span_context)
 
     def __upload_s3(self, file_path: Path):
@@ -899,7 +922,8 @@ class DownloadWorkerBase(ABC):
                 await self.update_tracking(result, egress.exit_name)
             if result.status.success and result.file_name is not None:
                 try:
-                    pcm_path = await loop.run_in_executor(None, edit_audio_file, result.file_name, self.normalize_audio, self.logging_config)
+                    expected_duration = (result.ytdlp_data or {}).get('duration')
+                    pcm_path = await loop.run_in_executor(None, edit_audio_file, result.file_name, self.normalize_audio, self.logging_config, expected_duration)
                     post_process_timestamp = datetime.now(timezone.utc)
                     self.logger.info(
                         'Audio post-processing complete: file=%s download_ts=%s post_process_ts=%s',

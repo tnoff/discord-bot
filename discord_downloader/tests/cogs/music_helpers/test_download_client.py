@@ -4,7 +4,6 @@
 import asyncio
 from asyncio import QueueEmpty
 from datetime import datetime, timezone, timedelta
-import hashlib
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 from unittest.mock import AsyncMock, patch
@@ -123,6 +122,18 @@ def test_worker_applies_extra_ytdlp_options_and_filter():
     x = make_download_client(extra_ytdlp_options={'proxy': 'http://p:8888'},
                              max_video_length=600, banned_video_list=['bad'])
     assert isinstance(x._egress, HttpProxyEgress)
+
+
+def test_worker_aborts_on_unavailable_fragments_by_default():
+    '''yt-dlp is told to fail, not skip, a fragment it cannot fetch.'''
+    x = make_download_client()
+    assert x._egress._client.params['skip_unavailable_fragments'] is False
+
+
+def test_worker_extra_ytdlp_options_can_restore_fragment_skipping():
+    '''extra_ytdlp_options is applied after the default, so config can turn skipping back on.'''
+    x = make_download_client(extra_ytdlp_options={'skip_unavailable_fragments': True})
+    assert x._egress._client.params['skip_unavailable_fragments'] is True
 
 
 def test_worker_pool_mode_requires_exits():
@@ -444,23 +455,24 @@ async def test_prepare_source_filepath_does_not_exist():
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_prepare_source_md5_match_no_warning(mocker):
-    '''No warning when yt-dlp md5 matches the file on disk'''
+async def test_prepare_source_logs_chosen_format(mocker):
+    '''The format yt-dlp picked is logged, since requested_downloads is dropped from the result'''
     with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
         file_path = Path(tmp_file.name)
     file_path.write_bytes(b'audio content')
-    correct_md5 = hashlib.md5(b'audio content').hexdigest()
 
-    class MockYTDLPWithMd5:
-        '''Mock yt-dlp returning a matching md5 checksum.'''
+    class MockYTDLPWithFormat:
+        '''Mock yt-dlp reporting the format it chose.'''
         def extract_info(self, _search_string, **_kwargs):
-            '''Return entry with correct md5.'''
-            return {'entries': [{'webpage_url': 'https://example.foo.com', 'title': 'T',
+            '''Return entry with format details.'''
+            return {'entries': [{'id': 'abc', 'webpage_url': 'https://example.foo.com', 'title': 'T',
                                  'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
-                                 'requested_downloads': [{'filepath': str(file_path), 'md5': correct_md5}]}]}
+                                 'requested_downloads': [{'filepath': str(file_path), 'format_id': '251',
+                                                          'acodec': 'opus', 'abr': 130.5, 'ext': 'webm',
+                                                          'protocol': 'https'}]}]}
 
     fake_context = generate_fake_context()
-    x = make_download_client(MockYTDLPWithMd5())
+    x = make_download_client(MockYTDLPWithFormat())
     mock_logger = mocker.patch.object(x, 'logger')
     y = fake_source_dict(fake_context)
     with patch('discord_downloader.interfaces.download_protocols.edit_audio_file',
@@ -468,34 +480,82 @@ async def test_prepare_source_md5_match_no_warning(mocker):
         result = await x.create_source(y, 3)
     assert result.status.success
     mock_logger.warning.assert_not_called()
+    mock_logger.info.assert_any_call('Downloaded audio format: id=%s format_id=%s acodec=%s abr=%s ext=%s protocol=%s',
+                                     'abc', '251', 'opus', 130.5, 'webm', 'https')
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_prepare_source_md5_mismatch_logs_warning(mocker):
-    '''Warning logged when yt-dlp md5 does not match the file on disk; download still succeeds'''
+async def test_prepare_source_logs_unknown_format_fields():
+    '''A download that reports no format details still succeeds'''
     with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
         file_path = Path(tmp_file.name)
     file_path.write_bytes(b'audio content')
 
-    class MockYTDLPWithWrongMd5:
-        '''Mock yt-dlp returning a mismatched md5 checksum.'''
+    class MockYTDLPNoFormat:
+        '''Mock yt-dlp reporting only the file path.'''
         def extract_info(self, _search_string, **_kwargs):
-            '''Return entry with incorrect md5.'''
+            '''Return entry with no format details.'''
             return {'entries': [{'webpage_url': 'https://example.foo.com', 'title': 'T',
                                  'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
-                                 'requested_downloads': [{'filepath': str(file_path), 'md5': 'deadbeef000000000000000000000000'}]}]}
+                                 'requested_downloads': [{'filepath': str(file_path)}]}]}
 
     fake_context = generate_fake_context()
-    x = make_download_client(MockYTDLPWithWrongMd5())
-    mock_logger = mocker.patch.object(x, 'logger')
+    x = make_download_client(MockYTDLPNoFormat())
     y = fake_source_dict(fake_context)
     with patch('discord_downloader.interfaces.download_protocols.edit_audio_file',
                return_value=make_pcm(file_path)):
         result = await x.create_source(y, 3)
     assert result.status.success
-    mock_logger.warning.assert_called_once()
-    args = mock_logger.warning.call_args[0]
-    assert 'deadbeef000000000000000000000000' in args[1]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_create_source_passes_reported_duration_to_audio_edit():
+    '''yt-dlp's reported duration reaches edit_audio_file so truncation can be detected'''
+    with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
+        file_path = Path(tmp_file.name)
+    file_path.write_bytes(b'audio content')
+
+    class MockYTDLPDuration:
+        '''Mock yt-dlp reporting a 10 second track.'''
+        def extract_info(self, _search_string, **_kwargs):
+            '''Return entry with a duration.'''
+            return {'entries': [{'webpage_url': 'https://example.foo.com', 'title': 'T',
+                                 'uploader': 'U', 'duration': 10, 'extractor': 'youtube',
+                                 'requested_downloads': [{'filepath': str(file_path)}]}]}
+
+    fake_context = generate_fake_context()
+    x = make_download_client(MockYTDLPDuration())
+    y = fake_source_dict(fake_context)
+    with patch('discord_downloader.interfaces.download_protocols.edit_audio_file',
+               return_value=make_pcm(file_path)) as mock_edit:
+        result = await x.create_source(y, 3)
+    assert result.status.success
+    assert mock_edit.call_args[0][3] == 10
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_create_source_truncated_audio_is_retryable():
+    '''A download edit_audio_file rejects as truncated comes back as a retryable failure'''
+    with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
+        file_path = Path(tmp_file.name)
+    file_path.write_bytes(b'audio content')
+
+    class MockYTDLPTruncated:
+        '''Mock yt-dlp returning a normal-looking download.'''
+        def extract_info(self, _search_string, **_kwargs):
+            '''Return entry.'''
+            return {'entries': [{'webpage_url': 'https://example.foo.com', 'title': 'T',
+                                 'uploader': 'U', 'duration': 600, 'extractor': 'youtube',
+                                 'requested_downloads': [{'filepath': str(file_path)}]}]}
+
+    fake_context = generate_fake_context()
+    x = make_download_client(MockYTDLPTruncated())
+    y = fake_source_dict(fake_context)
+    with patch('discord_downloader.interfaces.download_protocols.edit_audio_file',
+               side_effect=AudioProcessingError('download is truncated')):
+        result = await x.create_source(y, 3)
+    assert not result.status.success
+    assert result.status.error_type == DownloadErrorType.RETRYABLE
 
 
 @pytest.mark.asyncio(loop_scope="session")
