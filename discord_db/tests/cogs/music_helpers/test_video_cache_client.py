@@ -111,6 +111,21 @@ async def test_ready_remove_count_and_size_combined(fake_engine):  #pylint:disab
                         assert flagged == 1
 
 @pytest.mark.asyncio
+async def test_ready_remove_evict_all_flags_every_entry(fake_engine):  #pylint:disable=redefined-outer-name
+    '''evict_all flags every row even when the count and size limits are not exceeded.'''
+    with TemporaryDirectory() as tmp_dir:
+        fake_context = generate_fake_context()
+        x = VideoCacheClient(100, partial(async_mock_session, fake_engine), max_cache_size_bytes=10_000)
+        with fake_media_download(tmp_dir, fake_context=fake_context) as a:
+            with fake_media_download(tmp_dir, fake_context=fake_context) as b:
+                await x.iterate_file(a)
+                await x.iterate_file(b)
+                await x.ready_remove()
+                assert not await x.get_deletable_entries()
+                assert await x.ready_remove(evict_all=True) is True
+                assert len(await x.get_deletable_entries()) == 2
+
+@pytest.mark.asyncio
 async def test_storage_type_mismatch_iterate_updates_path(fake_engine):  #pylint:disable=redefined-outer-name
     '''iterate_file with a different storage_type updates base_path and storage_type in-place.'''
     with TemporaryDirectory() as tmp_dir:

@@ -1,6 +1,9 @@
 '''Tests for the standalone broker CLI entrypoint.'''
+import click
 import pytest
+from click.testing import CliRunner
 
+from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import SeamContractConfig
 
 from discord_gateway.cogs.music import MusicGeneralConfig
@@ -208,3 +211,102 @@ async def test_main_loop_survives_a_catalog_without_close(mocker):
                                video_cache=object())
 
     redis_manager.close.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# --flush-cache
+# ---------------------------------------------------------------------------
+
+FLUSH_SETTINGS = {
+    'general': {'database_http_url': 'http://discord-db:8085'},
+    'music': {'storage': {'bucket_name': 'media-bucket'},
+              'download': {'cache': {'enable_cache_files': True}}},
+}
+
+
+def _patch_flush_collaborators(mocker, *, video_cache, removed=3, counts=(5, 2)):
+    redis_manager = mocker.MagicMock()
+    redis_manager.start = mocker.AsyncMock()
+    redis_manager.close = mocker.AsyncMock()
+    mocker.patch.object(broker_cli, 'RedisManager').from_general_config.return_value = redis_manager
+    mocker.patch.object(broker_cli, 'RedisBrokerRegistry')
+    build = mocker.patch.object(broker_cli, '_build_video_cache', return_value=video_cache)
+    broker = mocker.MagicMock()
+    broker.get_cache_count = mocker.AsyncMock(side_effect=list(counts))
+    broker.evict_cache = mocker.AsyncMock(return_value=removed)
+    broker_cls = mocker.patch.object(broker_cli, 'RedisBroker', return_value=broker)
+    return redis_manager, build, broker, broker_cls
+
+
+@pytest.mark.asyncio
+async def test_flush_cache_entries_evicts_everything_and_closes_clients(mocker):
+    '''--yes evicts with evict_all and closes the db client and Redis afterwards.'''
+    video_cache = mocker.AsyncMock()
+    redis_manager, build, broker, broker_cls = _patch_flush_collaborators(mocker, video_cache=video_cache)
+
+    removed = await broker_cli.flush_cache_entries(FLUSH_SETTINGS, _GeneralConfig(), assume_yes=True)
+
+    assert removed == 3
+    broker.evict_cache.assert_awaited_once_with(evict_all=True)
+    assert build.call_args.args[2] == 'media-bucket'
+    assert broker_cls.call_args.kwargs == {'video_cache': video_cache, 'bucket_name': 'media-bucket'}
+    video_cache.close.assert_awaited_once()
+    redis_manager.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_flush_cache_entries_declined_deletes_nothing(mocker):
+    '''Answering no at the prompt aborts before anything is evicted, and still closes the clients.'''
+    video_cache = mocker.AsyncMock()
+    redis_manager, _, broker, _ = _patch_flush_collaborators(mocker, video_cache=video_cache)
+    mocker.patch.object(broker_cli.click, 'confirm', side_effect=click.Abort())
+
+    with pytest.raises(click.Abort):
+        await broker_cli.flush_cache_entries(FLUSH_SETTINGS, _GeneralConfig(), assume_yes=False)
+
+    broker.evict_cache.assert_not_awaited()
+    video_cache.close.assert_awaited_once()
+    redis_manager.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_flush_cache_entries_requires_cache_enabled(mocker):
+    '''No cache on this pod is an error, not a silent no-op, and Redis is never opened.'''
+    redis_manager, _, _, _ = _patch_flush_collaborators(mocker, video_cache=None)
+
+    with pytest.raises(DiscordBotException):
+        await broker_cli.flush_cache_entries(FLUSH_SETTINGS, _GeneralConfig(), assume_yes=True)
+
+    redis_manager.start.assert_not_awaited()
+
+
+def test_main_flush_cache_flag_flushes_instead_of_serving(mocker, tmp_path):
+    '''--flush-cache --yes runs the flush and never starts the broker.'''
+    config_file = tmp_path / 'discord.cnf'
+    config_file.write_text('general: {}\n')
+    general_config = _GeneralConfig()
+    mocker.patch.object(broker_cli, 'parse_and_validate_config', return_value=(FLUSH_SETTINGS, general_config))
+    flush = mocker.patch.object(broker_cli, 'flush_cache_entries', new=mocker.AsyncMock(return_value=0))
+    run = mocker.patch.object(broker_cli, 'run')
+
+    result = CliRunner().invoke(broker_cli.main, [str(config_file), '--flush-cache', '--yes'])
+
+    assert result.exit_code == 0
+    flush.assert_awaited_once_with(FLUSH_SETTINGS, general_config, assume_yes=True)
+    run.assert_not_called()
+
+
+def test_main_without_flag_still_serves(mocker, tmp_path):
+    '''The container's normal invocation is unchanged: no flag runs the broker.'''
+    config_file = tmp_path / 'discord.cnf'
+    config_file.write_text('general: {}\n')
+    general_config = _GeneralConfig()
+    mocker.patch.object(broker_cli, 'parse_and_validate_config', return_value=(FLUSH_SETTINGS, general_config))
+    flush = mocker.patch.object(broker_cli, 'flush_cache_entries', new=mocker.AsyncMock())
+    run = mocker.patch.object(broker_cli, 'run')
+
+    result = CliRunner().invoke(broker_cli.main, [str(config_file)])
+
+    assert result.exit_code == 0
+    run.assert_called_once_with(FLUSH_SETTINGS, general_config)
+    flush.assert_not_called()
