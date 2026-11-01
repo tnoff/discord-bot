@@ -1,1 +1,0 @@
-- The gateway holds no database client (#1030): the broker ensures a guild's history playlist when `open_guild` is called, so `HttpPlaylistStore`, `DatabaseStores` and `build_http_stores` are gone and `general.database_http_url` is no longer required (an old key left in the config is ignored). `discord_gateway/clients/` is removed. Deploy the broker image first.

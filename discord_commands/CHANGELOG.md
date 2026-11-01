@@ -1,4 +1,10 @@
 # Changelog
+## [0.11.0] - 2026-11-01
+
+### Changed
+
+- `clients/http_playlist_store` moved in from `discord_core` (#1030): the gateway no longer builds it, so the commands pod is the only image that reaches it, with its test.
+
 ## [0.10.1] - 2026-11-01
 
 ### Changed

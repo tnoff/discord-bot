@@ -1,1 +1,0 @@
-- `clients/http_playlist_store` moved to `discord_commands/clients/` (#1030): since the gateway dropped its database client the commands pod is the only image that reaches it. Nothing outside the commands pod imports it, so no pod needs a pin bump; the playlist db routes and the `PlaylistStore` Protocol stay here.

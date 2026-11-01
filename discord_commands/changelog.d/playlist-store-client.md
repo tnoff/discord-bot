@@ -1,1 +1,0 @@
-- `clients/http_playlist_store` moved in from `discord_core` (#1030): the gateway no longer builds it, so the commands pod is the only image that reaches it, with its test.
