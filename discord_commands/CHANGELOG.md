@@ -1,4 +1,10 @@
 # Changelog
+## [0.10.1] - 2026-11-01
+
+### Changed
+
+- Docs only: the pod docstrings, pyproject comments and Dockerfile comments describe the finished split (every command group and the background loops run here) instead of the move in progress (#1030).
+
 ## [0.10.0] - 2026-11-01
 
 ### Changed

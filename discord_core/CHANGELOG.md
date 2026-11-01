@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.19.1] - 2026-11-01
+
+### Changed
+
+- Docs only: `interfaces/player_gateway` says the commands pod implements the protocol over the broker, not that it would (#1030).
+
 ## [3.19.0] - 2026-11-01
 
 ### Changed
