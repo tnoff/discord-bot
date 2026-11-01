@@ -28,8 +28,8 @@ metadata:
   name: discord-gateway
   description: >-
     The gateway pod (formerly discord-bot): the only tier holding the Discord gateway connection (cli/bot.py calls
-    bot.start), and the host of every cog -- music, markov, urban, delete_messages, role,
-    general. The music player lives here because it needs the voice connection. Every Discord
+    bot.start), and the host of every cog -- music, markov, urban, role,
+    general (the delete_messages loop runs in the commands pod). The music player lives here because it needs the voice connection. Every Discord
     API call goes to the dispatcher and every other capability is an HTTP call to the tier
     that holds it, with one exception: the music player reads cached media out of object
     storage directly.

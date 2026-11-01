@@ -58,6 +58,7 @@ def test_run_builds_the_server_on_the_configured_port(run_loop):
     assert len(kwargs['closers']) == 7
     assert kwargs['download_client']._base_url == 'http://downloader:8083'  # pylint: disable=protected-access
     assert isinstance(kwargs['result_loops'], ResultLoops)
+    assert kwargs['dispatch_loops'] == []
 
 
 @pytest.mark.parametrize('tracing,expected', [
@@ -74,6 +75,15 @@ def test_run_forwards_the_status_poller_toggle_to_the_download_client(run_loop, 
     commands_cli.run(settings, general_config())
     _, kwargs = run_loop.call_args.args[0]
     assert kwargs['download_client']._trace_status_poll is expected  # pylint: disable=protected-access
+
+
+def test_run_builds_the_loops_the_config_includes(run_loop):
+    settings = settings_with(markov={'loop_sleep_interval': 5})
+    settings['general'] = {**GENERAL, 'include': {'markov': True}}
+    commands_cli.run(settings, general_config())
+    _, kwargs = run_loop.call_args.args[0]
+    assert [pair.cog_name for pair in kwargs['dispatch_loops']] == ['markov']
+    assert kwargs['dispatch_loops'][0].sleep_interval == 5
 
 
 def test_run_requires_a_dispatcher_url(run_loop):
@@ -200,6 +210,9 @@ async def test_main_loop_serves_until_stopped_then_drains_before_closing_the_exe
     result_loops = MagicMock()
     result_loops.start = MagicMock(side_effect=lambda event: order.append(('loops-start', event is stop_event)))
     result_loops.stop = AsyncMock(side_effect=lambda: order.append('loops-stop'))
+    dispatch_loop = MagicMock()
+    dispatch_loop.start = MagicMock(side_effect=lambda event: order.append(('dispatch-start', event is stop_event)))
+    dispatch_loop.stop = AsyncMock(side_effect=lambda: order.append('dispatch-stop'))
 
     async def close_store():
         order.append('store')
@@ -209,7 +222,7 @@ async def test_main_loop_serves_until_stopped_then_drains_before_closing_the_exe
 
     loop_task = asyncio.create_task(commands_cli.main_loop(
         http_server, executor, teardown, health_server, dispatcher, [close_store, close_playlist], download_client,
-        result_loops))
+        result_loops, [dispatch_loop]))
     await asyncio.sleep(0.01)
     assert not loop_task.done()
     stop_event.set()
@@ -221,6 +234,9 @@ async def test_main_loop_serves_until_stopped_then_drains_before_closing_the_exe
     # dropped while the dispatcher and the other clients close under it.
     assert order.index('download-start') < order.index(('loops-start', True))
     assert order.index('loops-stop') < order.index('drain')
+    # The markov and delete-messages loops come and go with the result loops.
+    assert order.index(('loops-start', True)) < order.index(('dispatch-start', True))
+    assert order.index('loops-stop') < order.index('dispatch-stop') < order.index('drain')
 
 
 @pytest.mark.asyncio

@@ -59,18 +59,18 @@ Configure with:
                                 raises DiscordBotException if missing)
     general.commands_http_url — Commands pod URL; the command stubs forward to it (required —
                                 raises DiscordBotException if missing)
-    general.include           — which optional cogs to load (markov, urban, music,
-                                delete_messages default off; default and
-                                message_dispatcher default on) — see IncludeConfig
+    general.include           — which optional cogs to load (markov, urban, music, role;
+                                default and message_dispatcher default on) — see IncludeConfig.
+                                delete_messages has no cog here: the commands pod runs it
     general.intents           — extra discord.py Intents to enable beyond
                                 Intents.default()
     general.rejectlist_guilds — guild IDs the bot leaves on sight (on_ready)
     general.monitoring        — optional OTLP / health-server config
     music.*                   — Music cog, see docs/music.md
-    markov.*                  — Markov cog, see docs/markov.md
+    markov.*                  — Markov cog (read by the commands pod), see docs/markov.md
     role.*                    — RoleAssignment cog (read by the commands pod), see docs/role.md
     urban.*                   — UrbanDictionary cog, see docs/urban.md
-    delete_messages.*         — DeleteMessages cog, see docs/delete_messages.md
+    delete_messages.*         — read by the commands pod, see docs/delete_messages.md
 ```
 
 ### discord-dispatcher
@@ -187,6 +187,9 @@ Configure with:
     general.database_http_url — discord-db pod URL; the markov and playlist commands read and write
                                 through it (required — raises DiscordBotException if missing)
     markov.server_reject_list — optional guild ids markov refuses to run for
+    general.include           — which optional loops run here (markov, delete_messages), as for the cogs
+    markov.*                  — loop_sleep_interval, message_check_limit, history_retention_days (see docs/markov.md)
+    delete_messages.*         — discord_channels and loop_sleep_interval (see docs/delete_messages.md)
     role.*                    — per-guild role rules for the role commands, see docs/role.md (optional)
     music.playlist.server_playlist_max_size — most items a playlist holds (default 64; merge and save honour it)
     music.general.message_delete_after — seconds before music and playlist replies are removed (default 300)

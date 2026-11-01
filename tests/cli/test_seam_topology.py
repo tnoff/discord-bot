@@ -30,8 +30,7 @@ from tests.cli._seam_topology import (
 # Adding a client to a pod means adding it here in the same commit.
 BUILT_CLIENTS = {
     'discord-gateway': {
-        'HttpBrokerClient', 'HttpCommandsClient', 'HttpDispatchClient', 'HttpGuildAnalyticsStore',
-        'HttpMarkovStore', 'HttpPlaylistStore',
+        'HttpBrokerClient', 'HttpCommandsClient', 'HttpDispatchClient', 'HttpPlaylistStore',
     },
     'discord-broker': {
         'HttpDispatchClient', 'HttpHistoryPlaylistStore', 'HttpPlayAnalyticsStore',

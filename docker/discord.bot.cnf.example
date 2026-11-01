@@ -19,7 +19,6 @@ general:
   include:
     default: true
     markov: true
-    delete_messages: true
     music: true
 music:
   # REQUIRED: the gateway is a client of the broker and has no in-process fallback

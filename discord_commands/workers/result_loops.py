@@ -33,7 +33,7 @@ BROKER_POLL_INTERVAL_SECONDS = 1.0
 SHUTDOWN_GRACE_SECONDS = 5.0
 
 
-class _StopEventBot:
+class StopEventBot:
     '''What ``return_loop_runner`` asks of a bot, for a pod that has none: ready now, closed on stop.'''
 
     def __init__(self, stop_event: Event):
@@ -84,7 +84,7 @@ class ResultLoops:
     def start(self, stop_event: Event) -> None:
         '''Register the loops' health and heartbeat and start them. Needs a running event loop.'''
         self.stop_event = stop_event
-        bot = _StopEventBot(stop_event)
+        bot = StopEventBot(stop_event)
         for name, function, description in (
                 (LOOP_PROCESS_DOWNLOAD_RESULTS, self.process_download_results,
                  'Download result processing loop heartbeat'),

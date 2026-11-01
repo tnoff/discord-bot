@@ -2,7 +2,7 @@
 
 Have bot auto delete messages in a channel after a given amount of days.
 
-There are no corresponding commands used, this will run in the background.
+There are no corresponding commands used, this will run in the background, in the `discord-commands` pod: it needs `general.include.delete_messages` and the `delete_messages` section in that pod's config. History is read and messages deleted through the dispatcher.
 
 
 Make sure to include the bot in the config, and have set the messages intent:

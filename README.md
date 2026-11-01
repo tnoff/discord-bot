@@ -47,17 +47,15 @@ To check the available functions, use `!help` command.
 | Cog | Config key | Example commands | Docs |
 |-----|------------|------------------|------|
 | `General` | (always loaded) | `!hello`, `!roll <dice>`, `!meta` | [docs/general.md](./docs/general.md) |
-| `DeleteMessages` | `delete_messages` | (none — runs in the background) | [docs/delete_messages.md](./docs/delete_messages.md) |
+| delete messages | `delete_messages` | (none — a background loop in the commands pod) | [docs/delete_messages.md](./docs/delete_messages.md) |
 | `Markov` | `markov` | `!markov speak`, `!markov on/off` | [docs/markov.md](./docs/markov.md) |
 | `Music` | `music` | `!play`, `!skip`, `!stop`, `!history`, `!playlist ...` | [docs/music.md](./docs/music.md) |
 | `RoleAssignment` | `role` | `!role add/remove/list/users/available` | [docs/role.md](./docs/role.md) |
 | `UrbanDictionary` | `urban` | `!urban <term>` | [docs/urban.md](./docs/urban.md) |
 
-The gateway only parses commands. `!hello`, `!roll`, `!meta`, `!urban`, the `!markov`
-commands and the store-only `!playlist` commands (create, list, show, delete, rename,
-item-remove, merge) are forwarded to the `discord-commands` pod, which runs them and replies through the
-dispatcher; the rest still run in the gateway while they move across one group at a time (see
-[HA architecture](./docs/architecture.md#the-commands-pod)).
+The gateway only parses commands. Every command is forwarded to the `discord-commands` pod, which runs it
+and replies through the dispatcher (see [HA architecture](./docs/architecture.md#the-commands-pod)). The
+markov and delete-messages background loops run there too.
 
 `CommandErrorHandler` loads unconditionally and has no user-facing commands.
 `MessageDispatcher` is not one of the bot's cogs at all — it is the sole
