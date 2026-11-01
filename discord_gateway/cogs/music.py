@@ -190,14 +190,14 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
     Music related commands
     '''
     def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase,
-                 stores: object = None, redis_manager=None): #pylint:disable=too-many-statements
+                 redis_manager=None): #pylint:disable=too-many-statements
         # Enabled-check BEFORE the config validation in the base class: with music
         # switched off there is no music section to validate, and its absence has to
         # read as "not enabled" rather than as a config error.
         if not settings.get('general', {}).get('include', {}).get('music', False):
             raise CogMissingRequiredArg('Music not enabled')
         try:
-            super().__init__(bot, settings, dispatcher, stores,
+            super().__init__(bot, settings, dispatcher,
                              settings_prefix='music', config_model=MusicConfig,
                              redis_manager=redis_manager)
         except CogMissingRequiredArg as exc:

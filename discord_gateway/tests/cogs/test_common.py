@@ -86,26 +86,6 @@ async def test_await_restore_then_start_waits_then_calls(fake_context):  #pylint
 
 
 # ---------------------------------------------------------------------------
-# stores: the slot db_engine used to occupy
-# ---------------------------------------------------------------------------
-
-def test_stores_bundle_is_stored_and_defaults_to_none(fake_context):  #pylint:disable=redefined-outer-name
-    '''
-    The bundle is held as-is, and absent means None.
-
-    Replaces test_with_db_session_yields_and_closes. That test drove the session
-    factory CogHelper used to own; with MR 4b no cog opens a session at all, and
-    cog_helper.py is gone. What is worth asserting now is the thing that took its
-    place -- the base class carries whatever persistence handle it was given and
-    does not interpret it.
-    '''
-    stores = object()
-    cog = CogHelperBase(fake_context['bot'], {}, fake_context['dispatcher'], stores)
-    assert cog.stores is stores
-    assert CogHelperBase(fake_context['bot'], {}, fake_context['dispatcher']).stores is None
-
-
-# ---------------------------------------------------------------------------
 # register_result_queue
 # ---------------------------------------------------------------------------
 

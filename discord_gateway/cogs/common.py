@@ -58,7 +58,6 @@ class CogHelperBase(Cog):
     commands_client: CommandsClient
 
     def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase,
-                 stores: object = None,
                  settings_prefix: str | None = None,
                  config_model: type[BaseModel] | None = None,
                  redis_manager=None):
@@ -67,9 +66,6 @@ class CogHelperBase(Cog):
         bot                 :   Discord bot object
         settings            :   Common settings config
         dispatcher          :   Dispatch service (MessageDispatcher or HttpDispatchClient)
-        stores              :   Always None now: the gateway holds no database client. Kept so
-                                load_cogs (discord_core) can still call every cog constructor
-                                with the same arguments.
         settings_prefix     :   (Optional) Settings prefix, will load settings if given
         config_model        :   (Optional) Pydantic model to validate config against;
                                 settings_prefix must also be given
@@ -80,7 +76,6 @@ class CogHelperBase(Cog):
 
         self._cog_name = (type(self).__name__).lower()
         self.bot = bot
-        self.stores = stores
         logging_dict = settings.get('general', {}).get('logging', {})
         self.logging_config = LoggingConfig.model_validate(logging_dict) if logging_dict else None
         self.logger = get_logger(self._cog_name, self.logging_config)

@@ -237,10 +237,10 @@ class MyCogConfig(BaseModel):
     loop_sleep_interval: float = 300.0
 
 class MyCog(CogHelperBase):
-    def __init__(self, bot, settings, dispatcher, stores=None):
+    def __init__(self, bot, settings, dispatcher, redis_manager=None):
         if not settings.get('general', {}).get('include', {}).get('my_cog', False):
             raise CogMissingRequiredArg('MyCog not enabled')
-        super().__init__(bot, settings, dispatcher, stores=stores,
+        super().__init__(bot, settings, dispatcher, redis_manager=redis_manager,
                          settings_prefix='my_cog',
                          config_model=MyCogConfig)
         # self.config.loop_sleep_interval now available

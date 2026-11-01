@@ -23,7 +23,7 @@ assumptions about this repo, it's stale; check the current tree instead.
 | Bot (gateway) entry-point — the `discord-gateway` process: gateway connection + cogs, HTTP client of every other pod | `discord_gateway/cli/bot.py` (registered as `discord-gateway`) |
 | Dispatcher entry-point — the `discord-dispatcher` process | `discord_dispatcher/cli/dispatcher.py` (registered as `discord-dispatcher`, a separate package, not a sibling module) |
 | `POSSIBLE_COGS` registry | `discord_gateway/cli/_lib/cog_registry.py` |
-| `CogHelperBase` + dispatch helpers | `discord_gateway/cogs/common.py` (see `DEVELOPMENT.md`'s Cog skeleton / Dispatch helpers sections). There is no separate `CogHelper` class with DB-session helpers — that was retired along with the bot's direct database connection; `CogHelperBase` takes an injected `dispatcher` and an optional remote `stores` bundle, not a `db_engine`. |
+| `CogHelperBase` + dispatch helpers | `discord_gateway/cogs/common.py` (see `DEVELOPMENT.md`'s Cog skeleton / Dispatch helpers sections). There is no separate `CogHelper` class with DB-session helpers — that was retired along with the bot's direct database connection; `CogHelperBase` takes an injected `dispatcher` and holds no database handle at all. |
 | `MessageDispatcher` worker | `discord_dispatcher/workers/message_dispatcher.py` (see `docs/message_dispatcher.md`) — its own package, not a module under the bot's |
 | Dispatch protocols / interfaces | `discord_core/interfaces/dispatch_protocols.py` |
 | Music subsystem (cog + gateway-side helpers) | `discord_gateway/cogs/music.py` + `discord_gateway/cogs/music_helpers/` (see `docs/music/`) — download/search/broker/db-side pieces live in their own pods, see the project layout below |

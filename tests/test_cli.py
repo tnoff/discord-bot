@@ -890,8 +890,8 @@ def test_bot_run_raises_when_dispatch_http_url_missing():
         assert 'dispatch_http_url required' in str(result.exception)
 
 
-def test_bot_run_needs_no_database_url_and_loads_cogs_without_stores(mocker):
-    '''cli/bot.py run() starts without database_http_url, and hands load_cogs no stores.
+def test_bot_run_needs_no_database_url(mocker):
+    '''cli/bot.py run() starts without database_http_url.
 
     The gateway holds no database client: the history playlist is the broker's to create when it
     opens a guild, and every other playlist, markov and analytics call is the commands pod's.
@@ -907,7 +907,7 @@ def test_bot_run_needs_no_database_url_and_loads_cogs_without_stores(mocker):
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         assert result.exception is None
-        assert load_cogs.call_args.args[3] is None
+        load_cogs.assert_called_once()
 
 
 def test_bot_run_raises_when_commands_http_url_missing():

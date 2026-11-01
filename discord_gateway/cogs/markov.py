@@ -17,10 +17,10 @@ class Markov(CogHelperBase):
     messages (docs/markov.md); this cog parses a command and forwards it.
     '''
     def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase,
-                 _stores: object = None, redis_manager=None):
+                 redis_manager=None):
         if not settings.get('general', {}).get('include', {}).get('markov', False):
             raise CogMissingRequiredArg('Markov cog not enabled')
-        super().__init__(bot, settings, dispatcher, None, redis_manager=redis_manager)
+        super().__init__(bot, settings, dispatcher, redis_manager=redis_manager)
         self.commands_client = build_commands_client(settings)
 
     @group(name='markov', invoke_without_command=False)
