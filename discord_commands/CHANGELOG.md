@@ -1,4 +1,10 @@
 # Changelog
+## [0.9.0] - 2026-11-01
+
+### Changed
+
+- The `role` commands run here (#1030): `command_logic/role.py` and `role_gateway.py` moved over from the gateway, with the `role` config models (`types/role_config.py`) and `clients/http_guild_roles_client.py`, the pod's dispatch client now also answering the role commands' `RoleGateway` through the dispatcher's guild-roles fetches. The pod reads the `role` section of the shared config. The dispatcher's `general.intents` needs `members` for `role users`.
+
 ## [0.8.2] - 2026-11-01
 
 ### Changed

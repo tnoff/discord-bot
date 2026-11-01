@@ -1,1 +1,0 @@
-- The `role` commands forward to the commands pod (#1030), so every command group has moved. `RoleAssignment` is a stub: it no longer validates the `role` config, builds a guild gateway, or requires the `members` intent to load. `command_logic/role*.py` and `cogs/role_gateway.py` are gone.
