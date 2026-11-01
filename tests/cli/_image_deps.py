@@ -61,7 +61,7 @@ IMAGE_IMPORTS = {
     # googleapiclient left with the media_search cutover, and the forbidden set derived from
     # VOCABULARY is what stops them coming back through an import chain.
     'discord_gateway.cli.bot': frozenset({
-        'discord', 'boto3', 'dappertable',
+        'discord', 'boto3',
     }),
     # The strictest image. discord is here on its own merits, not by accident:
     # workers/message_dispatcher sends and edits real messages.

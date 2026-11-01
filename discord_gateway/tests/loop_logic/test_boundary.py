@@ -1,5 +1,5 @@
 '''
-command_logic and loop_logic must run without discord.py (#1030). The gateway cogs depend on them, never
+loop_logic must run without discord.py (#1030). The gateway cogs depend on them, never
 the other way round, so a discord import or an import of ``discord_gateway.cogs`` here
 means logic has leaked back into the Discord-facing layer.
 '''
@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from discord_gateway import command_logic, loop_logic
+from discord_gateway import loop_logic
 
-PACKAGE_DIRS = [Path(command_logic.__file__).parent, Path(loop_logic.__file__).parent]
+PACKAGE_DIRS = [Path(loop_logic.__file__).parent]
 FORBIDDEN = ('discord', 'discord_gateway.cogs')
 
 
@@ -30,7 +30,7 @@ def _is_forbidden(module: str) -> bool:
 
 @pytest.mark.parametrize('path', sorted(path for package in PACKAGE_DIRS for path in package.glob('*.py')),
                          ids=lambda p: f'{p.parent.name}/{p.name}')
-def test_command_logic_has_no_discord_imports(path):
+def test_loop_logic_has_no_discord_imports(path):
     offenders = [m for m in _imported_modules(path) if _is_forbidden(m)]
     assert not offenders, f'{path.parent.name}/{path.name} imports {offenders}; it must stay discord-free'
 

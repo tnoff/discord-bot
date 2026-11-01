@@ -8,6 +8,7 @@ Configure with:
     general.database_http_url — discord-db pod URL; the markov and playlist commands read and write
                                 through it (required — raises DiscordBotException if missing)
     markov.server_reject_list — optional guild ids markov refuses to run for
+    role.*                    — per-guild role rules for the role commands, see docs/role.md (optional)
     music.playlist.server_playlist_max_size — most items a playlist holds (default 64; merge and save honour it)
     music.general.message_delete_after — seconds before music and playlist replies are removed (default 300)
     music.broker_client.url — broker pod URL: the play queue and history, gateway intents (required)
@@ -30,13 +31,13 @@ from discord_core.cli._lib.common import (
 )
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.clients.http_broker_client import HttpBrokerClient
-from discord_core.clients.http_dispatch_client import HttpDispatchClient
 from discord_core.clients.http_guild_analytics_store import HttpGuildAnalyticsStore
 from discord_core.clients.http_markov_store import HttpMarkovStore
 from discord_core.clients.http_playlist_store import HttpPlaylistStore
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig, tracing_config_from_settings
 
+from discord_commands.clients.http_guild_roles_client import HttpGuildRolesClient
 from discord_commands.clients.http_download_client import HttpDownloadClient
 from discord_commands.clients.http_media_search_client import HttpMediaSearchClient
 from discord_commands.clients.http_youtube_music_search_client import HttpYoutubeMusicSearchClient
@@ -45,10 +46,12 @@ from discord_commands.command_logic.broker_player_gateway import BrokerPlayerGat
 from discord_commands.command_logic.music import MusicCommands
 from discord_commands.command_logic.playlist import PlaylistCommands
 from discord_commands.command_logic.reply import dispatcher_reply
+from discord_commands.command_logic.role import RoleCommands
 from discord_commands.handlers import build_handlers
 from discord_commands.loop_logic.music_results import MusicResultsLoop
 from discord_commands.servers.commands_health_server import CommandsHealthServer
 from discord_commands.servers.commands_server import CommandsHttpServer
+from discord_commands.types.role_config import RoleConfig
 from discord_commands.utils.media_enqueuer import MediaEnqueuer, TrackQueuer
 from discord_commands.workers.command_executor import CommandExecutor
 from discord_commands.workers.guild_teardown import GuildTeardown
@@ -65,7 +68,7 @@ def main(config_file):
 
 async def main_loop(http_server: CommandsHttpServer, executor: CommandExecutor, teardown: GuildTeardown,
                     health_server=None,
-                    dispatcher: HttpDispatchClient | None = None,
+                    dispatcher: HttpGuildRolesClient | None = None,
                     closers: list[Callable[[], Awaitable]] | None = None,
                     download_client: HttpDownloadClient | None = None,
                     result_loops: ResultLoops | None = None):
@@ -126,7 +129,7 @@ def run(settings: dict, general_config: GeneralConfig):
     dispatch_http_url = settings.get('general', {}).get('dispatch_http_url')
     if not dispatch_http_url:
         raise DiscordBotException('dispatch_http_url required for the commands pod')
-    dispatcher = HttpDispatchClient(dispatch_http_url, seam_contract=general_config.seam_contract)
+    dispatcher = HttpGuildRolesClient(dispatch_http_url, seam_contract=general_config.seam_contract)
     database_http_url = settings.get('general', {}).get('database_http_url')
     if not database_http_url:
         raise DiscordBotException('database_http_url required for the commands pod')
@@ -169,8 +172,9 @@ def run(settings: dict, general_config: GeneralConfig):
         logger)
     music_commands = MusicCommands(reply, broker_client, analytics_store, player_gateway, logger,
                                    message_delete_after, enqueuer, playlist)
+    role_commands = RoleCommands(reply, dispatcher, RoleConfig.model_validate(settings.get('role', {})).model_dump())
     executor = CommandExecutor(build_handlers(reply, logger, markov_store, markov_reject_list,
-                                              playlist, music_commands))
+                                              playlist, music_commands, role_commands))
     teardown = GuildTeardown(download_client, youtube_music_search_client, broker_client, enqueuer, logger)
     cfg = settings.get('general', {}).get('commands_server', {})
     # bandit B104: '0.0.0.0' default is intentional — the gateway reaches this pod across the docker/k8s network; override via commands_server.host config

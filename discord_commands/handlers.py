@@ -12,7 +12,7 @@ from discord_core.clients.http_markov_store import HttpMarkovStore
 from discord_core.types.command_args import (
     MarkovOnArgs, MarkovSpeakArgs, PlayArgs, PlaylistCreateArgs, PlaylistIndexArgs,
     PlaylistItemAddArgs, PlaylistItemRemoveArgs, PlaylistMergeArgs, PlaylistQueueArgs,
-    PlaylistRenameArgs, PlaylistSaveArgs, QueueIndexArgs, RollArgs, UrbanArgs,
+    PlaylistRenameArgs, PlaylistSaveArgs, QueueIndexArgs, RoleChangeArgs, RoleUsersArgs, RollArgs, UrbanArgs,
 )
 from discord_core.types.command_envelope import CommandEnvelope
 
@@ -21,12 +21,13 @@ from discord_commands.command_logic.markov import MarkovCommands
 from discord_commands.command_logic.music import MusicCommands
 from discord_commands.command_logic.playlist import PlaylistCommands
 from discord_commands.command_logic.reply import Reply
+from discord_commands.command_logic.role import RoleCommands
 from discord_commands.command_logic.urban import UrbanCommands
 from discord_commands.workers.command_executor import Handler
 
 
 def build_handlers(reply: Reply, logger: Logger, markov_store: HttpMarkovStore, markov_reject_list: list[int],
-                   playlist: PlaylistCommands, music: MusicCommands) -> dict[str, Handler]:
+                   playlist: PlaylistCommands, music: MusicCommands, role: RoleCommands) -> dict[str, Handler]:
     '''The handler registry the executor is built with.'''
     general = GeneralCommands(reply)
     urban = UrbanCommands(reply, logger)
@@ -125,6 +126,21 @@ def build_handlers(reply: Reply, logger: Logger, markov_store: HttpMarkovStore, 
     async def playlist_queue(env: CommandEnvelope, args: PlaylistQueueArgs) -> None:
         await music.playlist_queue(env, args.playlist_index, args.args)
 
+    async def role_list(env: CommandEnvelope, _args) -> None:
+        await role.role_list(env)
+
+    async def role_users(env: CommandEnvelope, args: RoleUsersArgs) -> None:
+        await role.role_list_users(env, args.role_input)
+
+    async def role_available(env: CommandEnvelope, _args) -> None:
+        await role.role_managed(env)
+
+    async def role_add(env: CommandEnvelope, args: RoleChangeArgs) -> None:
+        await role.role_add(env, args.inputs)
+
+    async def role_remove(env: CommandEnvelope, args: RoleChangeArgs) -> None:
+        await role.role_remove(env, args.inputs)
+
     return {
         'hello': hello,
         'roll': roll,
@@ -157,4 +173,9 @@ def build_handlers(reply: Reply, logger: Logger, markov_store: HttpMarkovStore, 
         'playlist.save-queue': playlist_save_queue,
         'playlist.save-history': playlist_save_history,
         'playlist.queue': playlist_queue,
+        'role.list': role_list,
+        'role.users': role_users,
+        'role.available': role_available,
+        'role.add': role_add,
+        'role.remove': role_remove,
     }

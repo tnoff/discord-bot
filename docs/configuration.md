@@ -68,7 +68,7 @@ Configure with:
     general.monitoring        — optional OTLP / health-server config
     music.*                   — Music cog, see docs/music.md
     markov.*                  — Markov cog, see docs/markov.md
-    role.*                    — RoleAssignment cog, see docs/role.md
+    role.*                    — RoleAssignment cog (read by the commands pod), see docs/role.md
     urban.*                   — UrbanDictionary cog, see docs/urban.md
     delete_messages.*         — DeleteMessages cog, see docs/delete_messages.md
 ```
@@ -187,6 +187,7 @@ Configure with:
     general.database_http_url — discord-db pod URL; the markov and playlist commands read and write
                                 through it (required — raises DiscordBotException if missing)
     markov.server_reject_list — optional guild ids markov refuses to run for
+    role.*                    — per-guild role rules for the role commands, see docs/role.md (optional)
     music.playlist.server_playlist_max_size — most items a playlist holds (default 64; merge and save honour it)
     music.general.message_delete_after — seconds before music and playlist replies are removed (default 300)
     music.broker_client.url — broker pod URL: the play queue and history, gateway intents (required)
