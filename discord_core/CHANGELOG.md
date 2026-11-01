@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.21.0] - 2026-11-01
+
+### Changed
+
+- `load_cogs` moves out of `cli/_lib/gateway.py` into the gateway, the only image that loads cogs. Removal only, so no pin bump is needed.
+
 ## [3.20.0] - 2026-11-01
 
 ### Changed

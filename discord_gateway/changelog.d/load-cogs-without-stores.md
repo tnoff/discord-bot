@@ -1,1 +1,0 @@
-`load_cogs` now lives in the gateway (`cli/_lib/cog_registry.py`) and the cogs no longer take a `stores` argument: the gateway holds no database client, so the always-`None` slot is gone, along with `CogHelperBase.stores`.
