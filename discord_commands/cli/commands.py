@@ -1,5 +1,5 @@
 '''
-Commands process: HTTP-only, runs the logic behind the gateway's commands (#1030, Phase 2).
+Commands process: HTTP-only, runs the logic behind the gateway's commands (#1030).
 No gateway connection and no Discord token; it replies through the dispatcher pod.
 
 Configure with:

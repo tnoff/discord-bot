@@ -7,7 +7,7 @@ interfaces.database_protocols.MarkovStore that MarkovClient does, so the Markov
 cog -- which annotates against the Protocol -- selects one or the other with a
 constructor change and nothing else.
 
-**Lives in core so the gateway and the commands pod can both build it (#1030, Phase 2).**
+**Lives in the commands pod, the only one that builds it (#1030): the markov loops and commands both run there.**
 
 **Its own module, not beside MarkovClient**, for the reason the video-cache and
 media-search splits already established: the in-process client imports SQLAlchemy

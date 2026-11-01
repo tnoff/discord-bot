@@ -177,9 +177,10 @@ metadata:
   description: >-
     Runs the logic behind the gateway's commands (#1030). No gateway connection and no Discord
     token: the gateway parses a command, forwards it here over HTTP and gets a 202, and this
-    pod runs it, one at a time per guild, replying through the dispatcher. Command groups move
-    here one at a time; a command whose group has not moved still runs in the gateway. The
-    music commands reach the player through the broker, whose gateway intents the gateway
+    pod runs it, one at a time per guild, replying through the dispatcher. Every command group
+    runs here, and so do the music result loops and the markov and delete-messages loops, which
+    need no Discord connection. The role commands read and change roles through the dispatcher.
+    The music commands reach the player through the broker, whose gateway intents the gateway
     carries out, and queue tracks through the search and downloader pods.
   # Deployment label `tier: commands`, Service port 8086
 spec:
