@@ -38,14 +38,14 @@ from discord_core.cli._lib.common import (
     run_loop, setup_observability,
     parse_and_validate_config, require_discord_token,
 )
-from discord_core.cli._lib.gateway import bot_lifecycle, build_bot, load_cogs, register_on_ready
+from discord_core.cli._lib.gateway import bot_lifecycle, build_bot, register_on_ready
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig
 
 from discord_core.clients.http_dispatch_client import HttpDispatchClient
 
-from discord_gateway.cli._lib.cog_registry import POSSIBLE_COGS
+from discord_gateway.cli._lib.cog_registry import POSSIBLE_COGS, load_cogs
 from discord_gateway.cli.health import setup_health_server
 from discord_gateway.cogs.error import CommandErrorHandler
 
@@ -120,7 +120,7 @@ def run(settings: dict, general_config: GeneralConfig):
                                          seam_contract=general_config.seam_contract)
     bot = build_bot(general_config)
     cog_list = [CommandErrorHandler(bot, settings, http_dispatcher)]
-    cog_list += load_cogs(bot, POSSIBLE_COGS, settings, None, http_dispatcher)
+    cog_list += load_cogs(bot, POSSIBLE_COGS, settings, http_dispatcher)
 
     register_on_ready(bot, general_config, logger)
     # No client list: the dispatch client and the music cog's

@@ -207,12 +207,8 @@ services:
       <<: *aws-env
       DISCORD_BOT_CMD: discord-gateway
       DISCORD_TOKEN: ${DISCORD_TOKEN}
-      SPOTIFY_CLIENT_ID: ${SPOTIFY_CLIENT_ID}
-      SPOTIFY_CLIENT_SECRET: ${SPOTIFY_CLIENT_SECRET}
-      YOUTUBE_API_KEY: ${YOUTUBE_API_KEY}
     volumes:
       - ../volumes/cnf/discord.bot.cnf:/opt/discord/cnf/discord.cnf:ro
-      - ../volumes/db:/opt/discord/db
       - ../volumes/bot-logs:/var/log/discord
     ports:
       # host 8080 commonly collides; publish the bot health port elsewhere by default.
