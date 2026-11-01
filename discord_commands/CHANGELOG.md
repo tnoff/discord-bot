@@ -1,4 +1,11 @@
 # Changelog
+## [0.10.0] - 2026-11-01
+
+### Changed
+
+- The markov and delete-messages loops run here (#1030), when `general.include.markov` / `delete_messages` turn them on: `loop_logic/markov.py` and `delete_messages.py` moved over from the gateway, with their config models (`types/loop_config.py`) and `workers/dispatch_loops.py`, which asks the dispatcher for channel history and emojis, handles the results, and sends the deletes. The loops' heartbeat and queue-depth series now come from this pod, under the same job names. Deploy the gateway image first: both pods running the markov loop would write the same messages twice.
+- `clients/http_markov_store` and `clients/http_guild_analytics_store` moved in from `discord_core` (the closure guard: only this pod reaches them now), with their tests.
+
 ## [0.9.0] - 2026-11-01
 
 ### Changed

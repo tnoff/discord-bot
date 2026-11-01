@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.18] - 2026-11-01
+
+### Changed
+
+- Docs only: the history-store module docstring no longer says the analytics client lives in `discord_core` (it moved to the commands pod, #1030).
+
 ## [3.5.17] - 2026-11-01
 
 ### Changed
