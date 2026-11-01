@@ -185,17 +185,19 @@ hand-maintained list here):
 - **`discord_search/`** — the `discord-search` pod: media-search + YouTube
   Music search. `clients/media_search_client.py`,
   `workers/youtube_music_search_driver.py`.
-- **`discord_commands/`** — the `discord-commands` pod (#1030 Phase 2): runs
-  the logic behind the gateway's commands. `servers/commands_server.py` serves
+- **`discord_commands/`** — the `discord-commands` pod (#1030): runs
+  the logic behind every command the gateway forwards. `servers/commands_server.py` serves
   `POST /commands/{command}`; `workers/command_executor.py` is the per-guild
-  FIFO with `request_id` dedup; `handlers.py` is the command registry. The
-  logic of a command group moves into `command_logic/` in the same change that
-  makes the gateway stub forward it, one group at a time: so far `hello`,
-  `roll`, `meta`, `urban`, the `markov` commands, the `playlist` commands and all the
-  music commands and the `role` commands (the role config is read here, and roles and
-  members come from the dispatcher through `clients/http_guild_roles_client.py`). `command_logic/broker_player_gateway.py`
-  is the pod's `PlayerGateway`: it reads the player from the broker and asks the
-  gateway to act with gateway intents.
+  FIFO with `request_id` dedup; `handlers.py` is the command registry. `command_logic/` holds the logic
+  of every group (`hello`, `roll`, `meta`, `urban`, `markov`, `playlist`, the music
+  commands and `role`; the role config is read here, and roles and members come from
+  the dispatcher through `clients/http_guild_roles_client.py`).
+  `command_logic/broker_player_gateway.py` is the pod's `PlayerGateway`: it reads the
+  player from the broker and asks the gateway to act with gateway intents.
+  `workers/` also runs the background work that needs no Discord connection: the music
+  result loops (`result_loops.py`), the markov and delete-messages loops
+  (`dispatch_loops.py`, per `general.include`) and the guild teardown
+  (`guild_teardown.py`).
 
 Central `tests/`, `docs/`, `alembic/`, `docker/` sit alongside the eight
 packages at the repo root, shared across all of them.

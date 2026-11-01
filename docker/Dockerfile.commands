@@ -29,8 +29,7 @@ RUN groupadd -g 1000 discord && \
 # discord_commands' own pyproject.toml, not from this checkout.
 COPY discord_commands/pyproject.toml "${APPDIR}/discord_commands/pyproject.toml"
 
-# No git needed: the pod's dependencies have no `git+https` VCS dep yet. The command logic's
-# (dappertable, beautifulsoup4) arrive with the logic and will change this layer then.
+# No git needed: dappertable is a direct archive URL, not a `git+https` VCS dep.
 RUN mkdir -p "${APPDIR}/discord_commands" && \
     : > "${APPDIR}/discord_commands/__init__.py" && \
     echo "0.0.0" > "${APPDIR}/discord_commands/VERSION" && \

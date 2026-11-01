@@ -4,8 +4,8 @@ What the music commands need from the player, as plain data and one Protocol.
 The player (voice client, playback loop, prefetch cache) must share a process with
 discord.py. Command logic must not, so it reaches the player only through
 ``PlayerGateway`` and sees only these dataclasses, never a ``MusicPlayer`` or a discord
-object. The cog implements it in-process today; the commands pod (#1030, Phase 2)
-would put an HTTP client behind the same Protocol.
+object. The commands pod implements it over the broker (``BrokerPlayerGateway``): it reads the player from the
+broker's queue and asks the gateway to act with a gateway intent.
 '''
 from dataclasses import dataclass
 from typing import Protocol
