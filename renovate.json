@@ -11,6 +11,12 @@
       "matchManagers": ["custom.regex"],
       "matchPackageNames": ["tnoff/dappertable"],
       "additionalBranchPrefix": "dev-"
+    },
+    {
+      "description": "The discord-core pin is how a core release reaches the pods, so bumping it must cut a release for each pod. Same reason as dappertable above: the pin is tracked by a custom.regex manager, which the shared python preset leaves without the dev- prefix, so bump-version (gated on renovate/dev-*) would be skipped.",
+      "matchManagers": ["custom.regex"],
+      "matchPackageNames": ["tnoff/discord-bot"],
+      "additionalBranchPrefix": "dev-"
     }
   ],
   "customManagers": [
@@ -22,6 +28,16 @@
         "https://github\\.com/(?<depName>tnoff/dappertable)/archive/refs/tags/(?<currentValue>v[0-9]+\\.[0-9]+\\.[0-9]+)\\.tar\\.gz"
       ],
       "datasourceTemplate": "github-tags"
+    },
+    {
+      "description": "Track the discord-core pin shared by all six pods (pep621 cannot version a plain archive URL). The repo carries one tag series per package (core-v, gateway-v, ...), so extractVersionTemplate keeps only core-v tags. Every pod carries the identical URL, so Renovate raises ONE PR touching all of them, which is what tests/cli/_package_pins.py requires.",
+      "customType": "regex",
+      "fileMatch": ["(^|/)pyproject\\.toml$"],
+      "matchStrings": [
+        "https://github\\.com/(?<depName>tnoff/discord-bot)/archive/refs/tags/core-v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\.tar\\.gz"
+      ],
+      "datasourceTemplate": "github-tags",
+      "extractVersionTemplate": "^core-v(?<version>.+)$"
     }
   ]
 }
