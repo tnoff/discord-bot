@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.15.1] - 2026-11-02
+
+### Changed
+
+- Bumped davey to v0.2.0
+
 ## [3.15.0] - 2026-11-01
 
 ### Changed
