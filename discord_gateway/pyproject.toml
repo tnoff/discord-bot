@@ -32,7 +32,7 @@ dependencies = [
     "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.18.0.tar.gz#subdirectory=discord_core",
     "discord.py==2.7.1",
     "PyNaCl==1.6.2",
-    "davey==0.1.7",
+    "davey==0.2.0",
     "async-timeout==5.0.1",
 ]
 
