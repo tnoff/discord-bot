@@ -74,7 +74,7 @@ jobs:
     name: Scan for secrets
     needs: metadata
     if: needs.metadata.outputs.only != 'true'
-    uses: tnoff/github-workflows/.github/workflows/trufflehog.yml@b7790887a768e86127e2b6a29ed06631c947972f  # trufflehog-v1.0.1
+    uses: tnoff/github-workflows/.github/workflows/trufflehog.yml@717d50d682ec44c1e8a7b73e18f12a90735cc4d8  # trufflehog-v1.0.2
 
   tox:
     name: Tox
