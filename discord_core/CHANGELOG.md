@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.21.1] - 2026-11-02
+
+### Changed
+
+- Bumped opentelemetry-sdk to v1.45.2
+
 ## [3.21.0] - 2026-11-01
 
 ### Changed
