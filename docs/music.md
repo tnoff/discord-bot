@@ -533,6 +533,12 @@ music:
       prefetch_limit: 5  # default: 5; 0 = fully lazy
 ```
 
+#### Object integrity
+
+`upload_file` sends the object's MD5 (`Content-MD5`), so S3 refuses an upload whose bytes do not match, and `get_file` compares the download with the object's ETag. The ETag check only logs a warning, and it is skipped for multipart ETags.
+
+A key can also name its content: `key_with_digest` turns `queue/a.pcm` into `queue/a.sha256-<digest>.pcm`, where the digest is the first 32 hex characters of the file's SHA-256. `upload_file` then refuses a file that does not hash to that digest, and `get_file` raises `ObjectStorageException` rather than write bytes that do not, so a corrupt or truncated object fails the fetch wherever it is read (the gateway's playback and prefetch, the broker's copy into the cache). The digest lives in the key, which is all the broker registry, the cache catalog and the HTTP seam carry, so it needs no field of its own. Keys without a digest are not checked.
+
 ### Additonal Reads
 
 For additonal reading:

@@ -6,7 +6,11 @@ from pathlib import Path
 from botocore.exceptions import ClientError
 import pytest
 
-from discord_core.utils.integrations.s3 import upload_file, get_file, delete_file, ObjectStorageException
+from discord_core.utils.integrations import s3
+from discord_core.utils.integrations.s3 import (
+    upload_file, get_file, delete_file, ObjectStorageException,
+    content_digest, file_digest, key_digest, key_with_digest,
+)
 
 @pytest.fixture
 def mock_s3_client():
@@ -155,3 +159,92 @@ def test_download_file_failure(mock_s3_client, tmp_path): #pylint:disable=redefi
 
     with pytest.raises(ObjectStorageException, match="Error downloading file"):
         get_file("my-bucket", object_name, destination_path)
+
+
+# ---------------------------------------------------------------------------
+# Content digests in object keys
+# ---------------------------------------------------------------------------
+
+def test_key_with_digest_round_trips():
+    """The digest goes before the extension and comes back out of the key."""
+    digest = content_digest(b'audio')
+    key = key_with_digest('queue/youtube.abc.pcm', digest)
+    assert key == f'queue/youtube.abc.sha256-{digest}.pcm'
+    assert key_digest(key) == digest
+    assert len(digest) == 32
+
+
+def test_key_with_digest_without_an_extension():
+    """A key with no extension gets the digest at the end and still reads back."""
+    digest = content_digest(b'audio')
+    key = key_with_digest('queue/noextension', digest)
+    assert key == f'queue/noextension.sha256-{digest}'
+    assert key_digest(key) == digest
+
+
+@pytest.mark.parametrize('key', [
+    'cache/youtube.abc.pcm',
+    'queue/a.sha256-short.pcm',
+    'queue/a.sha256-' + 'g' * 32 + '.pcm',
+    'queue/a.sha256-' + 'a' * 32 + '.pcm.part',
+    'sha256-' + 'a' * 32 + '.pcm',
+])
+def test_key_digest_ignores_keys_without_a_digest(key):
+    """Keys from before digests (and near misses) carry none, so nothing is checked for them."""
+    assert key_digest(key) is None
+
+
+def test_file_digest_matches_content_digest_across_chunks(tmp_path, monkeypatch):
+    """Streaming a file gives the same digest as hashing it whole, including across chunk boundaries."""
+    monkeypatch.setattr(s3, 'DIGEST_CHUNK_BYTES', 4)
+    path = tmp_path / 'audio.pcm'
+    path.write_bytes(b'0123456789abcdef-tail')
+    assert file_digest(path) == content_digest(b'0123456789abcdef-tail')
+
+
+def test_get_file_verifies_the_digest_in_the_key(mock_s3_client, tmp_path): #pylint:disable=redefined-outer-name
+    """Bytes that match the key's digest are written."""
+    data = b'downloaded content'
+    key = key_with_digest('queue/a.pcm', content_digest(data))
+    mock_body = MagicMock()
+    mock_body.read.return_value = data
+    mock_s3_client.get_object.return_value = {'Body': mock_body}
+
+    assert get_file('my-bucket', key, tmp_path / 'out.pcm') is True
+    assert (tmp_path / 'out.pcm').read_bytes() == data
+
+
+def test_get_file_rejects_bytes_that_do_not_match_the_key(mock_s3_client, tmp_path): #pylint:disable=redefined-outer-name
+    """Corrupt or truncated bytes fail the fetch and nothing is written."""
+    key = key_with_digest('queue/a.pcm', content_digest(b'what was uploaded'))
+    mock_body = MagicMock()
+    mock_body.read.return_value = b'what was uploaded, cut sh'
+    mock_s3_client.get_object.return_value = {'Body': mock_body}
+
+    with pytest.raises(ObjectStorageException, match='Checksum mismatch'):
+        get_file('my-bucket', key, tmp_path / 'out.pcm')
+    assert not (tmp_path / 'out.pcm').exists()
+
+
+def test_get_file_does_not_check_a_key_without_a_digest(mock_s3_client, tmp_path): #pylint:disable=redefined-outer-name
+    """An old key is fetched as before, whatever its bytes."""
+    mock_body = MagicMock()
+    mock_body.read.return_value = b'anything'
+    mock_s3_client.get_object.return_value = {'Body': mock_body}
+
+    assert get_file('my-bucket', 'cache/old.pcm', tmp_path / 'out.pcm') is True
+
+
+def test_upload_file_checks_the_file_against_the_digest_in_its_key(mock_s3_client, tmp_path): #pylint:disable=redefined-outer-name
+    """A file that matches the key's digest is uploaded; one that changed since it was hashed is refused."""
+    file_path = tmp_path / 'a.pcm'
+    file_path.write_bytes(b'audio')
+    good_key = key_with_digest('queue/a.pcm', content_digest(b'audio'))
+    assert upload_file('my-bucket', file_path, good_key) is True
+    mock_s3_client.put_object.assert_called_once()
+
+    mock_s3_client.put_object.reset_mock()
+    file_path.write_bytes(b'audio, then something else')
+    with pytest.raises(ObjectStorageException, match='does not match the digest'):
+        upload_file('my-bucket', file_path, good_key)
+    mock_s3_client.put_object.assert_not_called()
