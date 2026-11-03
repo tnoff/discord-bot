@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.15.3] - 2026-11-03
+
+### Changed
+
+- Fixed no audio since davey 0.2.0: discord.py 2.7.1 does not prepare or execute DAVE transitions the way davey 0.2 needs, so the voice session never got a key. `utils/dave_compat.py` bridges it (prepares the transition after a commit or welcome, executes it on opcode 22, and drops a frame instead of sending it in the clear while there is no key). It does nothing on davey 0.1 or on a discord.py that already supports 0.2, and can be deleted once a discord.py release does (Rapptz/discord.py#10548).
+
 ## [3.15.2] - 2026-11-03
 
 ### Changed
