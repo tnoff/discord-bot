@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.1.14] - 2026-11-03
+
+### Changed
+
+- Bumped the discord_core pin to core-v3.22.0, which lets an object key carry a content digest that `get_file` and `upload_file` verify.
+
 ## [3.1.13] - 2026-11-03
 
 ### Changed
