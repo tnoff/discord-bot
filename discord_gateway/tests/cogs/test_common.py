@@ -74,7 +74,7 @@ async def test_gate_tasks_with_backup_cog_creates_init_task(fake_context, mocker
 async def test_await_restore_then_start_waits_then_calls(fake_context):  #pylint:disable=redefined-outer-name
     '''_await_restore_then_start waits for tables then calls start_tasks_fn'''
     cog = CogHelperBase(fake_context['bot'], {}, fake_context['dispatcher'])
-    cog.REQUIRED_TABLES = ['fake_table']  #pylint:disable=attribute-defined-outside-init
+    cog.REQUIRED_TABLES = ['fake_table']
     backup_cog = MagicMock()
     backup_cog.wait_for_tables = AsyncMock()
     start_fn = MagicMock()

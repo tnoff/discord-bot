@@ -120,6 +120,6 @@ class CommandExecutor:
                                            links=span_links_from_context(span_context)) as span:
             try:
                 await self.handlers[command](envelope, args)
-            except Exception:  # pylint: disable=broad-exception-caught
+            except Exception:
                 self.logger.exception(f'Command "{command}" failed in guild {envelope.guild_id}')
                 span.set_status(StatusCode.ERROR)

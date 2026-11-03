@@ -21,19 +21,19 @@ from tests.results_pod import ResultsPod, music_settings
 
 class RateLimitedYoutubeMusicClient:
     """Mock YouTube Music client that raises YoutubeMusicRetryException"""
-    def search(self, search_string): #pylint:disable=unused-argument
+    def search(self, search_string):
         raise YoutubeMusicRetryException('429 Exhaust Limit Hit')
 
 
 class FailingYoutubeMusicClient:
     """Mock YouTube Music client that raises a network error"""
-    def search(self, search_string): #pylint:disable=unused-argument
+    def search(self, search_string):
         raise RuntimeError("Network error")
 
 
 class TimeoutYoutubeMusicClient:
     """Mock YouTube Music client that times out"""
-    def search(self, search_string): #pylint:disable=unused-argument
+    def search(self, search_string):
         raise asyncio.TimeoutError("Search timeout")
 
 

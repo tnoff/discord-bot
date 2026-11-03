@@ -76,6 +76,6 @@ async def test_on_sends_whether_the_channel_can_run_markov(fake_context, channel
 async def test_markov_group_no_subcommand(fake_context):  #pylint:disable=redefined-outer-name
     cog = _cog(fake_context)
     fake_context['context'].invoked_subcommand = None
-    await cog.markov(cog, fake_context['context'])  #pylint:disable=too-many-function-args
+    await cog.markov(cog, fake_context['context'])
     assert 'Invalid sub command passed...' in fake_context['context'].messages_sent
     cog.commands_client.forward.assert_not_awaited()

@@ -44,7 +44,7 @@ async def test_urban_stub_forwards(fake_context):  #pylint:disable=redefined-out
     cog = UrbanDictionary(fake_context['bot'], URBAN_CONFIG, fake_context['dispatcher'])
     cog.commands_client = AsyncMock()
     ctx = fake_context['context']
-    await cog.word_lookup(cog, ctx, word='foo bar') #pylint:disable=too-many-function-args
+    await cog.word_lookup(cog, ctx, word='foo bar')
     cog.commands_client.forward.assert_awaited_once()
     assert cog.commands_client.forward.await_args.args[:3] == ('urban', envelope_from_ctx(ctx), {'word': 'foo bar'})
     assert not fake_context['channel'].messages_sent

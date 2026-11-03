@@ -45,6 +45,7 @@ to let that edit land half-done.
 '''
 import argparse
 import sys
+import tomllib
 from pathlib import Path
 
 from tests.cli._roots import CORE_ROOT, SERVICE_ROOTS
@@ -66,7 +67,6 @@ def _pin_prefix() -> str:
     renamed -- the same precision `_package_versions.PACKAGE_ROOTS` borrows
     `_roots.py`'s declarations for instead of a second hand-rolled table.
     '''
-    import tomllib  # pylint: disable=import-outside-toplevel
     candidate = REPO_ROOT / CORE_ROOT / 'pyproject.toml'
     declared = tomllib.loads(candidate.read_text(encoding='utf-8'))
     name = declared.get('project', {}).get('name')
@@ -85,7 +85,6 @@ def declared_core_pin(root: str) -> str | None:
     no installed package and no dependencies, exactly like
     `_package_versions.py` and `_affected_images.py`.
     '''
-    import tomllib  # pylint: disable=import-outside-toplevel
     candidate = REPO_ROOT / root / 'pyproject.toml'
     declared = tomllib.loads(candidate.read_text(encoding='utf-8'))
     deps = declared.get('project', {}).get('dependencies', [])

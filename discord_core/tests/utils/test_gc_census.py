@@ -1,7 +1,7 @@
 """
 Tests for the GC object-census profiler
 """
-# pylint: disable=redefined-outer-name,protected-access
+  # pylint: disable=protected-access
 import time
 from unittest.mock import Mock, patch
 

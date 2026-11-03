@@ -90,7 +90,7 @@ def test_parse_args_rejects_an_unknown_command():
 
 def test_a_request_body_needs_an_envelope_and_a_request_id():
     with pytest.raises(ValidationError):
-        CommandRequestBody(args={})  # pylint: disable=missing-kwoa
+        CommandRequestBody(args={})
     body = CommandRequestBody(envelope=FULL, request_id='r-1')
     assert not body.args and body.span_context is None
 

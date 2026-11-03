@@ -80,7 +80,7 @@ class DispatchLoopPair:
             try:
                 await self.process(result)
                 health.record_success()
-            except Exception:  # pylint: disable=broad-except
+            except Exception:
                 health.record_error()
                 # A single bad result must not kill the consumer: the producer keeps filling the
                 # queue, so a dead consumer leaks memory without limit. Log and take the next.

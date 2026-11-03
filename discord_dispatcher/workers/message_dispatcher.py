@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from enum import IntEnum
 from functools import cached_property, partial
 from typing import Callable, List
@@ -817,7 +818,7 @@ class MessageDispatcher(DispatchClientBase):
                                            links=span_links_from_context(payload.get('span_context'))):
             try:
                 result = await self._dispatch_history_and_collect(payload)
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception as exc:
                 # Intentional broad catch: result must always be written so callers do not hang.
                 self.logger.error('MessageDispatcher :: fetch history failed for channel %s in server %s: %s',
                                   payload['channel_id'], payload['guild_id'], exc, exc_info=True)
@@ -837,7 +838,7 @@ class MessageDispatcher(DispatchClientBase):
                                            links=span_links_from_context(payload.get('span_context'))):
             try:
                 result = await self._dispatch_emojis_and_collect(payload)
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception as exc:
                 # Intentional broad catch: same reasoning as _process_fetch_history.
                 self.logger.error('MessageDispatcher :: fetch emojis failed for server %s: %s',
                                   payload['guild_id'], exc, exc_info=True)
@@ -858,7 +859,7 @@ class MessageDispatcher(DispatchClientBase):
                                            links=span_links_from_context(payload.get('span_context'))):
             try:
                 result = await self._guild_roles.run(kind, params)
-            except Exception as exc:  # pylint: disable=broad-except
+            except Exception as exc:
                 # Intentional broad catch: same reasoning as _process_fetch_history.
                 self.logger.error('MessageDispatcher :: %s failed for server %s: %s',
                                   kind, params['guild_id'], exc, exc_info=True)
@@ -872,7 +873,6 @@ class MessageDispatcher(DispatchClientBase):
 
     async def _dispatch_history_and_collect(self, payload: dict) -> dict:
         '''Execute a channel history fetch and return a JSON-safe result dict.'''
-        from datetime import datetime  # pylint: disable=import-outside-toplevel
         after_dt = datetime.fromisoformat(payload['after']) if payload.get('after') else None
         channel = await self.bot.fetch_channel(int(payload['channel_id']))
         after_obj = after_dt

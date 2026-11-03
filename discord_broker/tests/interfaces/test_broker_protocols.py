@@ -57,49 +57,49 @@ class _StorageBroker(MediaBrokerBase):
             await self._maybe_render_bundle(media_request)
 
     # --- unused registry surface (must exist to instantiate the ABC) -----
-    async def can_evict_base(self, webpage_url):  # pylint: disable=unused-argument
+    async def can_evict_base(self, webpage_url):
         raise NotImplementedError
 
-    async def update_request_status(self, request_uuid, update):  # pylint: disable=unused-argument
+    async def update_request_status(self, request_uuid, update):
         raise NotImplementedError
 
-    async def register_download_result(self, result):  # pylint: disable=unused-argument
+    async def register_download_result(self, result):
         raise NotImplementedError
 
-    async def register_download(self, media_download):  # pylint: disable=unused-argument
+    async def register_download(self, media_download):
         raise NotImplementedError
 
-    async def checkout(self, media_request_uuid, guild_id, guild_path=None):  # pylint: disable=unused-argument
+    async def checkout(self, media_request_uuid, guild_id, guild_path=None):
         raise NotImplementedError
 
-    async def remove(self, media_request_uuid):  # pylint: disable=unused-argument
+    async def remove(self, media_request_uuid):
         raise NotImplementedError
 
-    async def release(self, media_request_uuid):  # pylint: disable=unused-argument
+    async def release(self, media_request_uuid):
         raise NotImplementedError
 
-    async def discard(self, media_request_uuid):  # pylint: disable=unused-argument
+    async def discard(self, media_request_uuid):
         raise NotImplementedError
 
-    async def can_evict_request(self, media_request_uuid):  # pylint: disable=unused-argument
+    async def can_evict_request(self, media_request_uuid):
         raise NotImplementedError
 
-    async def get_entry(self, media_request_uuid):  # pylint: disable=unused-argument
+    async def get_entry(self, media_request_uuid):
         raise NotImplementedError
 
-    async def save_player_session(self, session):  # pylint: disable=unused-argument
+    async def save_player_session(self, session):
         raise NotImplementedError
 
     async def list_player_sessions(self):
         raise NotImplementedError
 
-    async def delete_player_session(self, guild_id):  # pylint: disable=unused-argument
+    async def delete_player_session(self, guild_id):
         raise NotImplementedError
 
     async def get_cache_count(self):
         raise NotImplementedError
 
-    async def get_checked_out_by(self, guild_id):  # pylint: disable=unused-argument
+    async def get_checked_out_by(self, guild_id):
         raise NotImplementedError
 
 

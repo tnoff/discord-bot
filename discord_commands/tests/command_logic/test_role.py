@@ -55,20 +55,20 @@ def messages(sent):
 
 
 @pytest.mark.asyncio
-async def test_role_list_skips_rejected(reply, sent):  #pylint:disable=redefined-outer-name
+async def test_role_list_skips_rejected(reply, sent):
     logic, _ = make_logic(reply, {GUILD: {'rejected_roles_list': [200]}})
     assert await logic.role_list(make_env()) is True
     assert messages(sent) == ['```Role Name\n---------\n@Staff\n@Team 2```']
 
 
 @pytest.mark.asyncio
-async def test_role_list_requires_role(reply):  #pylint:disable=redefined-outer-name
+async def test_role_list_requires_role(reply):
     logic, _ = make_logic(reply, {GUILD: {'required_roles_list': [999]}})
     assert await logic.role_list(make_env()) == 'User "Alice" does not have required roles, skipping'
 
 
 @pytest.mark.asyncio
-async def test_role_list_users(reply, sent):  #pylint:disable=redefined-outer-name
+async def test_role_list_users(reply, sent):
     logic, _ = make_logic(reply)
     assert await logic.role_list_users(make_env(), 'staff') is True
     assert messages(sent) == ['```User Name\n---------\n@Alice\n@Bob```']
@@ -77,7 +77,7 @@ async def test_role_list_users(reply, sent):  #pylint:disable=redefined-outer-na
 
 
 @pytest.mark.asyncio
-async def test_get_role_reads_digits_as_an_id_before_the_name(reply):  #pylint:disable=redefined-outer-name
+async def test_get_role_reads_digits_as_an_id_before_the_name(reply):
     '''A role named "Team 2" is looked up as id 2: kept from before the move.'''
     logic, _ = make_logic(reply)
     assert await logic.get_role(make_env(), 'Team 2') is None
@@ -85,7 +85,7 @@ async def test_get_role_reads_digits_as_an_id_before_the_name(reply):  #pylint:d
 
 
 @pytest.mark.asyncio
-async def test_get_user_or_role_all_users_leaves_no_role(reply):  #pylint:disable=redefined-outer-name
+async def test_get_user_or_role_all_users_leaves_no_role(reply):
     logic, _ = make_logic(reply)
     users, role = await logic.get_user_or_role(make_env(), '<@1> <@2>')
     assert users == [ALICE, BOB]
@@ -93,7 +93,7 @@ async def test_get_user_or_role_all_users_leaves_no_role(reply):  #pylint:disabl
 
 
 @pytest.mark.asyncio
-async def test_role_managed_orders_full_before_self_serve(reply, sent):  #pylint:disable=redefined-outer-name
+async def test_role_managed_orders_full_before_self_serve(reply, sent):
     settings = {GUILD: {100: {'manages_roles': [200]}, 'self_service_role_list': [300]}}
     logic, _ = make_logic(reply, settings)
     assert await logic.role_managed(make_env()) is True
@@ -102,13 +102,13 @@ async def test_role_managed_orders_full_before_self_serve(reply, sent):  #pylint
 
 
 @pytest.mark.asyncio
-async def test_role_managed_none(reply):  #pylint:disable=redefined-outer-name
+async def test_role_managed_none(reply):
     logic, _ = make_logic(reply)
     assert await logic.role_managed(make_env()) == 'No roles found'
 
 
 @pytest.mark.asyncio
-async def test_managed_roles_look_each_role_up_once(reply):  #pylint:disable=redefined-outer-name
+async def test_managed_roles_look_each_role_up_once(reply):
     settings = {GUILD: {100: {'manages_roles': [200]}, 400: {'manages_roles': [200]}}}
     logic, gateway = make_logic(reply, settings)
     calls = []
@@ -124,7 +124,7 @@ async def test_managed_roles_look_each_role_up_once(reply):  #pylint:disable=red
 
 
 @pytest.mark.asyncio
-async def test_role_add_and_remove(reply, sent):  #pylint:disable=redefined-outer-name
+async def test_role_add_and_remove(reply, sent):
     settings = {GUILD: {100: {'manages_roles': [200]}}}
     logic, gateway = make_logic(reply, settings)
     assert await logic.role_add(make_env(), '<@2> <@&200>') is True
@@ -139,7 +139,7 @@ async def test_role_add_and_remove(reply, sent):  #pylint:disable=redefined-oute
 
 
 @pytest.mark.asyncio
-async def test_role_add_requires_the_target_to_hold_a_required_role(reply, sent):  #pylint:disable=redefined-outer-name
+async def test_role_add_requires_the_target_to_hold_a_required_role(reply, sent):
     settings = {GUILD: {'required_roles_list': [100], 100: {'manages_roles': [200]}}}
     outsider = MemberInfo(id=3, display_name='Cy', role_ids=())
     logic, gateway = make_logic(reply, settings, members=(ALICE, outsider))
@@ -149,7 +149,7 @@ async def test_role_add_requires_the_target_to_hold_a_required_role(reply, sent)
 
 
 @pytest.mark.asyncio
-async def test_role_add_override_skips_manage_and_target_checks(reply, sent):  #pylint:disable=redefined-outer-name
+async def test_role_add_override_skips_manage_and_target_checks(reply, sent):
     settings = {GUILD: {'required_roles_list': [100], 'admin_override_role_list': [100]}}
     outsider = MemberInfo(id=3, display_name='Cy', role_ids=())
     logic, gateway = make_logic(reply, settings, members=(ALICE, outsider))
@@ -159,7 +159,7 @@ async def test_role_add_override_skips_manage_and_target_checks(reply, sent):  #
 
 
 @pytest.mark.asyncio
-async def test_role_add_unmanaged_role_refused(reply):  #pylint:disable=redefined-outer-name
+async def test_role_add_unmanaged_role_refused(reply):
     logic, _ = make_logic(reply)
     result = await logic.role_add(make_env(), '<@2> <@&200>')
     assert result == 'Cannot add users to role "Gamer", you do not manage role. Use `!role available` to see a list of roles you manage'
@@ -168,7 +168,7 @@ async def test_role_add_unmanaged_role_refused(reply):  #pylint:disable=redefine
 
 
 @pytest.mark.asyncio
-async def test_role_add_self_service_only_for_yourself(reply, sent):  #pylint:disable=redefined-outer-name
+async def test_role_add_self_service_only_for_yourself(reply, sent):
     settings = {GUILD: {'self_service_role_list': [200]}}
     logic, gateway = make_logic(reply, settings)
     await logic.role_add(make_env(), '<@2> <@&200>')
@@ -179,14 +179,14 @@ async def test_role_add_self_service_only_for_yourself(reply, sent):  #pylint:di
 
 
 @pytest.mark.asyncio
-async def test_role_add_remove_need_users_and_role(reply):  #pylint:disable=redefined-outer-name
+async def test_role_add_remove_need_users_and_role(reply):
     logic, _ = make_logic(reply)
     assert await logic.role_add(make_env(), 'nobody') == 'Unable to find users or role from input'
     assert await logic.role_remove(make_env(), 'nobody') == 'Unable to find users or role from input'
 
 
 @pytest.mark.asyncio
-async def test_role_remove_requires_role(reply):  #pylint:disable=redefined-outer-name
+async def test_role_remove_requires_role(reply):
     logic, _ = make_logic(reply, {GUILD: {'required_roles_list': [999]}})
     assert await logic.role_remove(make_env(), '<@2> <@&200>') == 'User "Alice" does not have required roles, skipping'
     assert await logic.role_managed(make_env()) == 'User "Alice" does not have required roles, skipping'

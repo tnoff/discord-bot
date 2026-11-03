@@ -50,7 +50,7 @@ class MediaDownload():
         '''
         Expose as string
         '''
-        return f'{self.webpage_url}' #pylint:disable=no-member
+        return f'{self.webpage_url}'
 
 def media_download_to_dict(media_download: MediaDownload) -> dict:
     '''

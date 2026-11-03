@@ -263,7 +263,7 @@ class GuildQueueBroker:
         async def ensure() -> None:
             try:
                 await self._ensure_history_playlist(guild_id)
-            except Exception:  # pylint: disable=broad-except
+            except Exception:
                 # The first recorded play creates it anyway; opening the guild must not depend on it.
                 logger.warning('Could not ensure the history playlist for guild %s', guild_id, exc_info=True)
 

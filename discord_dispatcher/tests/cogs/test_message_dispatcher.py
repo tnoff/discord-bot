@@ -141,7 +141,7 @@ async def test_worker_heartbeat_drops_when_workers_stop_progressing():
     await dispatcher.start()
     try:
         health = LOOP_HEALTH.get(LOOP_MESSAGE_DISPATCHER)
-        health._last_success -= health.stale_after_seconds + 1  # pylint: disable=protected-access
+        health._last_success -= health.stale_after_seconds + 1
         assert loop_heartbeat_observations(LOOP_MESSAGE_DISPATCHER)[0].value == 0
     finally:
         await dispatcher.stop()
@@ -196,7 +196,7 @@ async def test_spawn_enqueue_tracks_then_releases_the_task():
 
 
 @pytest.mark.asyncio
-async def test_stop_flushes_accepted_enqueues_into_the_work_queue(fake_context):  # pylint: disable=redefined-outer-name
+async def test_stop_flushes_accepted_enqueues_into_the_work_queue(fake_context):
     '''
     Work accepted by send_message reaches the queue even if stop() lands first.
 
@@ -246,7 +246,7 @@ async def test_stop_warns_when_enqueue_flush_times_out(mocker):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_send_message_enqueues_to_work_queue(fake_context):  # pylint: disable=redefined-outer-name
+async def test_send_message_enqueues_to_work_queue(fake_context):
     '''send_message puts a send: item into the work queue at NORMAL priority.'''
     dispatcher = make_dispatcher()
     channel = fake_context['channel']
@@ -265,7 +265,7 @@ async def test_send_message_enqueues_to_work_queue(fake_context):  # pylint: dis
 
 
 @pytest.mark.asyncio
-async def test_delete_message_enqueues_to_work_queue(fake_context):  # pylint: disable=redefined-outer-name
+async def test_delete_message_enqueues_to_work_queue(fake_context):
     '''delete_message puts a delete: item into the work queue at NORMAL priority.'''
     dispatcher = make_dispatcher()
     channel = fake_context['channel']
@@ -283,7 +283,7 @@ async def test_delete_message_enqueues_to_work_queue(fake_context):  # pylint: d
 
 
 @pytest.mark.asyncio
-async def test_update_mutable_enqueues_unique_high_priority(fake_context):  # pylint: disable=redefined-outer-name
+async def test_update_mutable_enqueues_unique_high_priority(fake_context):
     '''update_mutable puts a mutable: item into the queue at HIGH priority.'''
     dispatcher = make_dispatcher()
     channel = fake_context['channel']
@@ -302,7 +302,7 @@ async def test_update_mutable_enqueues_unique_high_priority(fake_context):  # py
 
 
 @pytest.mark.asyncio
-async def test_update_mutable_dedup_same_key(fake_context):  # pylint: disable=redefined-outer-name
+async def test_update_mutable_dedup_same_key(fake_context):
     '''Rapid-fire update_mutable calls for the same key collapse to one queue entry.'''
     dispatcher = make_dispatcher()
     channel = fake_context['channel']
@@ -319,7 +319,7 @@ async def test_update_mutable_dedup_same_key(fake_context):  # pylint: disable=r
 
 
 @pytest.mark.asyncio
-async def test_update_mutable_empty_content_enqueues_remove(fake_context):  # pylint: disable=redefined-outer-name
+async def test_update_mutable_empty_content_enqueues_remove(fake_context):
     '''update_mutable with empty content enqueues a remove: item instead.'''
     dispatcher = make_dispatcher()
     channel = fake_context['channel']
@@ -336,7 +336,7 @@ async def test_update_mutable_empty_content_enqueues_remove(fake_context):  # py
 
 
 @pytest.mark.asyncio
-async def test_remove_mutable_enqueues_remove_item(fake_context):  # pylint: disable=redefined-outer-name
+async def test_remove_mutable_enqueues_remove_item(fake_context):
     '''remove_mutable enqueues a remove: item at HIGH priority.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
@@ -353,7 +353,7 @@ async def test_remove_mutable_enqueues_remove_item(fake_context):  # pylint: dis
 
 
 @pytest.mark.asyncio
-async def test_update_mutable_channel_enqueues_unique(fake_context):  # pylint: disable=redefined-outer-name
+async def test_update_mutable_channel_enqueues_unique(fake_context):
     '''update_mutable_channel enqueues a unique update_channel: item.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
@@ -374,7 +374,7 @@ async def test_update_mutable_channel_enqueues_unique(fake_context):  # pylint: 
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_priority_ordering_high_before_normal(fake_context):  # pylint: disable=redefined-outer-name
+async def test_priority_ordering_high_before_normal(fake_context):
     '''A HIGH item queued after a NORMAL item still comes out first.'''
     dispatcher = make_dispatcher()
     channel = fake_context['channel']
@@ -398,7 +398,7 @@ async def test_priority_ordering_high_before_normal(fake_context):  # pylint: di
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_fetch_object_returns_result(fake_context):  # pylint: disable=redefined-outer-name
+async def test_fetch_object_returns_result(fake_context):
     '''fetch_object awaits the function and returns its result directly.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
@@ -411,7 +411,7 @@ async def test_fetch_object_returns_result(fake_context):  # pylint: disable=red
 
 
 @pytest.mark.asyncio
-async def test_fetch_object_propagates_exception(fake_context):  # pylint: disable=redefined-outer-name
+async def test_fetch_object_propagates_exception(fake_context):
     '''fetch_object propagates exceptions raised by the function.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
@@ -424,7 +424,7 @@ async def test_fetch_object_propagates_exception(fake_context):  # pylint: disab
 
 
 @pytest.mark.asyncio
-async def test_fetch_object_passes_max_retries(fake_context):  # pylint: disable=redefined-outer-name
+async def test_fetch_object_passes_max_retries(fake_context):
     '''fetch_object accepts and respects max_retries.'''
     dispatcher = make_dispatcher()
     guild_id = fake_context['guild'].id
@@ -441,7 +441,7 @@ async def test_fetch_object_passes_max_retries(fake_context):  # pylint: disable
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_submit_request_send_enqueues(fake_context):  # pylint: disable=redefined-outer-name
+async def test_submit_request_send_enqueues(fake_context):
     '''submit_request(SendRequest) enqueues a send: item.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -459,7 +459,7 @@ async def test_submit_request_send_enqueues(fake_context):  # pylint: disable=re
 
 
 @pytest.mark.asyncio
-async def test_submit_request_delete_enqueues(fake_context):  # pylint: disable=redefined-outer-name
+async def test_submit_request_delete_enqueues(fake_context):
     '''submit_request(DeleteRequest) enqueues a delete: item.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -478,7 +478,7 @@ async def test_submit_request_delete_enqueues(fake_context):  # pylint: disable=
 
 
 @pytest.mark.asyncio
-async def test_submit_request_history_creates_task(fake_context):  # pylint: disable=redefined-outer-name
+async def test_submit_request_history_creates_task(fake_context):
     '''submit_request(FetchChannelHistoryRequest) starts a background task.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -498,7 +498,7 @@ async def test_submit_request_history_creates_task(fake_context):  # pylint: dis
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_send_message_executes_via_worker(fake_context):  # pylint: disable=redefined-outer-name
+async def test_send_message_executes_via_worker(fake_context):
     '''send_message causes the worker to deliver the message to the channel.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -514,7 +514,7 @@ async def test_send_message_executes_via_worker(fake_context):  # pylint: disabl
 
 
 @pytest.mark.asyncio
-async def test_delete_message_executes_via_worker(fake_context):  # pylint: disable=redefined-outer-name
+async def test_delete_message_executes_via_worker(fake_context):
     '''delete_message causes the worker to delete the message from the channel.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -532,7 +532,7 @@ async def test_delete_message_executes_via_worker(fake_context):  # pylint: disa
 
 
 @pytest.mark.asyncio
-async def test_delete_item_not_found_silently_ignored(fake_context):  # pylint: disable=redefined-outer-name
+async def test_delete_item_not_found_silently_ignored(fake_context):
     '''Deleting a message that is already gone (404) does not crash the worker.'''
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -551,7 +551,7 @@ async def test_delete_item_not_found_silently_ignored(fake_context):  # pylint: 
 
 
 @pytest.mark.asyncio
-async def test_update_mutable_dispatches_message(fake_context):  # pylint: disable=redefined-outer-name
+async def test_update_mutable_dispatches_message(fake_context):
     '''update_mutable causes the worker to send a message to the channel.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -568,7 +568,7 @@ async def test_update_mutable_dispatches_message(fake_context):  # pylint: disab
 
 
 @pytest.mark.asyncio
-async def test_long_content_truncated_to_1900(fake_context):  # pylint: disable=redefined-outer-name
+async def test_long_content_truncated_to_1900(fake_context):
     '''Content longer than 2000 chars is truncated to 1900 before send.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -585,7 +585,7 @@ async def test_long_content_truncated_to_1900(fake_context):  # pylint: disable=
 
 
 @pytest.mark.asyncio
-async def test_ephemeral_bundle_removed_after_dispatch(fake_context):  # pylint: disable=redefined-outer-name
+async def test_ephemeral_bundle_removed_after_dispatch(fake_context):
     '''A bundle with delete_after is removed from the bundle_store after processing.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -603,7 +603,7 @@ async def test_ephemeral_bundle_removed_after_dispatch(fake_context):  # pylint:
 
 
 @pytest.mark.asyncio
-async def test_remove_mutable_deletes_tracked_messages(fake_context):  # pylint: disable=redefined-outer-name
+async def test_remove_mutable_deletes_tracked_messages(fake_context):
     '''remove_mutable schedules deletion of all messages the bundle has sent.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -623,7 +623,7 @@ async def test_remove_mutable_deletes_tracked_messages(fake_context):  # pylint:
 
 
 @pytest.mark.asyncio
-async def test_process_mutable_sticky_check_edits_in_place(fake_context):  # pylint: disable=redefined-outer-name
+async def test_process_mutable_sticky_check_edits_in_place(fake_context):
     '''Second dispatch on a sticky bundle edits in place rather than re-sending.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -644,7 +644,7 @@ async def test_process_mutable_sticky_check_edits_in_place(fake_context):  # pyl
 
 
 @pytest.mark.asyncio
-async def test_process_mutable_migrates_channel_when_payload_has_new_channel_id(fake_context):  # pylint: disable=redefined-outer-name
+async def test_process_mutable_migrates_channel_when_payload_has_new_channel_id(fake_context):
     '''_process_mutable migrates the bundle when payload carries a different channel_id.'''
     channel_a = fake_context['channel']
     channel_b = FakeChannel(guild=channel_a.guild)
@@ -667,7 +667,7 @@ async def test_process_mutable_migrates_channel_when_payload_has_new_channel_id(
 
 
 @pytest.mark.asyncio
-async def test_process_update_channel_no_bundle_returns_early(fake_context):  # pylint: disable=redefined-outer-name
+async def test_process_update_channel_no_bundle_returns_early(fake_context):
     '''_process_update_channel returns early when no bundle exists for the key.'''
     guild_id = fake_context['guild'].id
     channel = fake_context['channel']
@@ -683,7 +683,7 @@ async def test_process_update_channel_no_bundle_returns_early(fake_context):  # 
 
 
 @pytest.mark.asyncio
-async def test_update_mutable_channel_migrates_to_new_channel(fake_context):  # pylint: disable=redefined-outer-name
+async def test_update_mutable_channel_migrates_to_new_channel(fake_context):
     '''update_mutable_channel moves the bundle and sends to the new channel.'''
     channel_a = fake_context['channel']
     channel_b = FakeChannel(guild=channel_a.guild)
@@ -714,7 +714,7 @@ async def test_update_mutable_channel_migrates_to_new_channel(fake_context):  # 
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_update_mutable_saves_bundle_to_store(fake_context):  # pylint: disable=redefined-outer-name
+async def test_update_mutable_saves_bundle_to_store(fake_context):
     '''After drain, the bundle is persisted to bundle_store.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -732,7 +732,7 @@ async def test_update_mutable_saves_bundle_to_store(fake_context):  # pylint: di
 
 
 @pytest.mark.asyncio
-async def test_remove_mutable_deletes_bundle_from_store(fake_context):  # pylint: disable=redefined-outer-name
+async def test_remove_mutable_deletes_bundle_from_store(fake_context):
     '''remove_mutable removes the bundle from the store.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -988,7 +988,7 @@ async def test_process_mutable_loads_existing_bundle():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_submit_request_history_delivers_channel_history_result(fake_context):  # pylint: disable=redefined-outer-name
+async def test_submit_request_history_delivers_channel_history_result(fake_context):
     '''submit_request(FetchChannelHistoryRequest) delivers ChannelHistoryResult to cog queue.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -1012,7 +1012,7 @@ async def test_submit_request_history_delivers_channel_history_result(fake_conte
 
 
 @pytest.mark.asyncio
-async def test_submit_request_history_propagates_exception_as_result(fake_context):  # pylint: disable=redefined-outer-name
+async def test_submit_request_history_propagates_exception_as_result(fake_context):
     '''When the channel fetch fails, a ChannelHistoryResult with error is delivered.'''
     guild_id = fake_context['guild'].id
     dispatcher = make_dispatcher()  # no channels → fetch_channel returns None → AttributeError
@@ -1031,7 +1031,7 @@ async def test_submit_request_history_propagates_exception_as_result(fake_contex
 
 
 @pytest.mark.asyncio
-async def test_submit_request_history_with_after_message_id(fake_context):  # pylint: disable=redefined-outer-name
+async def test_submit_request_history_with_after_message_id(fake_context):
     '''FetchChannelHistoryRequest with after_message_id is handled correctly.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -1054,7 +1054,7 @@ async def test_submit_request_history_with_after_message_id(fake_context):  # py
 
 
 @pytest.mark.asyncio
-async def test_emoji_delivers_guild_emojis_result(fake_context):  # pylint: disable=redefined-outer-name
+async def test_emoji_delivers_guild_emojis_result(fake_context):
     '''submit_request(FetchGuildEmojisRequest) delivers GuildEmojisResult to cog queue.'''
     guild = fake_context['guild']
     guild_id = guild.id
@@ -1080,7 +1080,7 @@ async def test_emoji_delivers_guild_emojis_result(fake_context):  # pylint: disa
 
 
 @pytest.mark.asyncio
-async def test_submit_request_emoji_error_delivers_result(fake_context):  # pylint: disable=redefined-outer-name
+async def test_submit_request_emoji_error_delivers_result(fake_context):
     '''When guild emoji fetch fails, GuildEmojisResult with error is delivered.'''
     guild_id = fake_context['guild'].id
     dispatcher = make_dispatcher()  # no guilds → fetch_guild returns None → AttributeError
@@ -1551,7 +1551,7 @@ async def test_worker_loop_propagates_cancelled_error(mocker):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_remove_then_mutable_on_request_bundle_key_is_dropped(fake_context):  # pylint: disable=redefined-outer-name
+async def test_remove_then_mutable_on_request_bundle_key_is_dropped(fake_context):
     '''After removing a request_bundle- bundle, a trailing mutable is dropped.
 
     Regression for the stranded "Media request queued for download" status
@@ -1583,7 +1583,7 @@ async def test_remove_then_mutable_on_request_bundle_key_is_dropped(fake_context
 
 
 @pytest.mark.asyncio
-async def test_remove_tombstones_even_when_store_empty(fake_context):  # pylint: disable=redefined-outer-name
+async def test_remove_tombstones_even_when_store_empty(fake_context):
     '''_remove_mutable sets the tombstone even when it finds nothing in the store.
 
     The orphan case is remove-finds-nothing (the create had not persisted yet)
@@ -1607,7 +1607,7 @@ async def test_remove_tombstones_even_when_store_empty(fake_context):  # pylint:
 
 
 @pytest.mark.asyncio
-async def test_tombstone_does_not_apply_to_play_order_key(fake_context):  # pylint: disable=redefined-outer-name
+async def test_tombstone_does_not_apply_to_play_order_key(fake_context):
     '''play_order- keys are NOT tombstoned: a mutable after a remove still creates/sends.
 
     The now-playing message is legitimately removed (empty-content update_mutable)
@@ -1635,7 +1635,7 @@ async def test_tombstone_does_not_apply_to_play_order_key(fake_context):  # pyli
 
 
 @pytest.mark.asyncio
-async def test_expired_tombstone_no_longer_blocks(fake_context, mocker):  # pylint: disable=redefined-outer-name
+async def test_expired_tombstone_no_longer_blocks(fake_context, mocker):
     '''An expired tombstone no longer blocks a mutable (and is pruned on read).'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -1678,7 +1678,7 @@ async def test_tombstone_prunes_expired_entries_when_over_threshold(mocker):
 
 
 @pytest.mark.asyncio
-async def test_dropping_tombstoned_mutable_logs_info(fake_context, caplog):  # pylint: disable=redefined-outer-name
+async def test_dropping_tombstoned_mutable_logs_info(fake_context, caplog):
     '''Dropping a mutable due to a tombstone logs at INFO (alertable in Loki).'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -1695,7 +1695,7 @@ async def test_dropping_tombstoned_mutable_logs_info(fake_context, caplog):  # p
 
 
 @pytest.mark.asyncio
-async def test_process_mutable_logs_create_vs_update(fake_context, caplog):  # pylint: disable=redefined-outer-name
+async def test_process_mutable_logs_create_vs_update(fake_context, caplog):
     '''_process_mutable logs "creating NEW" then "updating existing" at DEBUG.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -1715,7 +1715,7 @@ async def test_process_mutable_logs_create_vs_update(fake_context, caplog):  # p
 
 
 @pytest.mark.asyncio
-async def test_remove_mutable_logs_outcome(fake_context, caplog):  # pylint: disable=redefined-outer-name
+async def test_remove_mutable_logs_outcome(fake_context, caplog):
     '''_remove_mutable logs found_bundle / had_message_id / deleted / tombstoned at DEBUG.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -1757,7 +1757,7 @@ def make_scheduled_dispatcher(channel, clock=None, schedule=None):
 
 
 @pytest.mark.asyncio
-async def test_send_with_delete_after_is_scheduled_not_handed_to_discord(fake_context, mocker):  # pylint: disable=redefined-outer-name
+async def test_send_with_delete_after_is_scheduled_not_handed_to_discord(fake_context, mocker):
     '''A plain send keeps discord.py out of the delete: no delete_after kwarg, a schedule entry instead.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -1774,7 +1774,7 @@ async def test_send_with_delete_after_is_scheduled_not_handed_to_discord(fake_co
 
 
 @pytest.mark.asyncio
-async def test_send_without_delete_after_schedules_nothing(fake_context):  # pylint: disable=redefined-outer-name
+async def test_send_without_delete_after_schedules_nothing(fake_context):
     '''A send with no delete_after leaves the schedule empty.'''
     channel = fake_context['channel']
     dispatcher, schedule, _clock = make_scheduled_dispatcher(channel)
@@ -1788,7 +1788,7 @@ async def test_send_without_delete_after_schedules_nothing(fake_context):  # pyl
 
 
 @pytest.mark.asyncio
-async def test_send_swallowed_404_schedules_nothing(fake_context):  # pylint: disable=redefined-outer-name
+async def test_send_swallowed_404_schedules_nothing(fake_context):
     '''allow_404 sends that come back False (no message) have nothing to schedule.'''
     channel = fake_context['channel']
     dispatcher, schedule, _clock = make_scheduled_dispatcher(channel)
@@ -1803,7 +1803,7 @@ async def test_send_swallowed_404_schedules_nothing(fake_context):  # pylint: di
 
 
 @pytest.mark.asyncio
-async def test_ephemeral_bundle_messages_are_scheduled(fake_context, mocker):  # pylint: disable=redefined-outer-name
+async def test_ephemeral_bundle_messages_are_scheduled(fake_context, mocker):
     '''A bundle sent with delete_after has every message scheduled, even though the bundle itself is dropped.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -1822,7 +1822,7 @@ async def test_ephemeral_bundle_messages_are_scheduled(fake_context, mocker):  #
 
 
 @pytest.mark.asyncio
-async def test_edit_with_delete_after_is_scheduled_not_handed_to_discord(fake_context):  # pylint: disable=redefined-outer-name
+async def test_edit_with_delete_after_is_scheduled_not_handed_to_discord(fake_context):
     '''The final "Completed" edit of a live bundle schedules the delete instead of passing delete_after.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -1845,7 +1845,7 @@ async def test_edit_with_delete_after_is_scheduled_not_handed_to_discord(fake_co
 
 
 @pytest.mark.asyncio
-async def test_pending_delete_survives_dispatcher_replacement(fake_context):  # pylint: disable=redefined-outer-name
+async def test_pending_delete_survives_dispatcher_replacement(fake_context):
     '''The #1115 scenario: the pod that posted is gone before the due time, another pod still deletes it.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -1869,7 +1869,7 @@ async def test_pending_delete_survives_dispatcher_replacement(fake_context):  # 
 
 
 @pytest.mark.asyncio
-async def test_two_pods_sweeping_delete_a_due_message_once(fake_context):  # pylint: disable=redefined-outer-name
+async def test_two_pods_sweeping_delete_a_due_message_once(fake_context):
     '''Two dispatcher pods sweeping the same due entry perform one delete between them.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -1887,7 +1887,7 @@ async def test_two_pods_sweeping_delete_a_due_message_once(fake_context):  # pyl
 
 
 @pytest.mark.asyncio
-async def test_already_deleted_message_counts_as_success(fake_context):  # pylint: disable=redefined-outer-name
+async def test_already_deleted_message_counts_as_success(fake_context):
     '''A 404 on the scheduled delete completes the entry; it is not retried.'''
     channel = fake_context['channel']
     dispatcher, schedule, clock = make_scheduled_dispatcher(channel)
@@ -1902,7 +1902,7 @@ async def test_already_deleted_message_counts_as_success(fake_context):  # pylin
 
 
 @pytest.mark.asyncio
-async def test_failed_delete_is_retried_after_lease_then_given_up(fake_context, caplog):  # pylint: disable=redefined-outer-name
+async def test_failed_delete_is_retried_after_lease_then_given_up(fake_context, caplog):
     '''A delete that keeps failing (403) is left leased for retry, then dropped and logged at the cap.'''
     channel = fake_context['channel']
     dispatcher, schedule, clock = make_scheduled_dispatcher(channel)
@@ -1924,7 +1924,7 @@ async def test_failed_delete_is_retried_after_lease_then_given_up(fake_context, 
 
 
 @pytest.mark.asyncio
-async def test_server_error_survives_retry_helper_and_stays_scheduled(fake_context, mocker):  # pylint: disable=redefined-outer-name
+async def test_server_error_survives_retry_helper_and_stays_scheduled(fake_context, mocker):
     '''A 5xx that outlasts the retry helper's own retries leaves the entry for the next claim.'''
     channel = fake_context['channel']
     dispatcher, schedule, clock = make_scheduled_dispatcher(channel)
@@ -1940,7 +1940,7 @@ async def test_server_error_survives_retry_helper_and_stays_scheduled(fake_conte
 
 
 @pytest.mark.asyncio
-async def test_entry_claimed_past_the_cap_is_dropped_without_a_delete(fake_context, caplog):  # pylint: disable=redefined-outer-name
+async def test_entry_claimed_past_the_cap_is_dropped_without_a_delete(fake_context, caplog):
     '''Claimers that keep dying mid-delete cannot loop an entry forever.'''
     channel = fake_context['channel']
     dispatcher, schedule, _clock = make_scheduled_dispatcher(channel)
@@ -1957,7 +1957,7 @@ async def test_entry_claimed_past_the_cap_is_dropped_without_a_delete(fake_conte
 
 
 @pytest.mark.asyncio
-async def test_explicit_delete_cancels_the_pending_delete(fake_context):  # pylint: disable=redefined-outer-name
+async def test_explicit_delete_cancels_the_pending_delete(fake_context):
     '''Deleting a message by hand drops its scheduled delete so it is not retried later.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id
@@ -1986,7 +1986,7 @@ async def test_schedule_and_cancel_errors_are_swallowed(mocker):
 
 
 @pytest.mark.asyncio
-async def test_sweeper_loop_runs_deletes_and_stops_with_dispatcher(fake_context, mocker):  # pylint: disable=redefined-outer-name
+async def test_sweeper_loop_runs_deletes_and_stops_with_dispatcher(fake_context, mocker):
     '''start() launches the sweeper, which deletes due messages on its own; stop() ends it.'''
     channel = fake_context['channel']
     message = FakeMessage(channel=channel)
@@ -2026,7 +2026,7 @@ async def test_sweeper_loop_backs_off_and_continues_after_an_error(mocker, caplo
 
 
 @pytest.mark.asyncio
-async def test_delete_after_is_logged_on_enqueue(fake_context, caplog):  # pylint: disable=redefined-outer-name
+async def test_delete_after_is_logged_on_enqueue(fake_context, caplog):
     '''The enqueue debug lines carry delete_after so a missed delete is provable from logs.'''
     channel = fake_context['channel']
     guild_id = fake_context['guild'].id

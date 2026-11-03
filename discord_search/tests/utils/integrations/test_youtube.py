@@ -67,7 +67,7 @@ class MockYoutube():
     def playlistItems(self): #pylint: disable=invalid-name
         return MockYoutubePlaylistItems(with_next_page=self.with_page_token)
 
-    def playlists(self): #pylint: disable=invalid-name
+    def playlists(self):
         return MockYoutubePlaylist()
 
 def google_api_build(_typer, _version, developerKey=None): #pylint:disable=invalid-name,unused-argument

@@ -42,6 +42,7 @@ test — it reads as coverage while checking nothing.
 import json
 import os
 import re
+import tomllib
 
 import pytest
 
@@ -104,7 +105,6 @@ def test_extra_names_are_normalised_and_self_references_resolve():
     ytmusicapi while every hyphen-free group resolved correctly. The suite failed
     at collection, several layers away from the cause.
     '''
-    import tomllib  # pylint: disable=import-outside-toplevel
     pyproject = tomllib.loads((REPO_ROOT / 'pyproject.toml').read_text(encoding='utf-8'))
     extras = pyproject['project']['optional-dependencies']
 

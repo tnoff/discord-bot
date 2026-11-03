@@ -108,7 +108,7 @@ class GatewayIntentsLoop:
                                            attributes=attributes) as span:
             try:
                 ok, error = await self._handle(intent)
-            except Exception:  # pylint: disable=broad-exception-caught
+            except Exception:
                 self.logger.exception(f'Gateway intent {intent.id} ({intent.kind.value}) failed')
                 ok, error = False, INTERNAL_ERROR
                 span.set_status(StatusCode.ERROR)

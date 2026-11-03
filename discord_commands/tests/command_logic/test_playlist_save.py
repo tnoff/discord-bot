@@ -38,7 +38,7 @@ def track(title):
 
 
 @pytest.mark.asyncio
-async def test_save_stops_when_the_playlist_was_not_created(envelope):  #pylint:disable=redefined-outer-name
+async def test_save_stops_when_the_playlist_was_not_created(envelope):
     logic, sent, store = make_logic(created=None)
     await logic.save(envelope, 'mine')
     logic.player_gateway.status.assert_not_called()
@@ -47,7 +47,7 @@ async def test_save_stops_when_the_playlist_was_not_created(envelope):  #pylint:
 
 
 @pytest.mark.asyncio
-async def test_save_without_a_player(envelope):  #pylint:disable=redefined-outer-name
+async def test_save_without_a_player(envelope):
     logic, sent, store = make_logic(player_exists=False, queue=[track('a')])
     await logic.save(envelope, 'mine')
     assert sent == ['No player connected, no queue to save']
@@ -56,7 +56,7 @@ async def test_save_without_a_player(envelope):  #pylint:disable=redefined-outer
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('is_history', [False, True])
-async def test_save_with_nothing_to_save(envelope, is_history):  #pylint:disable=redefined-outer-name
+async def test_save_with_nothing_to_save(envelope, is_history):
     logic, sent, store = make_logic()
     await logic.save(envelope, 'mine', is_history=is_history)
     assert sent == ['There are no videos to add to playlist']
@@ -64,7 +64,7 @@ async def test_save_with_nothing_to_save(envelope, is_history):  #pylint:disable
 
 
 @pytest.mark.asyncio
-async def test_save_queue_reports_each_outcome(envelope):  #pylint:disable=redefined-outer-name
+async def test_save_queue_reports_each_outcome(envelope):
     logic, sent, store = make_logic(
         queue=[track('a'), track('b')],
         outcomes=[outcome(PlaylistItemAddStatus.ADDED, 'a'), outcome(PlaylistItemAddStatus.DUPLICATE, 'b')])
@@ -79,7 +79,7 @@ async def test_save_queue_reports_each_outcome(envelope):  #pylint:disable=redef
 
 
 @pytest.mark.asyncio
-async def test_save_history_reads_the_history(envelope):  #pylint:disable=redefined-outer-name
+async def test_save_history_reads_the_history(envelope):
     logic, sent, store = make_logic(
         history=[{'webpage_url': 'https://x/h', 'title': 'h', 'uploader': 'u'}, {'webpage_url': 'https://x/i'}],
         outcomes=[outcome(PlaylistItemAddStatus.ADDED, 'h'), outcome(PlaylistItemAddStatus.ADDED, None)])
@@ -91,7 +91,7 @@ async def test_save_history_reads_the_history(envelope):  #pylint:disable=redefi
 
 
 @pytest.mark.asyncio
-async def test_save_stops_at_a_full_playlist(envelope):  #pylint:disable=redefined-outer-name
+async def test_save_stops_at_a_full_playlist(envelope):
     logic, sent, _ = make_logic(
         queue=[track('a'), track('b')],
         outcomes=[outcome(PlaylistItemAddStatus.ADDED, 'a'), outcome(PlaylistItemAddStatus.PLAYLIST_FULL, 'b'),

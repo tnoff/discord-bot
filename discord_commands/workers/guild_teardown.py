@@ -76,7 +76,7 @@ class GuildTeardown:
             await self.download_client.block_guild(guild_id)
             await self.search_client.block_guild(guild_id)
             await self._delete_bundles(guild_id, preserved_bundle_uuids)
-        except Exception:  # pylint: disable=broad-exception-caught
+        except Exception:
             self.logger.exception(f'Teardown of guild {guild_id} failed')
 
     async def _clear(self, client: DownloadClient | YoutubeMusicSearchClient, guild_id: int) -> set[str]:
@@ -86,7 +86,7 @@ class GuildTeardown:
         for item in result.dropped:
             try:
                 await self.enqueuer.push_state(item, LifecycleEvent.DISCARDED)
-            except Exception:  # pylint: disable=broad-exception-caught
+            except Exception:
                 # One request the broker no longer knows must not leave the rest undiscarded and
                 # the guild unblocked.
                 self.logger.exception(f'Teardown of guild {guild_id} could not discard request {item.uuid}')

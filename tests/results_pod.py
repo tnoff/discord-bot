@@ -49,7 +49,7 @@ def music_settings(*overrides: dict) -> dict:
     return merged
 
 
-class ResultsPod:  # pylint:disable=too-many-instance-attributes
+class ResultsPod:
     '''A commands pod's result-loop wiring over the in-process broker, download and search doubles.'''
 
     def __init__(self, fake_context, fake_stores, music: dict | None = None, download_worker_cls=None,

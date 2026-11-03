@@ -164,7 +164,7 @@ def fake_media_download(file_dir: Path, media_request: Optional[MediaRequest] = 
 
 
 @pytest_asyncio.fixture(scope="function")
-async def fake_engine(fake_db_dsn) -> AsyncGenerator[AsyncEngine, None]:  #pylint:disable=redefined-outer-name
+async def fake_engine(fake_db_dsn) -> AsyncGenerator[AsyncEngine, None]:
     '''Async SQLite engine with the bot schema, fresh for each test.
 
     Built by `setup_db`, so the engine under test is the one the db pod builds,

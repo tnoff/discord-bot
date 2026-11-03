@@ -17,7 +17,7 @@ async def test_media_download_checkout_copies_to_guild_path():
             await broker.register_download(x)
             guild_path = Path(tmp_dir) / str(fake_context['guild'].id)
             guild_file_path = await broker.stage_checkout(x.media_request.uuid, fake_context['guild'].id, guild_path)
-            assert str(x) == x.webpage_url  # pylint: disable=no-member
+            assert str(x) == x.webpage_url
             assert guild_file_path is not None
             assert str(guild_file_path) != str(original_file_path)
             assert f'/{fake_context["guild"].id}/' in str(guild_file_path)

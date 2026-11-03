@@ -69,7 +69,7 @@ async def test_markov_store_is_satisfiable_without_a_database():
     discord_bot/ would be a second implementation nothing runs, drifting quietly
     from the one that does.
     '''
-    class DictMarkovStore:  #pylint:disable=missing-class-docstring
+    class DictMarkovStore:
         def __init__(self):
             self.channels = {}
             self.relations = []

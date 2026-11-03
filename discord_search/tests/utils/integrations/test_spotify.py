@@ -346,7 +346,7 @@ class MockSpotifyCustomPagination():
     def playlist(self, _playlist_id):
         return {'name': 'Paginated Playlist'}
 
-    def playlist_tracks(self, _playlist_id, limit=None, offset=None): #pylint:disable=unused-argument
+    def playlist_tracks(self, _playlist_id, limit=None, offset=None):
         # Test custom pagination limit
         if offset == 0:
             return {
@@ -364,7 +364,7 @@ class MockSpotifyCustomPagination():
             'artists': [{'name': 'Paginated Artist'}]
         }
 
-    def album_tracks(self, _album_id, limit=None, offset=None): #pylint:disable=unused-argument
+    def album_tracks(self, _album_id, limit=None, offset=None):
         # Test custom pagination limit
         if offset == 0:
             return {
