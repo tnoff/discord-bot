@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.22.0] - 2026-11-03
+
+### Changed
+
+- An object key can now name its content: `key_with_digest` embeds a SHA-256 digest (`queue/a.sha256-<digest>.pcm`), `file_digest` and `content_digest` compute it, and `key_digest` reads it back. `upload_file` refuses a file that does not match the digest in its key, and `get_file` raises `ObjectStorageException` instead of writing bytes that do not match. Keys without a digest, which is every key today, behave as before. Nothing produces digest keys yet: the downloader does so after its core pin moves to this release.
+
 ## [3.21.3] - 2026-11-03
 
 ### Changed
