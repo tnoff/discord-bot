@@ -159,6 +159,11 @@ OTEL_SPAN_PREFIX = 'music.download_client'
 # Plain strings here rather than AttributeNaming members: this pod installs
 # discord_core from its pinned tag, so a new member would need a core release first.
 DOWNLOAD_FORMAT_ATTRIBUTE_PREFIX = 'download.format'
+# Key prefixes of the two object stores (discord-bot#1188). Broker and gateway hold the same two
+# strings: a key under CACHE_KEY_PREFIX is in the cache bucket, anything else in the queue bucket,
+# and the pods cannot import each other, so a change here is a change in all three.
+QUEUE_KEY_PREFIX = 'queue/'
+CACHE_KEY_PREFIX = 'cache/'
 # Idle backoff for the run() consumer loop when no request is pending. Sleeping
 # ONLY on the empty path (not before a successful dequeue) keeps back-to-back
 # downloads at full throughput while cutting idle allocation churn (OOM fix).
@@ -221,6 +226,7 @@ class DownloadWorkerBase(ABC):
         wait_period_minimum: int = 30,
         wait_period_max_variance: int = 10,
         bucket_name: str | None = None,
+        cache_bucket_name: str | None = None,
         normalize_audio: bool = False,
         broker: BrokerClient | None = None,
         max_retries: int = 3,
@@ -241,6 +247,9 @@ class DownloadWorkerBase(ABC):
         bucket_name : S3 bucket to upload to immediately after download;
                       when set the local file is deleted and DownloadResult.file_name
                       holds the S3 object key instead of a local path
+        cache_bucket_name : Set when the queue and cache buckets are split; bucket_name is then
+                      the queue bucket and objects are keyed under queue/. This process never
+                      touches the cache bucket: the broker moves a song there once it has played.
         broker : MediaBroker for lifecycle status updates; optional for backwards compatibility
         max_retries : Maximum download retries before returning RETRY_LIMIT_EXCEEDED
         retry_backoff_seconds_minimum : First retry's hold-off; doubles per attempt.
@@ -311,6 +320,7 @@ class DownloadWorkerBase(ABC):
         self._wait_period_max_variance = wait_period_max_variance
         self._wait_timestamp: float | None = None
         self.bucket_name: str | None = bucket_name
+        self.cache_bucket_name: str | None = cache_bucket_name
         self.normalize_audio: bool = normalize_audio
         self.logger = get_logger('download_client', logging_config)
         self.logging_config = logging_config
@@ -846,7 +856,10 @@ class DownloadWorkerBase(ABC):
             # downloaders run concurrently they could race to upload the same key.
             # If concurrency is ever added, consider a download queue or a
             # check-then-skip pattern (list_objects before uploading).
-            s3_key = f'cache/{file_path.name}'
+            # Split buckets: the song waits in the queue bucket until it has played. Otherwise it is
+            # the cache entry from the start, as before the split.
+            key_prefix = QUEUE_KEY_PREFIX if self.cache_bucket_name else CACHE_KEY_PREFIX
+            s3_key = f'{key_prefix}{file_path.name}'
             upload_file(self.bucket_name, file_path, s3_key)
             file_path.unlink()
             file_path = Path(s3_key)

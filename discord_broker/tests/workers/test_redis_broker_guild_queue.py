@@ -1,7 +1,7 @@
 '''Tests for GuildQueueBroker: the player queue joined to the broker entries behind it.'''
 import logging
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import fakeredis.aioredis
 import pytest
@@ -11,8 +11,9 @@ from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchResult
+from discord_core.utils.integrations.s3 import ObjectStorageException
 
-from discord_broker.interfaces.broker_protocols import Zone
+from discord_broker.interfaces.broker_protocols import Zone, bucket_for_key
 from discord_broker.workers.broker_registry import RedisBrokerRegistry
 from discord_broker.workers.guild_queue import GuildQueueBroker
 from discord_broker.workers.guild_queue_registry import (
@@ -577,3 +578,256 @@ async def test_nothing_is_queued_for_recording_unless_asked():
     await queues.claim_next(GUILD, 'gw-1')
     await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
     assert await queues._queues.history_event_depth() == 0  # pylint: disable=protected-access
+
+
+# ---------------------------------------------------------------------------
+# Split queue and cache buckets (discord-bot#1188)
+# ---------------------------------------------------------------------------
+
+CACHE_BUCKET = 'cache-bucket'
+S3 = 'discord_broker.workers.redis_broker'
+
+
+def _make_split(video_cache=None) -> tuple[RedisBroker, GuildQueueBroker]:
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    manager = RedisManager.from_client(client)
+    broker = RedisBroker(RedisBrokerRegistry(manager), video_cache=video_cache, bucket_name=BUCKET,
+                         cache_bucket_name=CACHE_BUCKET)
+    return broker, GuildQueueBroker(broker, GuildQueueRegistry(manager), retire_download=broker.retire_download)
+
+
+def _catalog() -> MagicMock:
+    video_cache = MagicMock()
+    video_cache.iterate_file = AsyncMock()
+    return video_cache
+
+
+async def _playing(broker: RedisBroker, queues: GuildQueueBroker, title: str, **kwargs) -> str:
+    """Register a download, queue it and claim it, so it is the playing track."""
+    uuid = await _available(broker, title, **kwargs)
+    await queues.enqueue(GUILD, uuid)
+    await queues.claim_next(GUILD, 'gw-1')
+    return uuid
+
+
+@pytest.mark.asyncio
+async def test_split_fresh_download_is_not_cataloged_until_played():
+    """With split buckets a download joins the catalog after it plays; a cache hit still bumps its row."""
+    video_cache = _catalog()
+    broker, _ = _make_split(video_cache)
+    await _available(broker, 'fresh', file_path='queue/fresh.pcm')
+    video_cache.iterate_file.assert_not_awaited()
+
+    await _available(broker, 'hit', file_path='cache/hit.pcm', cache_hit=True)
+    video_cache.iterate_file.assert_awaited_once()
+
+
+def test_bucket_for_key_follows_the_prefix_only_when_split():
+    """A cache/ key is in the cache bucket; everything else, and everything without a split, is in bucket_name."""
+    assert bucket_for_key('queue/a.pcm', BUCKET, CACHE_BUCKET) == BUCKET
+    assert bucket_for_key('cache/a.pcm', BUCKET, CACHE_BUCKET) == CACHE_BUCKET
+    assert bucket_for_key('a.pcm', BUCKET, CACHE_BUCKET) == BUCKET
+    assert bucket_for_key('cache/a.pcm', BUCKET, None) == BUCKET
+
+
+@pytest.mark.asyncio
+async def test_split_claim_names_the_bucket_of_the_key():
+    """The claimed track's checkout points at the bucket its key lives in."""
+    broker, queues = _make_split()
+    await _playing(broker, queues, 'queued', file_path='queue/queued.pcm')
+    playing = (await queues.get_queue(GUILD)).playing
+    assert playing.entry.download.file_path == Path('queue/queued.pcm')
+    cached = await _available(broker, 'cached', file_path='cache/cached.pcm', cache_hit=True)
+    checkout = await broker.checkout(cached, GUILD)
+    assert checkout.bucket_name == CACHE_BUCKET
+    assert checkout.s3_key == 'cache/cached.pcm'
+    assert (await queues.claim_next(GUILD, 'gw-1')) is None  # nothing else queued
+
+
+@pytest.mark.asyncio
+async def test_finish_played_track_is_promoted_to_the_cache_then_deleted_from_the_queue():
+    """A played track is copied into the cache bucket, cataloged under its new key, and removed from the queue bucket."""
+    video_cache = _catalog()
+    broker, queues = _make_split(video_cache)
+    uuid = await _playing(broker, queues, 'song', file_path='queue/song.pcm')
+    calls = []
+
+    def fake_get(bucket, key, path):
+        calls.append(('get', bucket, key))
+        Path(path).write_bytes(b'pcm')
+
+    def fake_upload(bucket, path, key):
+        calls.append(('upload', bucket, key, Path(path).read_bytes()))
+
+    with patch(f'{S3}.get_file', side_effect=fake_get), patch(f'{S3}.upload_file', side_effect=fake_upload), \
+            patch(f'{S3}.delete_file', side_effect=lambda bucket, key: calls.append(('delete', bucket, key))):
+        await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
+        await queues.wait_for_retired()
+
+    assert calls == [('get', BUCKET, 'queue/song.pcm'),
+                     ('upload', CACHE_BUCKET, 'cache/song.pcm', b'pcm'),
+                     ('delete', BUCKET, 'queue/song.pcm')]
+    [(promoted,), _] = video_cache.iterate_file.await_args
+    assert promoted.file_path == Path('cache/song.pcm')
+    assert promoted.title == 'song'
+
+
+@pytest.mark.asyncio
+async def test_finish_skipped_track_is_deleted_without_being_cached():
+    """A skipped track never reaches the cache; only its queue object goes."""
+    video_cache = _catalog()
+    broker, queues = _make_split(video_cache)
+    uuid = await _playing(broker, queues, 'song', file_path='queue/song.pcm')
+    await queues.skip(GUILD, uuid)
+
+    with patch(f'{S3}.get_file') as get_file, patch(f'{S3}.upload_file') as upload_file, \
+            patch(f'{S3}.delete_file') as delete_file:
+        await queues.finish(GUILD, uuid, skipped=True, history_cap=5)
+        await queues.wait_for_retired()
+
+    delete_file.assert_called_once_with(BUCKET, 'queue/song.pcm')
+    get_file.assert_not_called()
+    upload_file.assert_not_called()
+    video_cache.iterate_file.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_retire_keeps_a_queue_object_another_entry_still_uses():
+    """The same song queued twice shares one queue key, so the first to finish must not delete it."""
+    video_cache = _catalog()
+    broker, queues = _make_split(video_cache)
+    uuid = await _playing(broker, queues, 'song', file_path='queue/song.pcm')
+    await _available(broker, 'song-again', file_path='queue/song.pcm')
+
+    with patch(f'{S3}.get_file', side_effect=lambda bucket, key, path: Path(path).write_bytes(b'pcm')), \
+            patch(f'{S3}.upload_file'), patch(f'{S3}.delete_file') as delete_file:
+        await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
+        await queues.wait_for_retired()
+
+    delete_file.assert_not_called()
+    video_cache.iterate_file.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_retire_leaves_cache_objects_alone():
+    """A track played from the cache (a hit) has nothing in the queue bucket to promote or delete."""
+    video_cache = _catalog()
+    broker, queues = _make_split(video_cache)
+    uuid = await _playing(broker, queues, 'hit', file_path='cache/hit.pcm', cache_hit=True)
+    video_cache.iterate_file.reset_mock()
+
+    with patch(f'{S3}.get_file') as get_file, patch(f'{S3}.delete_file') as delete_file:
+        await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
+        await queues.wait_for_retired()
+
+    get_file.assert_not_called()
+    delete_file.assert_not_called()
+    video_cache.iterate_file.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_retire_failed_copy_keeps_the_queue_object_and_does_not_raise(caplog):
+    """If the copy fails the object is left for the bucket's expiry rather than lost, and the failure is logged."""
+    video_cache = _catalog()
+    broker, queues = _make_split(video_cache)
+    uuid = await _playing(broker, queues, 'song', file_path='queue/song.pcm')
+
+    with caplog.at_level(logging.WARNING), \
+            patch(f'{S3}.get_file', side_effect=ObjectStorageException('boom')), \
+            patch(f'{S3}.delete_file') as delete_file:
+        await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
+        await queues.wait_for_retired()
+
+    delete_file.assert_not_called()
+    video_cache.iterate_file.assert_not_awaited()
+    assert 'Could not retire queue/song.pcm' in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_retire_failure_in_the_catalog_is_logged_by_the_task(caplog):
+    """A catalog error after the upload surfaces as a warning, not as an unretrieved task exception."""
+    video_cache = _catalog()
+    video_cache.iterate_file = AsyncMock(side_effect=RuntimeError('db down'))
+    broker, queues = _make_split(video_cache)
+    uuid = await _playing(broker, queues, 'song', file_path='queue/song.pcm')
+
+    with caplog.at_level(logging.WARNING), \
+            patch(f'{S3}.get_file', side_effect=lambda bucket, key, path: Path(path).write_bytes(b'pcm')), \
+            patch(f'{S3}.upload_file'), patch(f'{S3}.delete_file'):
+        await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
+        await queues.wait_for_retired()
+
+    assert 'Retiring a queue-bucket object failed' in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_retire_does_nothing_without_split_buckets():
+    """With one bucket the object is the cache entry and is never touched here."""
+    broker, queues = _make()
+    uuid = await _playing(broker, queues, 'song', file_path='queue/song.pcm')
+
+    with patch(f'{S3}.delete_file') as delete_file:
+        await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
+        await queues.wait_for_retired()
+
+    delete_file.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('split,file_path', [(False, 'queue/song.pcm'), (True, None), (True, 'song.pcm')])
+async def test_retire_download_ignores_what_is_not_a_queue_object(split, file_path):
+    """No cache bucket, no file path, or a key outside queue/ (from before the split) is none of retire_download's business."""
+    broker, _ = _make_split(_catalog()) if split else _make()
+    download = _download(_request(), 'song', file_path=file_path)
+
+    with patch(f'{S3}.delete_file') as delete_file, patch(f'{S3}.get_file') as get_file:
+        await broker.retire_download(download, played=True)
+        await broker.retire_download(None, played=True)
+
+    delete_file.assert_not_called()
+    get_file.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_close_and_clear_delete_queue_objects_without_caching():
+    """Tracks dropped before they play (cleared or the guild closed) lose their queue object and are not cached."""
+    video_cache = _catalog()
+    broker, queues = _make_split(video_cache)
+    await _queued_split(broker, queues, 'one', 'two')
+
+    with patch(f'{S3}.delete_file') as delete_file, patch(f'{S3}.get_file') as get_file:
+        assert await queues.clear(GUILD) == 2
+        await queues.wait_for_retired()
+    assert sorted(call.args for call in delete_file.call_args_list) == [
+        (BUCKET, 'queue/one.pcm'), (BUCKET, 'queue/two.pcm')]
+    get_file.assert_not_called()
+
+    await _queued_split(broker, queues, 'three')
+    with patch(f'{S3}.delete_file') as delete_file:
+        await queues.close(GUILD)
+        await queues.wait_for_retired()
+    delete_file.assert_called_once_with(BUCKET, 'queue/three.pcm')
+    video_cache.iterate_file.assert_not_awaited()
+
+
+async def _queued_split(broker: RedisBroker, queues: GuildQueueBroker, *titles: str) -> list[str]:
+    uuids = []
+    for title in titles:
+        uuid = await _available(broker, title, file_path=f'queue/{title}.pcm')
+        assert await queues.enqueue(GUILD, uuid) == ENQUEUE_OK
+        uuids.append(uuid)
+    return uuids
+
+
+@pytest.mark.asyncio
+async def test_discard_deletes_only_a_queue_object_when_split():
+    """A download that could not be enqueued loses its queue object but never a cached one."""
+    broker, _ = _make_split(_catalog())
+    queued = await _available(broker, 'queued', file_path='queue/queued.pcm')
+    cached = await _available(broker, 'cached', file_path='cache/cached.pcm', cache_hit=True)
+
+    with patch(f'{S3}.delete_file') as delete_file:
+        await broker.discard(queued)
+        await broker.discard(cached)
+
+    delete_file.assert_called_once_with(BUCKET, 'queue/queued.pcm')

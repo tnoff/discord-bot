@@ -539,6 +539,31 @@ music:
 
 A key can also name its content: `key_with_digest` turns `queue/a.pcm` into `queue/a.sha256-<digest>.pcm`, where the digest is the first 32 hex characters of the file's SHA-256. `upload_file` then refuses a file that does not hash to that digest, and `get_file` raises `ObjectStorageException` rather than write bytes that do not, so a corrupt or truncated object fails the fetch wherever it is read (the gateway's playback and prefetch, the broker's copy into the cache). The digest lives in the key, which is all the broker registry, the cache catalog and the HTTP seam carry, so it needs no field of its own. Keys without a digest are not checked.
 
+#### Separate queue and cache buckets
+
+By default one bucket holds both the songs waiting to be played and the cached ones. Set `cache_bucket_name` to split them, so the cache can have its own retention, access policy and cost:
+
+```
+music:
+  storage:                       # broker
+    bucket_name: my-queue-bucket
+    cache_bucket_name: my-cache-bucket
+  download:
+    storage:                     # downloader and gateway
+      bucket_name: my-queue-bucket
+      cache_bucket_name: my-cache-bucket
+```
+
+With the split on, `bucket_name` is the queue bucket and a song is cached only after it has played:
+
+1. The downloader uploads the song to the queue bucket as `queue/<file>`, and the player reads it from there.
+2. When the track plays to the end, the broker copies it to the cache bucket as `cache/<file>`, adds it to the cache catalog, and deletes the queue object. A track that is skipped, cleared, or dropped when the guild closes is only deleted.
+3. A later request for the same song is a cache hit and plays from the cache bucket.
+
+Which bucket an object is in is decided by its key: `cache/` keys are in the cache bucket and anything else in the queue bucket. Objects and catalog rows from before the split are already `cache/` keys, so the old bucket just becomes the cache bucket and nothing is migrated. Give the queue bucket an expiry of a few days as a safety net: anything the broker could not clean up (a crash between steps, a failed copy) is removed, and a failed copy is logged rather than raised.
+
+Set `cache_bucket_name` on the broker, downloader and gateway together, after all three run a version that knows it. The downloader only uses it to pick the `queue/` prefix and never touches the cache bucket. The broker needs read and write access to both buckets, the gateway read access to both, and the downloader write access to the queue bucket.
+
 ### Additonal Reads
 
 For additonal reading:

@@ -71,7 +71,12 @@ class ServerQueuePriorityConfig(BaseModel):
 
 class MusicStorageConfig(BaseModel):
     '''Music storage backend configuration'''
+    # The queue bucket when cache_bucket_name is set (songs waiting to be played), otherwise the one
+    # bucket that holds everything.
     bucket_name: str
+    # Bucket for songs that have played (discord-bot#1188). A queued song's key is read from
+    # bucket_name and a cache/ key from here. Unset means a single bucket.
+    cache_bucket_name: str | None = None
     prefetch_limit: int = Field(default=5, ge=0)
 
 class MusicDownloadConfig(BaseModel):
@@ -838,7 +843,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
                                      self.config.player.queue_max_size, self.config.player.disconnect_timeout,
                                      guild_path, self.broker_client, self.gateway_id,
                                      prefetch_limit=self.config.download.storage.prefetch_limit if self.config.download.storage else 0,
-                                     bucket_name=self.config.download.storage.bucket_name if self.config.download.storage else None)
+                                     bucket_name=self.config.download.storage.bucket_name if self.config.download.storage else None,
+                                     cache_bucket_name=self.config.download.storage.cache_bucket_name if self.config.download.storage else None)
                 await player.start_tasks()
                 self.players[guild_id] = player
             # Check if we should join voice

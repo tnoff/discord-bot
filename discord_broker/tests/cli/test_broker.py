@@ -12,7 +12,7 @@ from discord_broker.clients.http_video_cache_store import HttpVideoCacheStore
 
 
 def _settings(*, dispatch_http_url=None, bucket='media-bucket', music_general=None,
-              database_http_url=None):
+              database_http_url=None, cache_bucket=None):
     '''Build a minimal raw settings dict for run().'''
     general = {}
     if dispatch_http_url is not None:
@@ -20,6 +20,8 @@ def _settings(*, dispatch_http_url=None, bucket='media-bucket', music_general=No
     if database_http_url is not None:
         general['database_http_url'] = database_http_url
     music = {'storage': {'bucket_name': bucket}, 'download': {}}
+    if cache_bucket is not None:
+        music['storage']['cache_bucket_name'] = cache_bucket
     if music_general is not None:
         music['general'] = music_general
     return {
@@ -249,7 +251,8 @@ async def test_flush_cache_entries_evicts_everything_and_closes_clients(mocker):
     assert removed == 3
     broker.evict_cache.assert_awaited_once_with(evict_all=True)
     assert build.call_args.args[2] == 'media-bucket'
-    assert broker_cls.call_args.kwargs == {'video_cache': video_cache, 'bucket_name': 'media-bucket'}
+    assert broker_cls.call_args.kwargs == {'video_cache': video_cache, 'bucket_name': 'media-bucket',
+                                           'cache_bucket_name': None}
     video_cache.close.assert_awaited_once()
     redis_manager.close.assert_awaited_once()
 
@@ -310,3 +313,56 @@ def test_main_without_flag_still_serves(mocker, tmp_path):
     assert result.exit_code == 0
     run.assert_called_once_with(FLUSH_SETTINGS, general_config)
     flush.assert_not_called()
+
+
+def test_run_passes_the_cache_bucket_and_builds_the_catalog_against_it(mocker):
+    """With split buckets the broker gets both names, and the catalog needs the cache bucket to be enabled."""
+    mocks = _patch_collaborators(mocker)
+
+    broker_cli.run(_settings(cache_bucket='cache-bucket'), _GeneralConfig())
+
+    _, broker_kwargs = mocks['RedisBroker'].call_args
+    assert broker_kwargs['bucket_name'] == 'media-bucket'
+    assert broker_kwargs['cache_bucket_name'] == 'cache-bucket'
+    assert mocks['_build_video_cache'].call_args.args[2] == 'cache-bucket'
+
+
+def test_run_without_a_cache_bucket_keeps_one_bucket(mocker):
+    """No cache_bucket_name: nothing changes, the single bucket is also the cache's."""
+    mocks = _patch_collaborators(mocker)
+
+    broker_cli.run(_settings(), _GeneralConfig())
+
+    _, broker_kwargs = mocks['RedisBroker'].call_args
+    assert broker_kwargs['cache_bucket_name'] is None
+    assert mocks['_build_video_cache'].call_args.args[2] == 'media-bucket'
+
+
+@pytest.mark.asyncio
+async def test_flush_cache_entries_uses_the_cache_bucket_when_split(mocker):
+    """The flush reports and deletes from the cache bucket, never the queue bucket."""
+    settings = {
+        'general': {'database_http_url': 'http://discord-db:8085'},
+        'music': {'storage': {'bucket_name': 'queue-bucket', 'cache_bucket_name': 'cache-bucket'},
+                  'download': {'cache': {'enable_cache_files': True}}},
+    }
+    video_cache = mocker.AsyncMock()
+    _, build, _, broker_cls = _patch_flush_collaborators(mocker, video_cache=video_cache)
+
+    await broker_cli.flush_cache_entries(settings, _GeneralConfig(), assume_yes=True)
+
+    assert build.call_args.args[2] == 'cache-bucket'
+    assert broker_cls.call_args.kwargs == {'video_cache': video_cache, 'bucket_name': 'queue-bucket',
+                                           'cache_bucket_name': 'cache-bucket'}
+
+
+def test_run_wires_retire_download_only_when_split(mocker):
+    """The guild queue is told how to retire a played song only with a cache bucket; otherwise there is nothing to move."""
+    mocks = _patch_collaborators(mocker)
+    guild_queue = mocker.patch.object(broker_cli, 'GuildQueueBroker')
+
+    broker_cli.run(_settings(cache_bucket='cache-bucket'), _GeneralConfig())
+    assert guild_queue.call_args.kwargs['retire_download'] is mocks['RedisBroker'].return_value.retire_download
+
+    broker_cli.run(_settings(), _GeneralConfig())
+    assert guild_queue.call_args.kwargs['retire_download'] is None
