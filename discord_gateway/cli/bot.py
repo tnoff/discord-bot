@@ -48,6 +48,7 @@ from discord_core.clients.http_dispatch_client import HttpDispatchClient
 from discord_gateway.cli._lib.cog_registry import POSSIBLE_COGS, load_cogs
 from discord_gateway.cli.health import setup_health_server
 from discord_gateway.cogs.error import CommandErrorHandler
+from discord_gateway.utils.dave_compat import apply as apply_dave_compat
 
 
 @click.command()
@@ -118,6 +119,7 @@ def run(settings: dict, general_config: GeneralConfig):
 
     http_dispatcher = HttpDispatchClient(dispatch_http_url,
                                          seam_contract=general_config.seam_contract)
+    apply_dave_compat()
     bot = build_bot(general_config)
     cog_list = [CommandErrorHandler(bot, settings, http_dispatcher)]
     cog_list += load_cogs(bot, POSSIBLE_COGS, settings, http_dispatcher)

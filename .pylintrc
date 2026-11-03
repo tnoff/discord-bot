@@ -1,3 +1,7 @@
+[MASTER]
+# davey is a compiled (PyO3) extension, so pylint cannot see its members unless it may load it.
+extension-pkg-allow-list=davey
+
 [MESSAGES CONTROL]
 
 # Enable the message, report, category or checker with the given id(s). You can

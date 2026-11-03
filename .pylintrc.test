@@ -1,5 +1,7 @@
 [MASTER]
 load-plugins=pylint_pydantic
+# davey is a compiled (PyO3) extension, so pylint cannot see its members unless it may load it.
+extension-pkg-allow-list=davey
 
 [MESSAGES CONTROL]
 
