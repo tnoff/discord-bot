@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.22.1] - 2026-11-03
+
+### Changed
+
+- Removed the stale `duplicate-code` pylint suppression on the loop runner and the suppressions pylint reports as useless.
+
 ## [3.22.0] - 2026-11-03
 
 ### Changed
