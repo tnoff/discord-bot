@@ -6,14 +6,14 @@ from discord_commands.command_logic.general import GeneralCommands
 
 
 @pytest.mark.asyncio
-async def test_hello(envelope, reply, sent):  #pylint:disable=redefined-outer-name
+async def test_hello(envelope, reply, sent):
     result = await GeneralCommands(reply).hello(envelope)
     assert result == 'Waddup Tyler'
     assert sent == [(11, 22, 'Waddup Tyler')]
 
 
 @pytest.mark.asyncio
-async def test_roll(mocker, envelope, reply):  #pylint:disable=redefined-outer-name
+async def test_roll(mocker, envelope, reply):
     logic = GeneralCommands(reply)
     mocker.patch('discord_commands.command_logic.general.randint', return_value=3)
     assert await logic.roll(envelope, '5') == 'Tyler rolled a 3'
@@ -22,7 +22,7 @@ async def test_roll(mocker, envelope, reply):  #pylint:disable=redefined-outer-n
 
 
 @pytest.mark.asyncio
-async def test_roll_invalid_input(mocker, envelope, reply):  #pylint:disable=redefined-outer-name
+async def test_roll_invalid_input(mocker, envelope, reply):
     logic = GeneralCommands(reply)
     mocker.patch('discord_commands.command_logic.general.randint', return_value=3)
     assert await logic.roll(envelope, 'foo') == 'Invalid input given "foo"'
@@ -31,7 +31,7 @@ async def test_roll_invalid_input(mocker, envelope, reply):  #pylint:disable=red
 
 
 @pytest.mark.asyncio
-async def test_roll_value_error(mocker, envelope, reply):  #pylint:disable=redefined-outer-name
+async def test_roll_value_error(mocker, envelope, reply):
     '''ValueError branch is reached when match groups cannot be converted to int'''
     mock_matcher = MagicMock()
     mock_matcher.group.side_effect = lambda key: 'abc' if key == 'sides' else None
@@ -41,6 +41,6 @@ async def test_roll_value_error(mocker, envelope, reply):  #pylint:disable=redef
 
 
 @pytest.mark.asyncio
-async def test_meta(envelope, reply):  #pylint:disable=redefined-outer-name
+async def test_meta(envelope, reply):
     result = await GeneralCommands(reply).meta(envelope)
     assert result == '```Server id: 11\nChannel id: 22\nUser id: 33```'

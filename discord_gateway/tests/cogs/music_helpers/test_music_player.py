@@ -2,6 +2,7 @@ import asyncio
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import time
 from unittest.mock import Mock, patch, AsyncMock
 
 import pytest
@@ -381,7 +382,7 @@ def test_voice_channel_active_only_bots(fake_context): #pylint:disable=redefined
 def test_cleanup_source_success(fake_context): #pylint:disable=redefined-outer-name
     """Test cleanup_source cleans up audio source"""
     with with_music_player(fake_context) as player:
-        with fake_media_download(player.file_dir, fake_context=fake_context): #pylint:disable=unused-variable
+        with fake_media_download(player.file_dir, fake_context=fake_context):
             mock_audio_source = Mock()
             mock_audio_source.cleanup = Mock()
 
@@ -393,7 +394,7 @@ def test_cleanup_source_success(fake_context): #pylint:disable=redefined-outer-n
 def test_cleanup_source_handles_value_error(fake_context): #pylint:disable=redefined-outer-name
     """Test cleanup_source handles ValueError when audio source is already cleaned"""
     with with_music_player(fake_context) as player:
-        with fake_media_download(player.file_dir, fake_context=fake_context): #pylint:disable=unused-variable
+        with fake_media_download(player.file_dir, fake_context=fake_context):
             mock_audio_source = Mock()
             mock_audio_source.cleanup = Mock(side_effect=ValueError("File already closed"))
 
@@ -1028,7 +1029,6 @@ async def test_the_heartbeat_does_not_wait_for_staging(fake_context): #pylint:di
 
                 def _slow_get_file(_bucket, _key, dest):
                     # Runs in a worker thread, so a real sleep here does not block the loop
-                    import time  # pylint: disable=import-outside-toplevel
                     time.sleep(0.2)
                     Path(dest).write_bytes(b'audio')
 

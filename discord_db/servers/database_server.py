@@ -252,7 +252,7 @@ class DatabaseHttpServer(AiohttpServerBase):
                                kind=SpanKind.SERVER) as span:
             try:
                 result = await call()
-            except Exception as exc:  # pylint:disable=broad-exception-caught
+            except Exception as exc:
                 # ERROR on the span, unlike media_search's provider errors: this
                 # one is the pod failing, not the pod reporting an answer, and it
                 # belongs on the tier's error-rate panels.

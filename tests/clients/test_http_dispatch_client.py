@@ -8,6 +8,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from discord_core.utils.otel import AttributeNaming
+from discord_core.utils.circuit_breaker import CircuitBreakerOpenError
 
 from discord_core.clients.dispatch_client_base import DispatchRemoteError
 from discord_core.clients.http_dispatch_client import HttpDispatchClient
@@ -352,7 +353,6 @@ async def test_poll_result_sleeps_and_retries_until_result_available(mocker):
 @pytest.mark.asyncio
 async def test_post_when_breaker_open_does_not_raise_and_skips_call(mocker):
     '''_post with breaker OPEN logs + records breaker_open metric but does not propagate.'''
-    from discord_core.utils.circuit_breaker import CircuitBreakerOpenError  # pylint: disable=import-outside-toplevel
     breaker = mocker.patch('discord_core.clients.http_dispatch_client._BREAKER')
     breaker.call = mocker.AsyncMock(side_effect=CircuitBreakerOpenError('open'))
     counter = mocker.patch('discord_core.clients.http_dispatch_client._REQUEST_COUNTER')
@@ -366,7 +366,6 @@ async def test_post_when_breaker_open_does_not_raise_and_skips_call(mocker):
 @pytest.mark.asyncio
 async def test_submit_fetch_when_breaker_open_propagates(mocker):
     '''_submit_fetch propagates CircuitBreakerOpenError so awaitable callers see the failure.'''
-    from discord_core.utils.circuit_breaker import CircuitBreakerOpenError  # pylint: disable=import-outside-toplevel
     breaker = mocker.patch('discord_core.clients.http_dispatch_client._BREAKER')
     breaker.call = mocker.AsyncMock(side_effect=CircuitBreakerOpenError('open'))
     counter = mocker.patch('discord_core.clients.http_dispatch_client._REQUEST_COUNTER')
@@ -424,7 +423,6 @@ async def test_submit_fetch_underlying_failure_records_failure_metric_and_propag
 @pytest.mark.asyncio
 async def test_poll_result_when_breaker_open_propagates(mocker):
     '''_poll_result propagates CircuitBreakerOpenError + records breaker_open metric.'''
-    from discord_core.utils.circuit_breaker import CircuitBreakerOpenError  # pylint: disable=import-outside-toplevel
     breaker = mocker.patch('discord_core.clients.http_dispatch_client._BREAKER')
     breaker.call = mocker.AsyncMock(side_effect=CircuitBreakerOpenError('open'))
     counter = mocker.patch('discord_core.clients.http_dispatch_client._REQUEST_COUNTER')

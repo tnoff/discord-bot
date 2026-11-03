@@ -132,7 +132,7 @@ class TestSeamClientToleratesSkew:
         app.router.add_get('/search-results/next', _boom)
         async with TestClient(TestServer(app)) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
-            with pytest.raises(Exception):  #pylint:disable=broad-exception-caught
+            with pytest.raises(Exception):
                 await hc.next_search_result()
 
 

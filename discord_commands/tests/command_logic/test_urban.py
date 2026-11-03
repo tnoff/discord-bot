@@ -8,7 +8,7 @@ from discord_commands.tests.command_logic.urban_data import HTML_DATA
 
 
 @pytest.fixture
-def logic(reply):  #pylint:disable=redefined-outer-name
+def logic(reply):
     return UrbanCommands(reply, logging.getLogger('test'))
 
 

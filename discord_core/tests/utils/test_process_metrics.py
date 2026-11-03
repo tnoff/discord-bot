@@ -1,7 +1,7 @@
 """
 Tests for process metrics profiler
 """
-# pylint: disable=redefined-outer-name,protected-access
+  # pylint: disable=protected-access
 import time
 from unittest.mock import Mock, patch
 

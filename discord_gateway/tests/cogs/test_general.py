@@ -36,9 +36,9 @@ async def test_general_stubs_forward(fake_context):  #pylint:disable=redefined-o
     cog = General(fake_context['bot'], CONFIG, fake_context['dispatcher'])
     cog.commands_client = AsyncMock()
     ctx = fake_context['context']
-    await cog.hello(cog, ctx) #pylint:disable=too-many-function-args
-    await cog.roll(cog, ctx, input_value='3d6') #pylint:disable=too-many-function-args
-    await cog.meta(cog, ctx) #pylint:disable=too-many-function-args
+    await cog.hello(cog, ctx)
+    await cog.roll(cog, ctx, input_value='3d6')
+    await cog.meta(cog, ctx)
     calls = [(c.args[0], c.args[1], c.args[2]) for c in cog.commands_client.forward.await_args_list]
     envelope = envelope_from_ctx(ctx)
     assert calls == [('hello', envelope, {}), ('roll', envelope, {'input_value': '3d6'}), ('meta', envelope, {})]

@@ -374,7 +374,7 @@ def return_loop_runner(function: Callable, bot: LoopBot, logger: RootLogger, con
              process's liveness probe and get it restarted for a fault it cannot fix.
     '''
     continue_exceptions = continue_exceptions or ()
-    async def loop_runner(): #pylint:disable=duplicate-code
+    async def loop_runner():
         await bot.wait_until_ready()
 
         backoff = _LOOP_ERROR_BACKOFF_SECONDS

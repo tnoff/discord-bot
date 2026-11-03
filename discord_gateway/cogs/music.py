@@ -109,7 +109,7 @@ class MusicDownloadConfig(BaseModel):
     @model_validator(mode='after')
     def validate_cache_requires_storage(self) -> 'MusicDownloadConfig':
         '''Require storage when enable_cache_files is set.'''
-        if self.cache.enable_cache_files and self.storage is None:  #pylint:disable=no-member
+        if self.cache.enable_cache_files and self.storage is None:
             raise ValueError('enable_cache_files requires storage to be configured')
         return self
 
@@ -190,7 +190,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
     Music related commands
     '''
     def __init__(self, bot: Bot, settings: dict, dispatcher: DispatchClientBase,
-                 redis_manager=None): #pylint:disable=too-many-statements
+                 redis_manager=None):
         # Enabled-check BEFORE the config validation in the base class: with music
         # switched off there is no music section to validate, and its absence has to
         # read as "not enabled" rather than as a config error.
@@ -550,7 +550,7 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         for session in sessions:
             try:
                 await self._resume_player_session(session)
-            except Exception as e:  #pylint:disable=broad-except
+            except Exception as e:
                 # One guild's bad session must not stop the others from resuming.
                 self.logger.exception(f'Error resuming player session for guild {session.guild_id}: {e}')
 

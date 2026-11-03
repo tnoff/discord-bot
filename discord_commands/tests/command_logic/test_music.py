@@ -62,12 +62,12 @@ def sent(replies):
 
 
 @pytest.fixture
-def voiced(envelope):  #pylint:disable=redefined-outer-name
+def voiced(envelope):
     return envelope.model_copy(update={'channel_name': 'general', **IN_VOICE})
 
 
 @pytest.mark.asyncio
-async def test_voice_check_not_in_voice(envelope):  #pylint:disable=redefined-outer-name
+async def test_voice_check_not_in_voice(envelope):
     logic, replies = make_logic(FakePlayerGateway())
     assert await logic.check_author_voice_chat(envelope) is None
     assert sent(replies) == [(22, 'Tyler not in voice chat channel. Please join one and try again', 300)]
@@ -91,7 +91,7 @@ async def test_voice_check_passes(voiced):  #pylint:disable=redefined-outer-name
 
 
 @pytest.mark.asyncio
-async def test_player_active_gate(envelope):  #pylint:disable=redefined-outer-name
+async def test_player_active_gate(envelope):
     '''No player answers in the command's channel; a stalled one in the player's own channel'''
     logic, replies = make_logic(FakePlayerGateway(PlayerStatus(exists=False)))
     assert await logic.check_player_active(envelope) is None
@@ -105,7 +105,7 @@ async def test_player_active_gate(envelope):  #pylint:disable=redefined-outer-na
 
 
 @pytest.mark.asyncio
-async def test_player_active_gate_passes(envelope):  #pylint:disable=redefined-outer-name
+async def test_player_active_gate_passes(envelope):
     for status in (PlayerStatus(exists=True, voice_connected=True, is_playing=True, text_channel_id=77),
                    PlayerStatus(exists=True, voice_connected=True, pending_downloads=2, text_channel_id=77)):
         logic, replies = make_logic(FakePlayerGateway(status))
@@ -114,7 +114,7 @@ async def test_player_active_gate_passes(envelope):  #pylint:disable=redefined-o
 
 
 @pytest.mark.asyncio
-async def test_music_stats(envelope):  #pylint:disable=redefined-outer-name
+async def test_music_stats(envelope):
     analytics = AsyncMock()
     analytics.get_analytics.return_value = SimpleNamespace(
         total_duration_seconds=3725, total_plays=9, cached_plays=4, total_duration_days=0,
@@ -142,7 +142,7 @@ async def test_history(voiced):  #pylint:disable=redefined-outer-name
 
 
 @pytest.mark.asyncio
-async def test_history_needs_voice(envelope):  #pylint:disable=redefined-outer-name
+async def test_history_needs_voice(envelope):
     broker = AsyncMock()
     logic, _ = make_logic(FakePlayerGateway(), broker=broker)
     await logic.history(envelope)
@@ -410,7 +410,7 @@ async def test_track_that_moved_since_the_user_looked(verb, voiced):  #pylint:di
 
 
 @pytest.mark.asyncio
-async def test_play_needs_voice(envelope):  #pylint:disable=redefined-outer-name
+async def test_play_needs_voice(envelope):
     enqueuer = AsyncMock()
     logic, replies = make_logic(FakePlayerGateway(), enqueuer=enqueuer)
     await logic.play(envelope, 'song')

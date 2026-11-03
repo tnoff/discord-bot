@@ -9,6 +9,9 @@ import pytest
 from yaml import dump
 
 from discord_core.cli._lib.common import read_config
+from discord_core.utils.common import GeneralConfig
+
+from discord_db.cli._lib.db import managed_db, setup_db
 
 from discord_gateway.cli.bot import main, main_loop
 from discord_dispatcher.cli.dispatcher import main as dispatcher_main
@@ -849,8 +852,6 @@ def test_managed_db_rewrites_the_url_and_disposes_without_a_loop(mocker):
     no loop of its own. close=False is asserted because passing close=True there
     is what logged a traceback per pooled connection on every shutdown.
     '''
-    from discord_db.cli._lib.db import managed_db  # pylint: disable=import-outside-toplevel
-    from discord_core.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
 
     mock_async_engine = AsyncMock()
     mock_async_engine.sync_engine = MagicMock()
@@ -871,8 +872,6 @@ def test_managed_db_rewrites_the_url_and_disposes_without_a_loop(mocker):
 
 def test_setup_db_rejects_unsupported_backends():
     '''Only postgresql and sqlite are supported; everything else raises.'''
-    from discord_db.cli._lib.db import setup_db  # pylint: disable=import-outside-toplevel
-    from discord_core.utils.common import GeneralConfig  # pylint: disable=import-outside-toplevel
     with pytest.raises(ValueError, match='Unsupported database driver'):
         setup_db(GeneralConfig(discord_token='foo', sql_connection_statement='mysql://u:p@h/db'))
     with pytest.raises(ValueError, match='Unsupported database driver'):

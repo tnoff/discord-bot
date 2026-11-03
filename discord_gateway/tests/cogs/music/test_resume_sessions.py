@@ -77,7 +77,7 @@ async def _player_in_voice(cog, fake_context, mocker, voice_channel):  #pylint:d
     return player
 
 
-async def _queue_track(cog, player, media_download):  #pylint:disable=redefined-outer-name
+async def _queue_track(cog, player, media_download):
     '''Put a downloaded track in the guild's queue in the broker, as !play does.'''
     await cog.broker_client.register_download(media_download)
     result = await cog.broker_client.enqueue_track(player.guild.id, str(media_download.media_request.uuid), 10)

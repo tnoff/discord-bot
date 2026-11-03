@@ -14,6 +14,7 @@ import functools
 import json
 import subprocess  # nosec B404 - fixed argv, no shell, test-only import probe
 import sys
+import tomllib
 from pathlib import Path
 
 from tests.cli._roots import (
@@ -158,7 +159,6 @@ def declared_scripts() -> dict:
     Criterion 8 step 5 gave each package its own pyproject.toml with its own
     `[project.scripts]`; there is no longer one file to read this from.
     '''
-    import tomllib  # pylint: disable=import-outside-toplevel
     scripts = {}
     for root in ROOTS:
         candidate = REPO_ROOT / root / 'pyproject.toml'
@@ -171,7 +171,6 @@ def declared_scripts() -> dict:
 
 def declared_dependencies(root: str) -> list:
     '''The `dependencies` list `root`'s own pyproject.toml declares, or [].'''
-    import tomllib  # pylint: disable=import-outside-toplevel
     candidate = REPO_ROOT / root / 'pyproject.toml'
     if not candidate.is_file():
         return []

@@ -62,6 +62,6 @@ async def test_subcommands_forward_to_the_commands_pod(fake_context, method, com
 async def test_role_group_no_subcommand(fake_context):  #pylint:disable=redefined-outer-name
     cog = _cog(fake_context)
     fake_context['context'].invoked_subcommand = None
-    await cog.role(cog, fake_context['context'])  #pylint:disable=too-many-function-args
+    await cog.role(cog, fake_context['context'])
     assert 'Invalid sub command passed...' in fake_context['context'].messages_sent
     cog.commands_client.forward.assert_not_awaited()

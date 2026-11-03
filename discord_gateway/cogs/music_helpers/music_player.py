@@ -242,7 +242,7 @@ class MusicPlayer:
                 if not await self.broker.playing_heartbeat(self.guild.id, media_uuid):
                     self.logger.warning(
                         f'Broker no longer lists "{media_uuid}" as playing in guild {self.guild.id}')
-            except Exception as exc:  #pylint:disable=broad-except
+            except Exception as exc:
                 self.logger.warning(f'Heartbeat for guild {self.guild.id} failed: {exc}')
 
     async def _watch_queue(self, media_uuid: str):
@@ -262,7 +262,7 @@ class MusicPlayer:
             await asyncio.sleep(QUEUE_POLL_SECONDS)
             try:
                 state = await self.broker.poll_guild_queue(self.guild.id, since)
-            except Exception as exc:  #pylint:disable=broad-except
+            except Exception as exc:
                 self.logger.warning(f'Queue poll for guild {self.guild.id} failed: {exc}')
                 continue
             if state is None:

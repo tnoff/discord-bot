@@ -254,14 +254,14 @@ call the history/emoji fetch path today (the commands pod only sends).
 | `dispatch.update_mutable_channel` | SERVER | dispatcher | `discord_dispatcher/servers/dispatch_server.py:139` |
 | `dispatch_client.fetch_emojis` | CLIENT | core (shared) | `discord_core/clients/dispatch_client_base.py:169` |
 | `dispatch_client.fetch_history` | CLIENT | core (shared) | `discord_core/clients/dispatch_client_base.py:141` |
-| `message_dispatcher.delete` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:784` |
-| `message_dispatcher.fetch_emojis` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:835` |
-| `message_dispatcher.fetch_history` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:814` |
-| `message_dispatcher.guild_roles` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:855` |
-| `message_dispatcher.process_mutable` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:654` |
-| `message_dispatcher.remove_mutable` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:742` |
-| `message_dispatcher.send` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:770` |
-| `message_dispatcher.update_mutable_channel` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:799` |
+| `message_dispatcher.delete` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:785` |
+| `message_dispatcher.fetch_emojis` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:836` |
+| `message_dispatcher.fetch_history` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:815` |
+| `message_dispatcher.guild_roles` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:856` |
+| `message_dispatcher.process_mutable` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:655` |
+| `message_dispatcher.remove_mutable` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:743` |
+| `message_dispatcher.send` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:771` |
+| `message_dispatcher.update_mutable_channel` | INTERNAL | dispatcher | `discord_dispatcher/workers/message_dispatcher.py:800` |
 
 <!-- END GENERATED(dispatcher-span-table) -->
 

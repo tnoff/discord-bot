@@ -4,11 +4,12 @@ Tests for MessageContext and MessageMutableBundle edge cases
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from discord.errors import NotFound
 
 from discord_dispatcher.workers.message_dispatcher import MessageContext, MessageMutableBundle
 
 from tests.helpers import fake_context #pylint: disable=unused-import
-from tests.helpers import FakeMessage
+from tests.helpers import FakeMessage, FakeResponse
 
 
 def _make_send_func(fake_context):  # pylint: disable=redefined-outer-name
@@ -297,8 +298,6 @@ async def test_delete_message_channel_not_found():
 @pytest.mark.asyncio
 async def test_delete_message_not_found_returns_true():
     """delete_message returns True when the message is already gone (NotFound)."""
-    from discord.errors import NotFound  # pylint: disable=import-outside-toplevel
-    from tests.helpers import FakeResponse  # pylint: disable=import-outside-toplevel
 
     context = MessageContext(12345, 67890)
     context.message_id = 99999

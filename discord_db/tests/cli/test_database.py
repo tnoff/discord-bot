@@ -16,6 +16,7 @@ import asyncio
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 from click.testing import CliRunner
+from sqlalchemy import text
 
 from discord_core.cli._lib import common as cli_common
 from discord_core.exceptions import DiscordBotException
@@ -237,7 +238,6 @@ def test_health_server_skipped_when_off(mocker, fake_engine, monitoring):  # pyl
 @pytest.mark.asyncio
 async def test_session_generator_opens_a_session(fake_engine):  # pylint: disable=redefined-outer-name
     '''The generator yields a usable AsyncSession bound to the pod's engine.'''
-    from sqlalchemy import text  # pylint: disable=import-outside-toplevel
 
     generator = database_cli.build_session_generator(fake_engine)
     async with generator() as session:

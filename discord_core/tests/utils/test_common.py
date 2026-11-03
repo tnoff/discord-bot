@@ -95,7 +95,7 @@ def test_pydantic_includes_config():
     }
     config = GeneralConfig(**include_input)
     assert config.include.default is False
-    assert config.include.markov is True  # pylint: disable=no-member
+    assert config.include.markov is True
 
 def test_pydantic_intents_config():
     intents_input = {

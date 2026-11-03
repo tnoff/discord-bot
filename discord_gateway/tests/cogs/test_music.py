@@ -218,7 +218,7 @@ def test_music_heartbeat_callbacks_report_loop_health(fake_context):  #pylint:di
     for _ in range(5):
         health.record_error()
     assert loop_heartbeat_observations(LOOP_PROCESS_GATEWAY_INTENTS)[0].value == 1
-    health._last_success -= 61  #pylint:disable=protected-access
+    health._last_success -= 61
     assert loop_heartbeat_observations(LOOP_PROCESS_GATEWAY_INTENTS)[0].value == 0
     health.record_success()
     assert loop_heartbeat_observations(LOOP_PROCESS_GATEWAY_INTENTS)[0].value == 1

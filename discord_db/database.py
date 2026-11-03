@@ -8,7 +8,7 @@ from sqlalchemy import ForeignKey, UniqueConstraint
 BASE = declarative_base()
 
 
-class UTCDateTime(TypeDecorator):  # pylint: disable=too-many-ancestors,abstract-method
+class UTCDateTime(TypeDecorator):  # pylint: disable=abstract-method
     '''Timezone-aware DateTime that reads back as UTC on every backend.
 
     Postgres' timestamptz hands back aware datetimes. SQLite has no such type:
