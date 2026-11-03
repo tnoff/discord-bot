@@ -589,6 +589,7 @@
         "discord_gateway.types.cleanup_reason",
         "discord_gateway.utils",
         "discord_gateway.utils.bot_metrics",
+        "discord_gateway.utils.dave_compat",
         "discord_gateway.utils.otel_command",
         "discord_gateway.utils.peer_probe"
       ]

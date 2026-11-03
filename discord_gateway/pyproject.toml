@@ -32,6 +32,8 @@ dependencies = [
     "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.21.3.tar.gz#subdirectory=discord_core",
     "discord.py==2.7.1",
     "PyNaCl==1.6.2",
+    # 0.2 needs discord_gateway/utils/dave_compat.py until discord.py releases support for it
+    # (Rapptz/discord.py#10548); the patch is a no-op once it does.
     "davey==0.2.0",
     "async-timeout==5.0.1",
 ]
