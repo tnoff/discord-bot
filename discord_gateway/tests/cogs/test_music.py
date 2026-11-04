@@ -22,10 +22,10 @@ from discord_gateway.types.cleanup_reason import CleanupReason
 from discord_gateway.utils.bot_metrics import BotMetricNaming
 
 from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
-from tests.helpers import fake_media_download
+from tests.helpers import downloaded_from_context
 from tests.helpers import fake_engine, fake_context, async_mock_session #pylint:disable=unused-import
 from tests.helpers import FakeChannel
-from tests.helpers import attach_in_process_broker, attach_in_process_download, queue_in_broker
+from tests.helpers import attach_in_process_broker, attach_in_process_download, merge_config_blocks, queue_in_broker
 
 
 BASE_MUSIC_CONFIG = {
@@ -58,14 +58,7 @@ def music_config(*overrides: dict) -> dict:
     config — and a shallow merge would silently drop either the override's music
     settings or the required broker url, depending on operand order. Two levels of merge is all this config shape needs.
     '''
-    merged = {key: dict(value) for key, value in BASE_MUSIC_CONFIG.items()}
-    for override in overrides:
-        for key, value in override.items():
-            if isinstance(value, dict) and isinstance(merged.get(key), dict):
-                merged[key] = merged[key] | value
-            else:
-                merged[key] = value
-    return merged
+    return merge_config_blocks(BASE_MUSIC_CONFIG, *overrides)
 
 @pytest.fixture(autouse=True)
 def fixture_teardown_guild(mocker):
@@ -81,14 +74,13 @@ async def test_guild_cleanup(mocker, fake_context):  #pylint:disable=redefined-o
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    with TemporaryDirectory() as tmp_dir:
-        with fake_media_download(tmp_dir, fake_context=fake_context) as sd:
-            await queue_in_broker(cog, sd)
-            await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
-            assert fake_context['guild'].id not in cog.players
-            # A restart leaves the queue for the next gateway
-            assert [str(i.media_request.uuid) for i in (await cog.broker_client.get_guild_queue(fake_context['guild'].id)).items] == [
-                str(sd.media_request.uuid)]
+    with downloaded_from_context(fake_context) as sd:
+        await queue_in_broker(cog, sd)
+        await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
+        assert fake_context['guild'].id not in cog.players
+        # A restart leaves the queue for the next gateway
+        assert [str(i.media_request.uuid) for i in (await cog.broker_client.get_guild_queue(fake_context['guild'].id)).items] == [
+            str(sd.media_request.uuid)]
 
 @pytest.mark.asyncio
 async def test_get_player_join_voice_timeout(mocker, fake_context):  #pylint:disable=redefined-outer-name

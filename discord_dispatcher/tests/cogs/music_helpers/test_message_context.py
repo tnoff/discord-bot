@@ -9,26 +9,7 @@ from discord.errors import NotFound
 from discord_dispatcher.workers.message_dispatcher import MessageContext, MessageMutableBundle
 
 from tests.helpers import fake_context #pylint: disable=unused-import
-from tests.helpers import FakeMessage, FakeResponse
-
-
-def _make_send_func(fake_context):  # pylint: disable=redefined-outer-name
-    async def send_func(content: str, delete_after: int = None):  # pylint: disable=unused-argument
-        return await fake_context['channel'].send(content)
-    return send_func
-
-
-def _make_check_func(fake_context):  # pylint: disable=redefined-outer-name
-    async def check_func(count: int):
-        messages = [m async for m in fake_context['channel'].history(limit=count)]
-        return list(reversed(messages))
-    return check_func
-
-
-def _make_get_channel_func(fake_context):  # pylint: disable=redefined-outer-name
-    def get_channel(channel_id):  # pylint: disable=unused-argument
-        return fake_context['channel']
-    return get_channel
+from tests.helpers import FakeMessage, FakeResponse, make_get_channel_func, make_send_func
 
 
 @pytest.fixture
@@ -187,7 +168,7 @@ async def test_clear_existing_behavior(sticky_bundle, fake_context):  #pylint:di
     """Test clear_existing parameter behavior"""
     # Create initial messages
     initial_content = ["Message 1", "Message 2"]
-    dispatch_functions = sticky_bundle.get_message_dispatch(initial_content, _make_send_func(fake_context), _make_get_channel_func(fake_context))
+    dispatch_functions = sticky_bundle.get_message_dispatch(initial_content, make_send_func(fake_context), make_get_channel_func(fake_context))
 
     # Execute functions to create message contexts
     for func in dispatch_functions:
@@ -196,7 +177,7 @@ async def test_clear_existing_behavior(sticky_bundle, fake_context):  #pylint:di
     # Now test clear_existing behavior
     new_content = ["New Message 1"]
     dispatch_functions = sticky_bundle.get_message_dispatch(
-        new_content, _make_send_func(fake_context), _make_get_channel_func(fake_context),
+        new_content, make_send_func(fake_context), make_get_channel_func(fake_context),
         clear_existing=True
     )
 

@@ -41,6 +41,7 @@ carry a ``ROUTES`` group whose prefix matches the client's exactly.
 '''
 import json
 
+from tests.cli._doc_blocks import replace_block
 from tests.cli._image_deps import IMAGE_NAMES, REPO_ROOT, run_probe
 from tests.cli._roots import MODULE_PREFIXES
 
@@ -256,14 +257,4 @@ def render_architecture_doc(original: str) -> str:
     untouched.
     '''
 
-    def _replace(text: str, begin: str, end: str, body: str) -> str:
-        if begin not in text or end not in text:
-            raise AssertionError(
-                f'Expected markers not found in architecture.md: {begin!r} / {end!r}. '
-                'They were removed by hand -- restore them before regenerating.'
-            )
-        start = text.index(begin) + len(begin)
-        stop = text.index(end, start)
-        return text[:start] + '\n\n' + body + '\n\n' + text[stop:]
-
-    return _replace(original, _BEGIN, _END, render_block())
+    return replace_block(original, _BEGIN, _END, render_block(), 'architecture.md')

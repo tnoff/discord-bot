@@ -36,6 +36,7 @@ from discord_broker.clients.http_video_cache_store import HttpVideoCacheStore
 from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_db.servers.database_server import DatabaseHttpServer
 
+from tests.fakes.recording_store import RecordingStoreBase
 from tests.helpers import fake_engine #pylint:disable=unused-import
 from tests.helpers import async_mock_session
 
@@ -73,17 +74,8 @@ def _live_store(fake_engine, max_cache_files: int = MAX_CACHE_FILES) -> VideoCac
     return VideoCacheClient(max_cache_files, partial(async_mock_session, fake_engine))
 
 
-class _RecordingStore:
+class _RecordingStore(RecordingStoreBase):
     '''VideoCacheStore stand-in that records calls and can fail on demand.'''
-
-    def __init__(self, error=None):
-        self.error = error
-        self.calls = []
-
-    def _record(self, name, *args):
-        self.calls.append((name, *args))
-        if self.error:
-            raise self.error
 
     async def iterate_file(self, media_download):
         self._record('iterate_file', media_download)

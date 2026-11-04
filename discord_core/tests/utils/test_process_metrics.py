@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 import psutil
 
+from discord_core.tests.utils.profiler_suite import ProfilerThreadSuite
 from discord_core.utils.process_metrics import (
     ProcessMetricsProfiler,
     get_glibc_malloc_stats,
@@ -19,8 +20,12 @@ def _fake_mallinfo2(arena=1, hblkhd=2, uordblks=3, fordblks=4, keepcost=5):
                 fordblks=fordblks, keepcost=keepcost)
 
 
-class TestProcessMetricsProfiler:
+class TestProcessMetricsProfiler(ProfilerThreadSuite):
     """Tests for ProcessMetricsProfiler class"""
+    profiler_cls = ProcessMetricsProfiler
+    summary_method = 'get_metrics_summary'
+    logger_path = 'discord_core.utils.process_metrics.logger'
+    logged_marker = 'Process metrics'
 
     def test_init(self):
         """Test ProcessMetricsProfiler initialization"""
@@ -28,36 +33,6 @@ class TestProcessMetricsProfiler:
         assert profiler.interval_seconds == 15
         assert profiler._running is False
         assert profiler._thread is None
-
-    def test_start_stop(self):
-        """Test starting and stopping the profiler"""
-        profiler = ProcessMetricsProfiler(interval_seconds=1)
-
-        # Should not be running initially
-        assert profiler._running is False
-
-        # Start the profiler
-        profiler.start()
-        assert profiler._running is True
-        assert profiler._thread is not None
-        assert profiler._thread.is_alive()
-
-        # Stop the profiler
-        profiler.stop()
-        assert profiler._running is False
-
-    def test_start_already_running(self):
-        """Test starting profiler when already running"""
-        profiler = ProcessMetricsProfiler(interval_seconds=1)
-
-        profiler.start()
-        assert profiler._running is True
-
-        # Starting again should not crash
-        profiler.start()
-        assert profiler._running is True
-
-        profiler.stop()
 
     def test_get_process_metrics(self):
         """Test getting process metrics"""
@@ -92,24 +67,6 @@ class TestProcessMetricsProfiler:
         assert "RSS (Physical)" in summary
         assert "USS (Unique)" in summary
         assert "Resources" in summary
-
-    def test_metrics_with_logging(self):
-        """Test that metrics are logged"""
-        mock_logger = Mock()
-        profiler = ProcessMetricsProfiler(interval_seconds=1)
-        with patch('discord_core.utils.process_metrics.logger', mock_logger):
-            # Start profiler and wait for snapshot
-            profiler.start()
-            time.sleep(1.5)  # Wait for one snapshot
-            profiler.stop()
-
-        # Verify logger was called
-        assert mock_logger.info.called
-
-        # Check that metrics were logged
-        calls = mock_logger.info.call_args_list
-        metrics_logged = any('Process metrics' in str(call) for call in calls)
-        assert metrics_logged, "Process metrics should be logged"
 
     def test_memory_deltas(self):
         """Test that memory deltas are calculated"""
@@ -255,26 +212,6 @@ class TestProcessMetricsProfiler:
     # ------------------------------------------------------------------
     # _profiling_loop exception handling
     # ------------------------------------------------------------------
-
-    def test_profiling_loop_logs_exception_and_continues(self):
-        """Exceptions inside the loop are caught, logged, and do not kill the thread"""
-        profiler = ProcessMetricsProfiler(interval_seconds=0)
-        call_count = 0
-
-        def flaky_summary():
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise RuntimeError('transient error')
-            profiler._running = False  # stop after second call
-            return "ok"
-
-        profiler.get_metrics_summary = flaky_summary
-        profiler._running = True
-        profiler._profiling_loop()
-
-        assert call_count == 2
-
 
 class TestGlibcMallocStats:
     """Tests for the glibc mallinfo2 allocator read"""

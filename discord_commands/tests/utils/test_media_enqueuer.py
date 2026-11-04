@@ -7,15 +7,13 @@ import pytest
 from discord_core.types.download import LifecycleEvent
 from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
+from tests.fakes.broker_mock import enqueue_broker_mock
 from tests.helpers import fake_context, fake_media_download  #pylint:disable=unused-import
 
 
 def make_enqueuer(enqueue_result='ok'):
     events = []
-    broker = MagicMock()
-    broker.register_download = AsyncMock()
-    broker.enqueue_track = AsyncMock(return_value=enqueue_result)
-    broker.discard = AsyncMock()
+    broker = enqueue_broker_mock(enqueue_result)
     broker.update_request_status = AsyncMock(side_effect=lambda _uuid, update: events.append(update.event))
     enqueuer = MediaEnqueuer(broker, MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(),
                              MagicMock(), getLogger('test'), 5, 64, 300, {})

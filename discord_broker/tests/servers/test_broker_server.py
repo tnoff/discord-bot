@@ -9,18 +9,19 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock
 import aiohttp
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
-from discord_core.types.download import LifecycleEvent, DownloadResult, DownloadStatus
+from discord_core.servers.health_server_base import close_writer
+from discord_core.types.download import LifecycleEvent
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 
 from discord_broker.servers.broker_server import BrokerHttpServer
 
+from tests.tracing_support import record_spans
 from tests.fakes.asyncio_queues import make_broker_http_server
 from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
-from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
+from tests.fakes.broker_setup import broker_and_request, broker_with_result_queue
+from tests.net_support import cancel_task, wait_for_port
+from tests.helpers import downloaded_request, successful_download_result, fake_source_dict, generate_fake_context
 
 
 def _make_broker() -> MediaBroker:
@@ -33,20 +34,6 @@ def _make_request():
 
 def _make_server(broker: MediaBroker) -> BrokerHttpServer:
     return make_broker_http_server(broker)
-
-
-def _span_exporter(mocker) -> InMemorySpanExporter:
-    """Swap in a recording tracer so emitted spans survive to an assertion.
-
-    The suite runs with no global tracer provider, so spans are non-recording
-    and never reach an exporter at all (see tests/utils/test_otel.py). Without
-    this, the "no span on an empty poll" assertions below would pass vacuously.
-    """
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    mocker.patch('discord_core.utils.otel.TRACER', provider.get_tracer('test'))
-    return exporter
 
 
 class TestHeartbeatObservations:
@@ -95,7 +82,7 @@ class TestNextResultCounter:
 
     async def test_empty_poll_emits_no_span(self, mocker):
         '''An empty poll mints no span at all — it is polled ~1/s while idle.'''
-        exporter = _span_exporter(mocker)
+        exporter = record_spans(mocker)
         mocker.patch('discord_broker.servers.broker_server._RESULT_FETCH_COUNTER')
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=None)
@@ -107,7 +94,7 @@ class TestNextResultCounter:
 
     async def test_hit_emits_the_span(self, mocker):
         '''A poll that hands back a result still gets its broker.next_result span.'''
-        exporter = _span_exporter(mocker)
+        exporter = record_spans(mocker)
         mocker.patch('discord_broker.servers.broker_server._RESULT_FETCH_COUNTER')
         result = MagicMock()
         result.model_dump.return_value = {'ok': True}
@@ -148,7 +135,7 @@ class TestNextSearchResultCounter:
 
     async def test_empty_poll_emits_no_span(self, mocker):
         '''Same as /results/next — an empty search poll mints no span.'''
-        exporter = _span_exporter(mocker)
+        exporter = record_spans(mocker)
         mocker.patch('discord_broker.servers.broker_server._RESULT_FETCH_COUNTER')
         queue = MagicMock()
         queue.get_nowait = AsyncMock(return_value=None)
@@ -160,7 +147,7 @@ class TestNextSearchResultCounter:
 
     async def test_hit_emits_the_span(self, mocker):
         '''A search poll that hands back a resolution still gets its span.'''
-        exporter = _span_exporter(mocker)
+        exporter = record_spans(mocker)
         mocker.patch('discord_broker.servers.broker_server._RESULT_FETCH_COUNTER')
         resolution = MagicMock()
         resolution.model_dump.return_value = {'ok': True}
@@ -191,20 +178,7 @@ class TestServe:
         server = make_broker_http_server(broker, host='127.0.0.1', port=19200)
         task = asyncio.create_task(server.serve())
         # Wait for the port to be ready
-        deadline = asyncio.get_event_loop().time() + 5.0
-        while True:
-            try:
-                _, writer = await asyncio.open_connection('127.0.0.1', 19200)
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except OSError:
-                    pass
-                break
-            except OSError:
-                if asyncio.get_event_loop().time() >= deadline:
-                    raise
-                await asyncio.sleep(0.02)
+        await wait_for_port(19200, host='127.0.0.1')
         try:
             async with aiohttp.ClientSession() as session:
                 resp = await session.post(
@@ -212,11 +186,7 @@ class TestServe:
                 )
                 assert resp.status == 200
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
 
 @pytest.mark.asyncio
@@ -272,8 +242,7 @@ class TestRegisterRequest:
 @pytest.mark.asyncio
 class TestUpdateStatus:
     async def test_valid_request_calls_broker(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         server = _make_server(broker)
         async with TestClient(TestServer(server.build_app())) as client:
@@ -286,8 +255,7 @@ class TestUpdateStatus:
             assert data['status'] == 'ok'
 
     async def test_retry_event_with_detail(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         server = _make_server(broker)
         async with TestClient(TestServer(server.build_app())) as client:
@@ -326,47 +294,28 @@ class TestUpdateStatus:
 @pytest.mark.asyncio
 class TestRegisterDownload:
     async def test_valid_download_result_accepted(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         server = _make_server(broker)
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                result = DownloadResult(
-                    status=DownloadStatus(success=True),
-                    media_request=mr,
-                    ytdlp_data={'id': 'abc', 'title': 'Test', 'webpage_url': 'http://example.com',
-                                'uploader': 'tester', 'duration': 120, 'extractor': 'youtube'},
-                    file_name=md.file_path,
+        with downloaded_request(mr) as md:
+            result = successful_download_result(mr, md)
+            async with TestClient(TestServer(server.build_app())) as client:
+                resp = await client.post(
+                    '/downloads',
+                    json=result.model_dump(mode='json'),
                 )
-                async with TestClient(TestServer(server.build_app())) as client:
-                    resp = await client.post(
-                        '/downloads',
-                        json=result.model_dump(mode='json'),
-                    )
-                    assert resp.status == 202
+                assert resp.status == 202
 
     async def test_result_enqueued_when_result_queue_provided(self):
-        broker = _make_broker()
-        mr = _make_request()
-        await broker.register_request(mr)
-        result_queue: asyncio.Queue = asyncio.Queue()
-        server = make_broker_http_server(broker, result_queue=result_queue)
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                result = DownloadResult(
-                    status=DownloadStatus(success=True),
-                    media_request=mr,
-                    ytdlp_data={'id': 'abc', 'title': 'Test', 'webpage_url': 'http://example.com',
-                                'uploader': 'tester', 'duration': 120, 'extractor': 'youtube'},
-                    file_name=md.file_path,
+        broker, mr, result_queue, server = await broker_with_result_queue()
+        with downloaded_request(mr) as md:
+            result = successful_download_result(mr, md)
+            async with TestClient(TestServer(server.build_app())) as client:
+                resp = await client.post(
+                    '/downloads',
+                    json=result.model_dump(mode='json'),
                 )
-                async with TestClient(TestServer(server.build_app())) as client:
-                    resp = await client.post(
-                        '/downloads',
-                        json=result.model_dump(mode='json'),
-                    )
-                    assert resp.status == 202
+                assert resp.status == 202
         assert not result_queue.empty()
         queued = result_queue.get_nowait()
         assert str(queued.media_request.uuid) == str(mr.uuid)
@@ -399,21 +348,19 @@ class TestCheckout:
             assert data == {}
 
     async def test_checkout_with_valid_entry(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         server = _make_server(broker)
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                await broker.register_download(md)
-                with TemporaryDirectory() as guild_dir:
-                    async with TestClient(TestServer(server.build_app())) as client:
-                        resp = await client.post(
-                            f'/requests/{mr.uuid}/checkout',
-                            json={'guild_id': 123, 'guild_path': guild_dir},
-                        )
-                        assert resp.status == 200
-                        data = await resp.json()
-                        assert data['s3_key'] is not None
+        with downloaded_request(mr) as md:
+            await broker.register_download(md)
+            with TemporaryDirectory() as guild_dir:
+                async with TestClient(TestServer(server.build_app())) as client:
+                    resp = await client.post(
+                        f'/requests/{mr.uuid}/checkout',
+                        json={'guild_id': 123, 'guild_path': guild_dir},
+                    )
+                    assert resp.status == 200
+                    data = await resp.json()
+                    assert data['s3_key'] is not None
 
     async def test_invalid_body_returns_422(self):
         broker = _make_broker()
@@ -426,8 +373,7 @@ class TestCheckout:
 @pytest.mark.asyncio
 class TestRelease:
     async def test_release_known_entry(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         server = _make_server(broker)
         async with TestClient(TestServer(server.build_app())) as client:
@@ -449,8 +395,7 @@ class TestRelease:
 @pytest.mark.asyncio
 class TestRemove:
     async def test_remove_known_entry(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         server = _make_server(broker)
         async with TestClient(TestServer(server.build_app())) as client:
@@ -471,8 +416,7 @@ class TestRemove:
 @pytest.mark.asyncio
 class TestDiscard:
     async def test_discard_drops_entry(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         server = _make_server(broker)
         async with TestClient(TestServer(server.build_app())) as client:
@@ -484,26 +428,24 @@ class TestDiscard:
 @pytest.mark.asyncio
 class TestRegisterDownloadDirect:
     async def test_register_download_persists_entry_as_available(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         server = _make_server(broker)
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                payload = {
-                    'request': mr.model_dump(mode='json'),
-                    'file_path': str(md.file_path),
-                    'file_size_bytes': md.file_size_bytes,
-                    'cache_hit': False,
-                    'ytdl_data': {
-                        'id': md.id, 'title': md.title,
-                        'webpage_url': md.webpage_url, 'uploader': md.uploader,
-                        'duration': md.duration, 'extractor': md.extractor,
-                    },
-                }
-                async with TestClient(TestServer(server.build_app())) as client:
-                    resp = await client.post('/downloads/register', json=payload)
-                    assert resp.status == 200
+        with downloaded_request(mr) as md:
+            payload = {
+                'request': mr.model_dump(mode='json'),
+                'file_path': str(md.file_path),
+                'file_size_bytes': md.file_size_bytes,
+                'cache_hit': False,
+                'ytdl_data': {
+                    'id': md.id, 'title': md.title,
+                    'webpage_url': md.webpage_url, 'uploader': md.uploader,
+                    'duration': md.duration, 'extractor': md.extractor,
+                },
+            }
+            async with TestClient(TestServer(server.build_app())) as client:
+                resp = await client.post('/downloads/register', json=payload)
+                assert resp.status == 200
         entry = await broker.get_entry(str(mr.uuid))
         assert entry is not None
         assert entry.zone.value == 'available'
@@ -528,18 +470,16 @@ class TestCacheEndpoints:
             assert (await resp.json()) == {'hit': False}
 
     async def test_check_cache_hit_returns_serialised_download(self):
-        broker = _make_broker()
-        mr = _make_request()
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                broker.check_cache = AsyncMock(return_value=md)
-                server = _make_server(broker)
-                async with TestClient(TestServer(server.build_app())) as client:
-                    resp = await client.post('/cache/check', json=mr.model_dump(mode='json'))
-                    assert resp.status == 200
-                    payload = await resp.json()
-                    assert payload['hit'] is True
-                    assert payload['download']['file_path'] == str(md.file_path)
+        broker, mr = broker_and_request()
+        with downloaded_request(mr) as md:
+            broker.check_cache = AsyncMock(return_value=md)
+            server = _make_server(broker)
+            async with TestClient(TestServer(server.build_app())) as client:
+                resp = await client.post('/cache/check', json=mr.model_dump(mode='json'))
+                assert resp.status == 200
+                payload = await resp.json()
+                assert payload['hit'] is True
+                assert payload['download']['file_path'] == str(md.file_path)
 
     async def test_check_cache_invalid_body_returns_422(self):
         '''Garbage payload to /cache/check should fail validation cleanly.'''
@@ -576,30 +516,9 @@ async def _health_request(port: int) -> dict:
         await writer.drain()
         response = await reader.read(4096)
     finally:
-        writer.close()
-        try:
-            await writer.wait_closed()
-        except OSError:
-            pass
+        await close_writer(writer)
     body_bytes = response.split(b'\r\n\r\n', 1)[1]
     return json.loads(body_bytes)
-
-
-async def _wait_for_tcp(port: int, timeout: float = 5.0) -> None:
-    deadline = asyncio.get_event_loop().time() + timeout
-    while True:
-        try:
-            _, writer = await asyncio.open_connection('127.0.0.1', port)
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except OSError:
-                pass
-            return
-        except OSError:
-            if asyncio.get_event_loop().time() >= deadline:
-                raise
-            await asyncio.sleep(0.02)
 
 
 @pytest.mark.asyncio

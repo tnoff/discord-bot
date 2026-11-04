@@ -2,14 +2,18 @@
 Tests for the GC object-census profiler
 """
   # pylint: disable=protected-access
-import time
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
+from discord_core.tests.utils.profiler_suite import ProfilerThreadSuite
 from discord_core.utils.gc_census import GcCensusProfiler
 
 
-class TestGcCensusProfiler:
+class TestGcCensusProfiler(ProfilerThreadSuite):
     """Tests for GcCensusProfiler class"""
+    profiler_cls = GcCensusProfiler
+    summary_method = 'get_census_summary'
+    logger_path = 'discord_core.utils.gc_census.logger'
+    logged_marker = 'GC census'
 
     def test_init(self):
         """Test GcCensusProfiler initialization"""
@@ -19,33 +23,6 @@ class TestGcCensusProfiler:
         assert profiler._running is False
         assert profiler._thread is None
         assert profiler._last_census is None
-
-    def test_start_stop(self):
-        """Test starting and stopping the profiler"""
-        profiler = GcCensusProfiler(interval_seconds=1)
-
-        assert profiler._running is False
-
-        profiler.start()
-        assert profiler._running is True
-        assert profiler._thread is not None
-        assert profiler._thread.is_alive()
-
-        profiler.stop()
-        assert profiler._running is False
-
-    def test_start_already_running(self):
-        """Test starting profiler when already running does not crash"""
-        profiler = GcCensusProfiler(interval_seconds=1)
-
-        profiler.start()
-        assert profiler._running is True
-
-        # Starting again should be a no-op, not a crash
-        profiler.start()
-        assert profiler._running is True
-
-        profiler.stop()
 
     def test_stop_without_start(self):
         """Stopping a never-started profiler is safe (no thread to join)"""
@@ -108,36 +85,3 @@ class TestGcCensusProfiler:
 
         assert "Total Delta" in summary
         assert "Top growers" not in summary
-
-    def test_census_with_logging(self):
-        """The background loop logs a census summary"""
-        mock_logger = Mock()
-        profiler = GcCensusProfiler(interval_seconds=1)
-        with patch('discord_core.utils.gc_census.logger', mock_logger):
-            profiler.start()
-            time.sleep(1.5)  # wait for at least one census
-            profiler.stop()
-
-        assert mock_logger.info.called
-        calls = mock_logger.info.call_args_list
-        census_logged = any('GC census' in str(call) for call in calls)
-        assert census_logged, "GC census should be logged"
-
-    def test_profiling_loop_logs_exception_and_continues(self):
-        """Exceptions inside the loop are caught, logged, and don't kill the thread"""
-        profiler = GcCensusProfiler(interval_seconds=0)
-        call_count = 0
-
-        def flaky_summary():
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                raise RuntimeError('transient error')
-            profiler._running = False  # stop after the second call
-            return "ok"
-
-        profiler.get_census_summary = flaky_summary
-        profiler._running = True
-        profiler._profiling_loop()
-
-        assert call_count == 2

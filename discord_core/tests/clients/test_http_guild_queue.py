@@ -7,7 +7,6 @@ both directions of the contract at once: the client sends what the route promise
 what the models describe.  The real server is exercised in discord_broker's own tests.
 '''
 import ast
-import contextlib
 import inspect
 from unittest.mock import patch
 
@@ -27,49 +26,21 @@ from discord_core.types.checkout_result import CheckoutResult
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchResult
 
+from discord_core.tests.clients.stub_broker import StubBrokerBase, connected
+
 GUILD = 42
 BUCKET = 'media-bucket'
 
 GUILD_ROUTES = guild_queue_routes.ALL
 
 
-class StubBroker:
+class StubBroker(StubBrokerBase):
     '''A broker that serves the guild-queue routes and remembers every call.'''
-
-    def __init__(self):
-        self.calls = []
-        self.answers = {}
-
-    def answer(self, route, body=None, status=200):
-        '''Set what a route answers.  body None sends an empty response.'''
-        self.answers[route] = (status, body)
-
-    def _handler(self, route):
-        async def handle(request: web.Request) -> web.StreamResponse:
-            body = await request.json() if request.can_read_body else None
-            self.calls.append({'route': route, 'guild_id': request.match_info['guild_id'],
-                               'query': dict(request.query), 'body': body})
-            status, answer = self.answers[route]
-            if answer is None:
-                return web.Response(status=status)
-            return web.json_response(answer, status=status)
-        return handle
-
-    def build_app(self) -> web.Application:
-        app = web.Application()
-        for route in GUILD_ROUTES:
-            app.router.add_route(route.method, route.template, self._handler(route))
-        return app
-
-    def last(self, route):
-        return [call for call in self.calls if call['route'] == route][-1]
+    routes = GUILD_ROUTES
 
 
-@contextlib.asynccontextmanager
-async def _connected(stub: StubBroker):
-    async with TestServer(stub.build_app()) as server:
-        async with aiohttp.ClientSession() as session:
-            yield HttpBrokerClient(str(server.make_url('')), bucket_name=BUCKET, session=session)
+def _connected(stub: StubBroker):
+    return connected(stub, bucket_name=BUCKET)
 
 
 def _request(search: str = 'https://example.com/a') -> MediaRequest:
@@ -153,7 +124,7 @@ async def test_enqueue_returns_the_broker_result(result):
     async with _connected(stub) as client:
         assert await client.enqueue_track(GUILD, 'abc', max_size=7) == result
     call = stub.last(guild_queue_routes.ENQUEUE_TRACK)
-    assert call['guild_id'] == str(GUILD)
+    assert call['match']['guild_id'] == str(GUILD)
     assert call['body'] == {'uuid': 'abc', 'max_size': 7}
 
 
@@ -301,8 +272,8 @@ async def test_shuffle_and_clear():
     async with _connected(stub) as client:
         assert await client.shuffle_queue(GUILD) is True
         assert await client.clear_queue(GUILD) == 4
-    assert stub.last(guild_queue_routes.SHUFFLE_QUEUE)['guild_id'] == str(GUILD)
-    assert stub.last(guild_queue_routes.CLEAR_QUEUE)['guild_id'] == str(GUILD)
+    assert stub.last(guild_queue_routes.SHUFFLE_QUEUE)['match']['guild_id'] == str(GUILD)
+    assert stub.last(guild_queue_routes.CLEAR_QUEUE)['match']['guild_id'] == str(GUILD)
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +452,7 @@ async def test_close_releases_and_reports_how_many():
     stub.answer(guild_queue_routes.CLOSE_GUILD, {'released': 3})
     async with _connected(stub) as client:
         assert await client.close_guild(GUILD) == 3
-    assert stub.last(guild_queue_routes.CLOSE_GUILD)['guild_id'] == str(GUILD)
+    assert stub.last(guild_queue_routes.CLOSE_GUILD)['match']['guild_id'] == str(GUILD)
 
 
 @pytest.mark.asyncio
@@ -492,7 +463,7 @@ async def test_open_sends_the_text_channel_and_returns_what_was_recovered():
     async with _connected(stub) as client:
         assert await client.open_guild(GUILD, 555) == 'abc'
     call = stub.last(guild_queue_routes.OPEN_GUILD)
-    assert call['guild_id'] == str(GUILD)
+    assert call['match']['guild_id'] == str(GUILD)
     assert call['body'] == {'text_channel_id': 555}
 
 

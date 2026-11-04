@@ -20,7 +20,8 @@ import ast
 from dataclasses import dataclass
 from pathlib import Path
 
-from tests.cli._otel_resolve import Corpus, pod_of, unparse
+from tests.cli._doc_blocks import exempt_table, replace_block
+from tests.cli._otel_resolve import CallSiteVisitor, Corpus, pod_of, unparse
 from tests.cli._roots import SERVICE_ROOTS, CORE_ROOT
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -63,21 +64,8 @@ class ExemptMetric:
     expression: str
 
 
-class _GaugeVisitor(ast.NodeVisitor):
-    def __init__(self):
-        self.class_stack: list[str] = []
-        self.hits: list[tuple] = []
-
-    # ast.NodeVisitor dispatches by this exact method name.
-    def visit_ClassDef(self, node):  # pylint: disable=invalid-name
-        self.class_stack.append(node.name)
-        self.generic_visit(node)
-        self.class_stack.pop()
-
-    def visit_Call(self, node):  # pylint: disable=invalid-name
-        if isinstance(node.func, ast.Name) and node.func.id == _CALL_NAME:
-            self.hits.append((node, self.class_stack[-1] if self.class_stack else None))
-        self.generic_visit(node)
+class _GaugeVisitor(CallSiteVisitor):
+    call_names = (_CALL_NAME,)
 
 
 def _positional_or_kw(call: ast.Call, index: int, kw_name: str):
@@ -188,25 +176,14 @@ def _exempt_appendix(exempt: list) -> str:
         'a for-loop binding `description` across four literal strings), not a',
         'gap in the resolver: see `tests/cli/_otel_resolve.py`.',
         '',
-        '| Source | Why | Expression |',
-        '|---|---|---|',
+        *exempt_table(rows),
     ]
-    for source, reason, expression in rows:
-        lines.append(f'| `{source}` | {reason} | `{expression}` |')
     return '\n'.join(lines)
 
 
 def render_metrics_reference_doc(original: str, resolved: list, exempt: list) -> str:
-    def _replace(text: str, begin: str, end: str, body: str) -> str:
-        if begin not in text or end not in text:
-            raise AssertionError(
-                f'Expected markers not found in metrics_reference.md: {begin!r} / {end!r}. '
-                'They were removed by hand -- restore them before regenerating.'
-            )
-        start = text.index(begin) + len(begin)
-        stop = text.index(end, start)
-        return text[:start] + '\n\n' + body + '\n\n' + text[stop:]
-
-    text = _replace(original, _BEGIN_CENSUS, _END_CENSUS, _census_table(resolved))
-    text = _replace(text, _BEGIN_EXEMPT, _END_EXEMPT, _exempt_appendix(exempt))
+    text = replace_block(original, _BEGIN_CENSUS, _END_CENSUS, _census_table(resolved),
+                         'metrics_reference.md')
+    text = replace_block(text, _BEGIN_EXEMPT, _END_EXEMPT, _exempt_appendix(exempt),
+                         'metrics_reference.md')
     return text

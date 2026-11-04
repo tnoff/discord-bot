@@ -18,13 +18,13 @@ from discord_broker.interfaces.broker_protocols import (
     MediaBrokerBase,
     Zone,
 )
-from discord_broker.workers.media_bundle import BundleRenderer
 
 from tests.cli._image_deps import measure
+from tests.fakes.bundle_attach import BundleAttachMixin
 from tests.helpers import fake_context, fake_source_dict  # pylint: disable=unused-import
 
 
-class _StorageBroker(MediaBrokerBase):
+class _StorageBroker(BundleAttachMixin, MediaBrokerBase):
     '''Minimal concrete MediaBrokerBase: dict-backed bundle storage plus the
     register_request attach behaviour the real impls provide, so the base's
     template methods can be exercised.  The non-bundle registry ops are unused
@@ -49,12 +49,7 @@ class _StorageBroker(MediaBrokerBase):
 
     # --- register_request attach (mirrors AsyncioBroker) -----------------
     async def register_request(self, media_request):
-        bundle_uuid = media_request.bundle_uuid
-        if bundle_uuid and bundle_uuid in self._bundles:
-            renderer = BundleRenderer(self._bundles[bundle_uuid])
-            renderer.add_media_request(media_request)
-            self._bundles[bundle_uuid] = renderer.state
-            await self._maybe_render_bundle(media_request)
+        await self._attach_to_bundle(media_request)
 
     # --- unused registry surface (must exist to instantiate the ABC) -----
     async def can_evict_base(self, webpage_url):

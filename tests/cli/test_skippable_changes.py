@@ -9,15 +9,15 @@ safe while that stays true. The guard reads every test source, finds each path
 built from REPO_ROOT, and fails if one of them is a file the list would skip.
 '''
 import ast
-import subprocess  # nosec B404 - fixed argv, no shell, test-only git setup
 from pathlib import Path
 
 import pytest
 
 import tests.cli._metric_census as metric_census
-import tests.cli._skippable_changes as skippable_changes
+import tests.cli._git_diff as git_diff
 import tests.cli._span_census as span_census
 from tests.cli._config_reference import render_configuration_doc
+from tests.cli._scratch_repo import commit, git, head_sha, init_scratch_repo
 from tests.cli._seam_topology import render_architecture_doc
 from tests.cli._skippable_changes import (DOC_DIRS_READ_BY_TESTS, DOCS_READ_BY_TESTS, METADATA_ONLY,
                                           ROOT_DOCS, Skippable, classify, edits_outside_generated_blocks,
@@ -63,7 +63,7 @@ def test_classify(paths, expected):
 
 def test_every_listed_path_exists():
     '''A renamed or deleted entry would silently stop protecting (or skipping) anything.'''
-    root = skippable_changes.REPO_ROOT
+    root = git_diff.REPO_ROOT
     for path in DOCS_READ_BY_TESTS | ROOT_DOCS | METADATA_ONLY:
         assert (root / path).is_file(), path
     for directory in DOC_DIRS_READ_BY_TESTS:
@@ -114,29 +114,10 @@ def test_classify_uses_the_prose_only_answer_for_a_compared_doc():
     assert classify(['discord_core/x.py'], prose_only=lambda _path: True).tests is False
 
 
-def _git(cwd, *args):
-    subprocess.run(['git', *args], cwd=cwd, check=True,  # nosec B603 B607 - fixed argv
-                   capture_output=True, text=True)
-
-
-def _head(cwd):
-    return subprocess.run(  # nosec B603 B607 - fixed argv
-        ['git', 'rev-parse', 'HEAD'], cwd=cwd, check=True,
-        capture_output=True, text=True).stdout.strip()
-
-
-def _commit(cwd, message):
-    _git(cwd, 'add', '-A')
-    _git(cwd, 'commit', '-q', '-m', message)
-
-
 @pytest.fixture(name='repo')
 def _repo(tmp_path, monkeypatch):
     '''A throwaway git repo wired in as REPO_ROOT, with a doc, a module and a catalog committed.'''
-    monkeypatch.setattr(skippable_changes, 'REPO_ROOT', tmp_path)
-    _git(tmp_path, 'init', '-q', '-b', 'main')
-    _git(tmp_path, 'config', 'user.email', 'test@example.com')
-    _git(tmp_path, 'config', 'user.name', 'Test')
+    init_scratch_repo(tmp_path, monkeypatch)
     (tmp_path / 'docs').mkdir()
     (tmp_path / 'docs' / 'guide.md').write_text('guide\n', encoding='utf-8')
     (tmp_path / 'docs' / 'architecture.md').write_text(f'intro\n{_BLOCK}\noutro\n', encoding='utf-8')
@@ -144,8 +125,8 @@ def _repo(tmp_path, monkeypatch):
     (tmp_path / 'discord_core' / 'module.py').write_text('X = 1\n' * 20, encoding='utf-8')
     (tmp_path / 'catalog-info.yaml').write_text('kind: Component\n', encoding='utf-8')
     (tmp_path / 'renovate.json').write_text('{ }\n', encoding='utf-8')
-    _commit(tmp_path, 'base')
-    return tmp_path, _head(tmp_path)
+    commit(tmp_path, 'base')
+    return tmp_path, head_sha(tmp_path)
 
 
 def _outputs(capsys):
@@ -157,7 +138,7 @@ def test_main_skips_tests_for_a_docs_only_change(repo, capsys):
     '''The case this exists for: edit a doc, tox is skipped, the cheap checks are not.'''
     tmp_path, base = repo
     (tmp_path / 'docs' / 'guide.md').write_text('guide, edited\n', encoding='utf-8')
-    _commit(tmp_path, 'docs only')
+    commit(tmp_path, 'docs only')
 
     assert main(['--base', base]) == 0
     assert _outputs(capsys) == ['only=false', 'tests_skippable=true']
@@ -167,7 +148,7 @@ def test_main_skips_everything_for_a_metadata_only_change(repo, capsys):
     '''The original rule still holds, for the one file left in it.'''
     tmp_path, base = repo
     (tmp_path / 'renovate.json').write_text('{}\n', encoding='utf-8')
-    _commit(tmp_path, 'renovate config only')
+    commit(tmp_path, 'renovate config only')
 
     assert main(['--base', base]) == 0
     assert _outputs(capsys) == ['only=true', 'tests_skippable=true']
@@ -177,7 +158,7 @@ def test_main_runs_everything_for_a_catalog_only_change(repo, capsys):
     '''A test reads catalog-info.yaml, so a catalog-only PR must not skip it.'''
     tmp_path, base = repo
     (tmp_path / 'catalog-info.yaml').write_text('kind: Component\nspec: {}\n', encoding='utf-8')
-    _commit(tmp_path, 'catalog only')
+    commit(tmp_path, 'catalog only')
 
     assert main(['--base', base]) == 0
     assert _outputs(capsys) == ['only=false', 'tests_skippable=false']
@@ -188,7 +169,7 @@ def test_main_runs_tests_when_code_changes_with_docs(repo, capsys):
     tmp_path, base = repo
     (tmp_path / 'docs' / 'guide.md').write_text('guide, edited\n', encoding='utf-8')
     (tmp_path / 'discord_core' / 'module.py').write_text('X = 2\n', encoding='utf-8')
-    _commit(tmp_path, 'docs and code')
+    commit(tmp_path, 'docs and code')
 
     assert main(['--base', base]) == 0
     assert _outputs(capsys) == ['only=false', 'tests_skippable=false']
@@ -198,8 +179,8 @@ def test_main_does_not_let_a_rename_hide_the_deleted_module(repo, capsys):
     '''Moving a module into docs/ is a code change. Without --no-renames git reports only
     the new path, which would read as a docs-only change.'''
     tmp_path, base = repo
-    _git(tmp_path, 'mv', 'discord_core/module.py', 'docs/module.md')
-    _commit(tmp_path, 'hide a module in docs')
+    git(tmp_path, 'mv', 'discord_core/module.py', 'docs/module.md')
+    commit(tmp_path, 'hide a module in docs')
 
     assert main(['--base', base]) == 0
     assert _outputs(capsys) == ['only=false', 'tests_skippable=false']
@@ -209,7 +190,7 @@ def test_main_skips_tests_for_a_prose_edit_to_a_compared_doc(repo, capsys):
     '''The #1152 case: architecture.md is a test input, but only inside its generated block.'''
     tmp_path, base = repo
     (tmp_path / 'docs' / 'architecture.md').write_text(f'a new intro\n{_BLOCK}\nand a new outro\n', encoding='utf-8')
-    _commit(tmp_path, 'prose in architecture.md')
+    commit(tmp_path, 'prose in architecture.md')
 
     assert main(['--base', base]) == 0
     assert _outputs(capsys) == ['only=false', 'tests_skippable=true']
@@ -220,7 +201,7 @@ def test_main_runs_tests_for_an_edit_inside_a_generated_block(repo, capsys):
     tmp_path, base = repo
     (tmp_path / 'docs' / 'architecture.md').write_text(
         f'intro\n{_BLOCK.replace("body", "body, edited")}\noutro\n', encoding='utf-8')
-    _commit(tmp_path, 'edit a generated block')
+    commit(tmp_path, 'edit a generated block')
 
     assert main(['--base', base]) == 0
     assert _outputs(capsys) == ['only=false', 'tests_skippable=false']
@@ -229,8 +210,8 @@ def test_main_runs_tests_for_an_edit_inside_a_generated_block(repo, capsys):
 def test_main_runs_tests_when_a_compared_doc_is_deleted(repo, capsys):
     '''A doc gone at head leaves the test with nothing to read.'''
     tmp_path, base = repo
-    _git(tmp_path, 'rm', '-q', 'docs/architecture.md')
-    _commit(tmp_path, 'delete architecture.md')
+    git(tmp_path, 'rm', '-q', 'docs/architecture.md')
+    commit(tmp_path, 'delete architecture.md')
 
     assert main(['--base', base]) == 0
     assert _outputs(capsys) == ['only=false', 'tests_skippable=false']
@@ -275,7 +256,7 @@ def test_every_compared_doc_has_a_renderer_here():
 def test_a_prose_edit_does_not_change_what_the_real_doc_check_compares(path):
     '''The check splices a regenerated body into the file and compares. Prose outside the
     blocks passes through it unchanged, so it cannot turn a green test red.'''
-    original = (skippable_changes.REPO_ROOT / path).read_text(encoding='utf-8')
+    original = (git_diff.REPO_ROOT / path).read_text(encoding='utf-8')
     edited = 'A sentence somebody wrote by hand.\n\n' + original + '\nAnd another, at the end.\n'
 
     assert edits_outside_generated_blocks(path, original, edited) is True
@@ -285,7 +266,7 @@ def test_a_prose_edit_does_not_change_what_the_real_doc_check_compares(path):
 @pytest.mark.parametrize('path', sorted(DOCS_READ_BY_TESTS))
 def test_an_edit_inside_a_block_does_change_it(path):
     '''The converse, so the rule is not vacuous: the check does catch a hand edit to a block.'''
-    original = (skippable_changes.REPO_ROOT / path).read_text(encoding='utf-8')
+    original = (git_diff.REPO_ROOT / path).read_text(encoding='utf-8')
     edited = original.replace('<!-- END GENERATED', 'A hand edit.\n<!-- END GENERATED', 1)
 
     assert edits_outside_generated_blocks(path, original, edited) is False
@@ -298,7 +279,7 @@ def test_an_edit_inside_a_block_does_change_it(path):
 
 def _test_sources():
     '''Every python file under the central tests/ and each package's own tests/.'''
-    root = skippable_changes.REPO_ROOT
+    root = git_diff.REPO_ROOT
     for tests_dir in [root / 'tests', *sorted(root.glob('discord_*/tests'))]:
         yield from sorted(tests_dir.rglob('*.py'))
 

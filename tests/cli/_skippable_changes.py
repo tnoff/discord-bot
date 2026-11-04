@@ -50,14 +50,12 @@ deleted module. --no-renames reports both paths.
 
 An empty diff yields false for both, which runs everything.
 '''
-import argparse
 import re
-import subprocess  # nosec B404 - fixed argv, no shell, reads git metadata only
 import sys
-from pathlib import Path
 from typing import Callable, NamedTuple, Optional
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.cli._git_diff import base_head_parser, diff_paths, git_output, git_show, report_changed
+
 
 # Changes that no job inspects, named exactly and anchored. Not a prefix, not a
 # glob. catalog-info.yaml used to be here, but tests/test_catalog_apis.py reads it
@@ -132,34 +130,16 @@ def classify(changed_files, prose_only: Optional[Callable[[str], bool]] = None) 
     return Skippable(everything=everything, tests=tests)
 
 
-def _show(cwd: Path, ref: str, path: str) -> Optional[str]:
-    '''path's content at ref, or None if it does not exist there.'''
-    result = subprocess.run(  # nosec B603 B607 - fixed argv
-        ['git', 'show', f'{ref}:{path}'], cwd=cwd, capture_output=True, text=True, check=False)
-    return result.stdout if result.returncode == 0 else None
-
-
 def main(argv=None) -> int:
     '''Print the `only` and `tests_skippable` outputs for the diff base...head.'''
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--base', required=True, help='base ref to diff against')
-    parser.add_argument('--head', default='HEAD', help='head ref (default HEAD)')
-    args = parser.parse_args(argv)
+    args = base_head_parser(__doc__).parse_args(argv)
 
-    result = subprocess.run(  # nosec B603 B607 - fixed argv
-        ['git', 'diff', '--name-only', '--no-renames', f'{args.base}...{args.head}'],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=True)
-    changed = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    changed = diff_paths(args.base, args.head, '--no-renames')
+    report_changed(changed)
 
-    print('changed files:', file=sys.stderr)
-    for path in changed:
-        print(f'  {path}', file=sys.stderr)
-
-    merge_base = subprocess.run(  # nosec B603 B607 - fixed argv
-        ['git', 'merge-base', args.base, args.head],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=True).stdout.strip()
+    merge_base = git_output('merge-base', args.base, args.head).stdout.strip()
     skippable = classify(changed, prose_only=lambda path: edits_outside_generated_blocks(
-        path, _show(REPO_ROOT, merge_base, path), _show(REPO_ROOT, args.head, path)))
+        path, git_show(merge_base, path), git_show(args.head, path)))
     print(f'metadata-only: {skippable.everything}', file=sys.stderr)
     print(f'tests skippable: {skippable.tests}', file=sys.stderr)
     print(f'only={str(skippable.everything).lower()}')

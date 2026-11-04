@@ -35,6 +35,7 @@ from discord_broker.clients.http_history_stores import HttpHistoryPlaylistStore
 from discord_db.clients.playlist_client import PlaylistClient
 from discord_db.servers.database_server import DatabaseHttpServer
 
+from tests.fakes.recording_store import RecordingStoreBase
 from tests.helpers import fake_engine #pylint:disable=unused-import
 from tests.helpers import async_mock_session
 
@@ -42,17 +43,8 @@ GUILD_ID = 808
 MAX_SIZE = 3
 
 
-class _RecordingStore:
+class _RecordingStore(RecordingStoreBase):
     '''PlaylistStore stand-in that records calls and can fail on demand.'''
-
-    def __init__(self, error=None):
-        self.error = error
-        self.calls = []
-
-    def _record(self, name, *args):
-        self.calls.append((name, *args))
-        if self.error:
-            raise self.error
 
     async def list_playlists(self, guild_id):
         self._record('list_playlists', guild_id)

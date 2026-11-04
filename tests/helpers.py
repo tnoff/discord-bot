@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from random import choice
 from pathlib import Path
 from string import digits, ascii_lowercase
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from typing import Any, AsyncGenerator, Generator, Optional
 from collections.abc import Callable
 
@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, AsyncEngine
 
 from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.utils.common import GeneralConfig
+from discord_core.types.download import DownloadResult, DownloadStatus
 from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchResult
@@ -161,6 +162,88 @@ def fake_media_download(file_dir: Path, media_request: Optional[MediaRequest] = 
             },
         media_request)
         yield media_download
+
+
+@contextmanager
+def downloaded_request(media_request: MediaRequest, **kwargs) -> Generator[MediaDownload, None, None]:
+    '''A MediaDownload of the request, backed by a file that lives for the ``with`` block.'''
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(tmp_dir, media_request=media_request, **kwargs) as media_download:
+            yield media_download
+
+
+@contextmanager
+def downloaded_from_context(context: dict[str, Any], **kwargs) -> Generator[MediaDownload, None, None]:
+    '''A MediaDownload for the fake_context, backed by a file that lives for the ``with`` block.'''
+    with TemporaryDirectory() as tmp_dir:
+        with fake_media_download(tmp_dir, fake_context=context, **kwargs) as media_download:
+            yield media_download
+
+
+def make_send_func(context):
+    '''A send callable that posts to the fake_context's channel.'''
+    async def send_func(content: str, delete_after: int = None):  # pylint: disable=unused-argument
+        return await context['channel'].send(content)
+    return send_func
+
+
+def make_check_func(context):
+    '''A callable returning the last ``count`` messages of the fake_context's channel, oldest first.'''
+    async def check_func(count: int):
+        messages = [m async for m in context['channel'].history(limit=count)]
+        return list(reversed(messages))
+    return check_func
+
+
+def make_get_channel_func(context):
+    '''A channel lookup that always answers with the fake_context's channel.'''
+    def get_channel(channel_id):  # pylint: disable=unused-argument
+        return context['channel']
+    return get_channel
+
+
+async def assert_subcommand_forwards(cog, context, method, command, args):
+    '''Call a stub subcommand and check it forwarded `command` and `args` to the commands pod.'''
+    await getattr(cog, method)(cog, context['context'], **args)
+    cog.commands_client.forward.assert_awaited_once()
+    forwarded = cog.commands_client.forward.await_args
+    assert forwarded.args[0] == command
+    assert forwarded.args[2] == args
+    assert forwarded.args[1].guild_id == context['guild'].id
+
+
+def merge_config_blocks(base: dict, *overrides: dict) -> dict:
+    '''Merge test overrides onto a config, one level deep: a dict value is merged key by key into the
+    base's dict of the same name, anything else replaces it. The base is left untouched.'''
+    merged = {key: dict(value) for key, value in base.items()}
+    for override in overrides:
+        for key, value in override.items():
+            if isinstance(value, dict) and isinstance(merged.get(key), dict):
+                merged[key] = merged[key] | value
+            else:
+                merged[key] = value
+    return merged
+
+
+def minimal_download_result() -> DownloadResult:
+    '''A successful DownloadResult for a fake request, with no file.'''
+    return DownloadResult(
+        status=DownloadStatus(success=True),
+        media_request=fake_source_dict(generate_fake_context()),
+        ytdlp_data={'id': 'x', 'title': 't', 'webpage_url': 'http://e/v'},
+        file_name=None,
+    )
+
+
+def successful_download_result(media_request: MediaRequest, media_download: MediaDownload) -> DownloadResult:
+    '''A successful DownloadResult for a MediaDownload made by fake_media_download.'''
+    return DownloadResult(
+        status=DownloadStatus(success=True),
+        media_request=media_request,
+        ytdlp_data={'id': 'abc', 'title': 'Test', 'webpage_url': 'http://example.com',
+                    'uploader': 'tester', 'duration': 120, 'extractor': 'youtube'},
+        file_name=media_download.file_path,
+    )
 
 
 @pytest_asyncio.fixture(scope="function")

@@ -8,7 +8,7 @@ from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException
 
 from discord_gateway.cogs.markov import Markov
 
-from tests.helpers import fake_context #pylint:disable=unused-import
+from tests.helpers import assert_subcommand_forwards, fake_context #pylint:disable=unused-import
 
 CONFIG = {
     'general': {
@@ -49,12 +49,7 @@ def test_markov_needs_no_store(fake_context):  #pylint:disable=redefined-outer-n
 ])
 async def test_subcommands_forward_to_the_commands_pod(fake_context, method, command, args):  #pylint:disable=redefined-outer-name
     cog = _cog(fake_context)
-    await getattr(cog, method)(cog, fake_context['context'], **args)
-    cog.commands_client.forward.assert_awaited_once()
-    forwarded = cog.commands_client.forward.await_args
-    assert forwarded.args[0] == command
-    assert forwarded.args[2] == args
-    assert forwarded.args[1].guild_id == fake_context['guild'].id
+    await assert_subcommand_forwards(cog, fake_context, method, command, args)
 
 
 @pytest.mark.asyncio

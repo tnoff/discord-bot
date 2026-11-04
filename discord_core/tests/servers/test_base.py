@@ -15,6 +15,8 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from discord_core.servers.base import AiohttpServerBase
 
+from tests.net_support import cancel_task, wait_for_port
+
 
 # ---------------------------------------------------------------------------
 # Minimal concrete server
@@ -77,24 +79,6 @@ async def _wait_for_inflight(server, timeout: float = 5.0) -> None:
         await asyncio.sleep(0.005)
 
 
-async def _wait_for_port(host: str, port: int, timeout: float = 5.0) -> None:
-    '''Poll until a TCP port accepts connections.'''
-    deadline = asyncio.get_event_loop().time() + timeout
-    while True:
-        try:
-            _, writer = await asyncio.open_connection(host, port)
-            writer.close()
-            try:
-                await writer.wait_closed()
-            except OSError:
-                pass
-            return
-        except OSError:
-            if asyncio.get_event_loop().time() >= deadline:
-                raise
-            await asyncio.sleep(0.02)
-
-
 # ---------------------------------------------------------------------------
 # build_app
 # ---------------------------------------------------------------------------
@@ -120,7 +104,7 @@ class TestIsServing:
         (via start_draining) and the serve() teardown clear it.'''
         server = SimpleServer(port=18110)
         task = asyncio.create_task(server.serve())
-        await _wait_for_port('127.0.0.1', 18110)
+        await wait_for_port(18110, host='127.0.0.1')
         try:
             assert server.is_serving is True
         finally:
@@ -132,12 +116,8 @@ class TestIsServing:
         '''Cancelling serve() runs the finally block, clearing is_serving.'''
         server = SimpleServer(port=18111)
         task = asyncio.create_task(server.serve())
-        await _wait_for_port('127.0.0.1', 18111)
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        await wait_for_port(18111, host='127.0.0.1')
+        await cancel_task(task)
         assert server.is_serving is False
 
 
@@ -218,34 +198,26 @@ class TestServeLifecycle:
     async def test_serve_responds_to_requests(self):
         server = SimpleServer(port=18100)
         task = asyncio.create_task(server.serve())
-        await _wait_for_port('127.0.0.1', 18100)
+        await wait_for_port(18100, host='127.0.0.1')
         try:
             async with aiohttp.ClientSession() as session:
                 resp = await session.get('http://127.0.0.1:18100/ping')
                 assert resp.status == 200
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
     async def test_serve_cleanup_on_cancel(self):
         '''Cancelling serve() runs runner.cleanup() without raising unexpected errors.'''
         server = SimpleServer(port=18101)
         task = asyncio.create_task(server.serve())
-        await _wait_for_port('127.0.0.1', 18101)
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass  # expected — nothing else should propagate
+        await wait_for_port(18101, host='127.0.0.1')
+        await cancel_task(task)  # nothing but the expected CancelledError may propagate
 
     async def test_serve_exits_cleanly_after_drain(self):
         '''drain_and_stop() unblocks serve() so the task exits without cancellation.'''
         server = SimpleServer(port=18102)
         task = asyncio.create_task(server.serve())
-        await _wait_for_port('127.0.0.1', 18102)
+        await wait_for_port(18102, host='127.0.0.1')
         await asyncio.wait_for(server.drain_and_stop(timeout=5.0), timeout=5.0)
         result = await asyncio.wait_for(task, timeout=2.0)
         assert result is None  # normal return, not CancelledError
@@ -254,7 +226,7 @@ class TestServeLifecycle:
         '''Once draining, the live server returns 503 to new requests.'''
         server = SimpleServer(port=18103)
         task = asyncio.create_task(server.serve())
-        await _wait_for_port('127.0.0.1', 18103)
+        await wait_for_port(18103, host='127.0.0.1')
         try:
             server.start_draining()
             async with aiohttp.ClientSession() as session:
@@ -275,7 +247,7 @@ class TestDrainWithInflight:
         '''drain_and_stop() blocks until the slow in-flight request completes.'''
         server = SimpleServer(port=18104)
         serve_task = asyncio.create_task(server.serve())
-        await _wait_for_port('127.0.0.1', 18104)
+        await wait_for_port(18104, host='127.0.0.1')
         try:
             async with aiohttp.ClientSession() as session:
                 slow_task = asyncio.create_task(
@@ -295,18 +267,14 @@ class TestDrainWithInflight:
                 resp = await asyncio.wait_for(slow_task, timeout=3.0)
                 assert resp.status == 200
         except Exception:
-            serve_task.cancel()
-            try:
-                await serve_task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(serve_task)
             raise
 
     async def test_timeout_exits_despite_inflight(self):
         '''drain_and_stop() gives up after timeout even if requests are still active.'''
         server = SimpleServer(port=18105)
         serve_task = asyncio.create_task(server.serve())
-        await _wait_for_port('127.0.0.1', 18105)
+        await wait_for_port(18105, host='127.0.0.1')
         try:
             async with aiohttp.ClientSession() as session:
                 slow_task = asyncio.create_task(
@@ -322,17 +290,13 @@ class TestDrainWithInflight:
                     pass
         finally:
             # runner.cleanup() hangs while the handler is blocked, so cancel the task.
-            serve_task.cancel()
-            try:
-                await serve_task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(serve_task)
 
     async def test_timeout_logs_warning(self, caplog):
         '''drain_and_stop() emits a WARNING when the timeout expires with active requests.'''
         server = SimpleServer(port=18106)
         serve_task = asyncio.create_task(server.serve())
-        await _wait_for_port('127.0.0.1', 18106)
+        await wait_for_port(18106, host='127.0.0.1')
         try:
             async with aiohttp.ClientSession() as session:
                 slow_task = asyncio.create_task(
@@ -348,8 +312,4 @@ class TestDrainWithInflight:
                 except (asyncio.CancelledError, aiohttp.ClientError):
                     pass
         finally:
-            serve_task.cancel()
-            try:
-                await serve_task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(serve_task)

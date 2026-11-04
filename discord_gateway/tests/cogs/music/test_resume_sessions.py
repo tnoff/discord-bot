@@ -21,6 +21,7 @@ from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.types.cleanup_reason import CleanupReason
 
+from discord_gateway.tests.cogs.music_cog_support import prepared_cog
 from discord_gateway.tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import (attach_in_process_broker, attach_in_process_download,  #pylint:disable=unused-import
                            attach_in_process_search, FakeChannel,
@@ -95,10 +96,7 @@ async def _queued_uuids(cog, guild_id):
 @pytest.mark.asyncio
 async def test_shutdown_saves_the_channels_and_leaves_the_queue_in_the_broker(mocker, fake_context):  #pylint:disable=redefined-outer-name
     '''BOT_SHUTDOWN records where the player is; the queue stays put for the next gateway.'''
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG)
     voice_channel = _voice_channel([_FakeMember()])
     player = await _player_in_voice(cog, fake_context, mocker, voice_channel)
 
@@ -119,10 +117,7 @@ async def test_shutdown_saves_the_channels_and_leaves_the_queue_in_the_broker(mo
 async def test_shutdown_records_was_playing_false_when_idle(mocker, fake_context):  #pylint:disable=redefined-outer-name
     '''A player parked in voice with nothing playing is saved as not-playing, so
     the resume guard skips it rather than rejoining an idle channel.'''
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG)
     await _player_in_voice(cog, fake_context, mocker, _voice_channel([_FakeMember()]))
 
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.BOT_SHUTDOWN)
@@ -134,10 +129,7 @@ async def test_shutdown_records_was_playing_false_when_idle(mocker, fake_context
 @pytest.mark.asyncio
 async def test_shutdown_records_was_playing_true_mid_track(mocker, fake_context):  #pylint:disable=redefined-outer-name
     '''A player mid-track is saved as playing.'''
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG)
     player = await _player_in_voice(cog, fake_context, mocker, _voice_channel([_FakeMember()]))
 
     with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
@@ -152,10 +144,7 @@ async def test_shutdown_records_was_playing_true_mid_track(mocker, fake_context)
 @pytest.mark.asyncio
 async def test_joining_voice_saves_a_session_for_a_crash_to_find(mocker, fake_context):  #pylint:disable=redefined-outer-name
     '''A crash never reaches BOT_SHUTDOWN, so the session is written as the player joins voice'''
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG)
     voice_channel = _voice_channel([_FakeMember()])
     player = await _player_in_voice(cog, fake_context, mocker, voice_channel)
 
@@ -169,10 +158,7 @@ async def test_joining_voice_saves_a_session_for_a_crash_to_find(mocker, fake_co
 @pytest.mark.asyncio
 async def test_shutdown_without_voice_client_saves_nothing(mocker, fake_context):  #pylint:disable=redefined-outer-name
     '''No voice channel means nothing to rejoin, so no session is written.'''
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     fake_context['guild'].voice_client = None
@@ -186,12 +172,7 @@ async def test_shutdown_without_voice_client_saves_nothing(mocker, fake_context)
 async def test_non_shutdown_cleanup_saves_nothing(mocker, fake_context):  #pylint:disable=redefined-outer-name
     '''Only BOT_SHUTDOWN writes a session — the other reasons mean the guild is
     genuinely done, not coming back.'''
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    attach_in_process_search(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG, download=True, search=True)
     await _player_in_voice(cog, fake_context, mocker, _voice_channel([_FakeMember()]))
 
     await cog.cleanup(fake_context['guild'], reason=CleanupReason.VOICE_INACTIVE)
@@ -202,12 +183,7 @@ async def test_non_shutdown_cleanup_saves_nothing(mocker, fake_context):  #pylin
 @pytest.mark.asyncio
 async def test_non_shutdown_cleanup_closes_the_guilds_queue(mocker, fake_context):  #pylint:disable=redefined-outer-name
     '''A guild that is genuinely done takes its queue with it, so it cannot come back on the next !play'''
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    attach_in_process_search(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG, download=True, search=True)
     player = await _player_in_voice(cog, fake_context, mocker, _voice_channel([_FakeMember()]))
 
     with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:

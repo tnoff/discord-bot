@@ -3,7 +3,6 @@ import asyncio
 
 import pytest
 
-from discord_core.types.download import DownloadResult, DownloadStatus
 from discord_core.types.search_resolution import SearchResolution
 
 from tests.fakes.asyncio_queues import (
@@ -12,7 +11,8 @@ from tests.fakes.asyncio_queues import (
     AsyncioSearchResultQueue,
     AsyncioWorkQueue,
 )
-from tests.helpers import fake_source_dict, generate_fake_context
+from tests.download_result_queue_suite import DownloadResultQueueSuite
+from tests.helpers import fake_source_dict, generate_fake_context, minimal_download_result
 
 
 # ---------------------------------------------------------------------------
@@ -153,7 +153,7 @@ async def test_work_queue_acquire_release_lock_noop():
 
 
 @pytest.mark.asyncio
-async def test_work_queue_store_and_get_result():
+async def test_work_queue_store_and_getminimal_download_result():
     '''store_result then get_result returns the stored dict.'''
     q = AsyncioWorkQueue()
     await q.store_result('req-1', {'data': 42})
@@ -171,44 +171,21 @@ async def test_work_queue_get_result_missing_returns_none():
 # AsyncioDownloadResultQueue
 # ---------------------------------------------------------------------------
 
+class TestAsyncioDownloadResultQueue(DownloadResultQueueSuite):
+    '''The shared download-result queue cases, against the in-process double.'''
 
-def _result():
-    mr = fake_source_dict(generate_fake_context())
-    return DownloadResult(
-        status=DownloadStatus(success=True),
-        media_request=mr,
-        ytdlp_data={'id': 'x', 'title': 't', 'webpage_url': 'http://e/v'},
-        file_name=None,
-    )
+    def make_queue(self):
+        return AsyncioDownloadResultQueue()
 
 
 @pytest.mark.asyncio
 async def test_download_result_queue_put_then_get():
     '''put then get_nowait returns the queued result.'''
     q = AsyncioDownloadResultQueue()
-    r = _result()
+    r = minimal_download_result()
     await q.put(r)
     popped = await q.get_nowait()
     assert popped is r
-
-
-@pytest.mark.asyncio
-async def test_download_result_queue_get_empty_returns_none():
-    '''get_nowait on an empty queue returns None.'''
-    q = AsyncioDownloadResultQueue()
-    assert await q.get_nowait() is None
-
-
-@pytest.mark.asyncio
-async def test_download_result_queue_depth():
-    '''depth() reflects qsize and drops as items are popped.'''
-    q = AsyncioDownloadResultQueue()
-    assert await q.depth() == 0
-    await q.put(_result())
-    await q.put(_result())
-    assert await q.depth() == 2
-    await q.get_nowait()
-    assert await q.depth() == 1
 
 
 @pytest.mark.asyncio
@@ -217,7 +194,7 @@ async def test_download_result_queue_raw_queue_is_underlying_queue():
     raw = asyncio.Queue()
     q = AsyncioDownloadResultQueue(raw)
     assert q.raw_queue is raw
-    await q.put(_result())
+    await q.put(minimal_download_result())
     assert raw.qsize() == 1
 
 

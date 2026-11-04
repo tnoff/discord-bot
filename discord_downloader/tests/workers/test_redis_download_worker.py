@@ -20,20 +20,19 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from discord_core.clients.redis_client import RedisManager
-from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.exceptions import ExitEarlyException
 from discord_core.types.download import DownloadErrorType, DownloadResult, DownloadStatus
-from discord_core.types.media_request import MediaRequest
-from discord_core.types.search import SearchResult
 
 from discord_core.types.queue import PutsBlocked
-from discord_core.workers.redis_guild_queue import GUILD_BLOCK_TTL_SECONDS
 
 from discord_downloader.workers.redis_download_worker import (
     RedisDownloadWorker, DirectItemAvailableException,
     DEFERRED_RETRIES_KEY, FAILURES_DIRECT_KEY, GUILDS_DIRECT_KEY, GUILDS_YOUTUBE_KEY,
     youtube_failures_key, youtube_wait_until_key,
 )
+
+from tests.fakes.worker_requests import queue_request
+from tests.guild_queue_worker_suite import GuildQueueWorkerSuite, spy_redis_writes
 
 
 def _manager() -> RedisManager:
@@ -71,16 +70,6 @@ def _pool_worker(manager=None, *, exits=('us-lax-wg-001', 'us-nyc-wg-301'), wait
     return worker
 
 
-def _mk(*, guild_id=7, direct=False) -> MediaRequest:
-    return MediaRequest(
-        guild_id=guild_id, channel_id=2, requester_name='tester', requester_id=9,
-        search_result=SearchResult(
-            search_type=SearchType.DIRECT if direct else SearchType.SEARCH,
-            raw_search_string='https://example.com/v.mp4' if direct else 'song name',
-        ),
-    )
-
-
 def _result(media_request, *, success=True, error_type=None, extractor=None) -> DownloadResult:
     return DownloadResult(
         status=DownloadStatus(success=success, error_type=error_type,
@@ -89,6 +78,17 @@ def _result(media_request, *, success=True, error_type=None, extractor=None) -> 
         ytdlp_data={'extractor': extractor} if extractor else {},
         file_name=Path('/tmp/x.pcm') if success else None,
     )
+
+
+class TestDownloadGuildQueue(GuildQueueWorkerSuite):
+    '''The shared guild-queue cases, against the download worker.'''
+    guilds_key = GUILDS_YOUTUBE_KEY
+
+    def make_worker(self):
+        return _worker()
+
+    def make_request(self, guild_id=7):
+        return queue_request(guild_id=guild_id)
 
 
 # --------------------------------------------------------------------------- #
@@ -106,8 +106,8 @@ def test_key_helpers():
     assert w._guilds_zset_key(direct=True) == GUILDS_DIRECT_KEY
     assert w._failures_key(direct=True) == FAILURES_DIRECT_KEY
     assert w._failures_key(direct=False) == youtube_failures_key('default')
-    assert w._is_direct(_mk(direct=True)) is True
-    assert w._is_direct(_mk(direct=False)) is False
+    assert w._is_direct(queue_request(direct=True)) is True
+    assert w._is_direct(queue_request(direct=False)) is False
 
 
 def test_default_egress_key_preserves_legacy_schema():
@@ -136,7 +136,7 @@ async def test_enqueue_stamps_queue_order_once_and_preserves_on_requeue():
     w = _worker()
     now = [100.0]
     w._now_seconds = lambda: now[0]
-    mr = _mk()
+    mr = queue_request()
     key = w._guild_queue_key(7, direct=False)
     await w._enqueue_request(7, mr)
     assert mr.queue_order == 100.0
@@ -161,7 +161,7 @@ def test_startup_floor_armed_by_default():
 @pytest.mark.asyncio
 async def test_submit_routes_search_to_youtube_pool():
     w = _worker()
-    await w.submit(7, _mk(guild_id=7, direct=False))
+    await w.submit(7, queue_request(guild_id=7, direct=False))
     client = w._manager.client
     assert await client.zcard(w._guild_queue_key(7, direct=False)) == 1
     assert await client.zcard(w._guild_queue_key(7, direct=True)) == 0
@@ -171,7 +171,7 @@ async def test_submit_routes_search_to_youtube_pool():
 @pytest.mark.asyncio
 async def test_submit_routes_direct_to_direct_pool_and_sets_cache():
     w = _worker()
-    await w.submit(7, _mk(guild_id=7, direct=True))
+    await w.submit(7, queue_request(guild_id=7, direct=True))
     client = w._manager.client
     assert await client.zcard(w._guild_queue_key(7, direct=True)) == 1
     assert await client.zrange(GUILDS_DIRECT_KEY, 0, -1) == ['7']
@@ -181,8 +181,8 @@ async def test_submit_routes_direct_to_direct_pool_and_sets_cache():
 @pytest.mark.asyncio
 async def test_submit_priority_orders_lower_first():
     w = _worker()
-    high = _mk(guild_id=7)
-    low = _mk(guild_id=7)
+    high = queue_request(guild_id=7)
+    low = queue_request(guild_id=7)
     await w.submit(7, high, priority=10)
     await w.submit(7, low, priority=5)
     ordered = await w._manager.client.zrange(w._guild_queue_key(7, direct=False), 0, -1)
@@ -193,9 +193,9 @@ async def test_submit_priority_orders_lower_first():
 async def test_submit_zadd_nx_keeps_round_robin_position():
     w = _worker()
     w._now_seconds = lambda: 100.0
-    await w.submit(7, _mk(guild_id=7))
+    await w.submit(7, queue_request(guild_id=7))
     w._now_seconds = lambda: 200.0
-    await w.submit(7, _mk(guild_id=7))
+    await w.submit(7, queue_request(guild_id=7))
     score = await w._manager.client.zscore(GUILDS_YOUTUBE_KEY, '7')
     assert score == 100.0  # NX left the original last-popped position
 
@@ -207,39 +207,14 @@ async def test_submit_zadd_nx_keeps_round_robin_position():
 @pytest.mark.asyncio
 async def test_clear_guild_queue_drops_all_and_empties_tracker():
     w = _worker()
-    await w.submit(7, _mk(guild_id=7))
-    await w.submit(7, _mk(guild_id=7, direct=True))
+    await w.submit(7, queue_request(guild_id=7))
+    await w.submit(7, queue_request(guild_id=7, direct=True))
     dropped = await w.clear_guild_queue(7)
     assert len(dropped) == 2
     client = w._manager.client
     assert await w.queue_size(7) == 0
     assert await client.zrange(GUILDS_YOUTUBE_KEY, 0, -1) == []
     assert await client.zrange(GUILDS_DIRECT_KEY, 0, -1) == []
-
-
-@pytest.mark.asyncio
-async def test_clear_guild_queue_preserve_predicate_keeps_matches():
-    w = _worker()
-    keep = _mk(guild_id=7)
-    drop = _mk(guild_id=7)
-    await w.submit(7, keep)
-    await w.submit(7, drop)
-    dropped = await w.clear_guild_queue(
-        7, preserve_predicate=lambda r: str(r.uuid) == str(keep.uuid))
-    assert [str(r.uuid) for r in dropped] == [str(drop.uuid)]
-    assert await w.queue_size(7) == 1
-
-
-@pytest.mark.asyncio
-async def test_clear_guild_queue_handles_missing_payload():
-    w = _worker()
-    mr = _mk(guild_id=7)
-    await w.submit(7, mr)
-    # Simulate the request payload having TTL'd away.
-    await w._manager.client.delete(w._request_key(str(mr.uuid)))
-    dropped = await w.clear_guild_queue(7)
-    assert dropped == []
-    assert await w.queue_size(7) == 0
 
 
 @pytest.mark.asyncio
@@ -252,9 +227,9 @@ async def test_block_guild_sets_marker():
 @pytest.mark.asyncio
 async def test_queue_size_sums_both_pools():
     w = _worker()
-    await w.submit(7, _mk(guild_id=7))
-    await w.submit(7, _mk(guild_id=7))
-    await w.submit(7, _mk(guild_id=7, direct=True))
+    await w.submit(7, queue_request(guild_id=7))
+    await w.submit(7, queue_request(guild_id=7))
+    await w.submit(7, queue_request(guild_id=7, direct=True))
     assert await w.queue_size(7) == 3
     assert await w.queue_size(99) == 0
 
@@ -274,7 +249,7 @@ async def test_dequeue_direct_empty_raises_queue_empty():
 @pytest.mark.asyncio
 async def test_dequeue_direct_returns_request():
     w = _worker()
-    mr = _mk(guild_id=7, direct=True)
+    mr = queue_request(guild_id=7, direct=True)
     await w.submit(7, mr)
     got = await w._dequeue_direct()
     assert str(got.uuid) == str(mr.uuid)
@@ -283,8 +258,8 @@ async def test_dequeue_direct_returns_request():
 @pytest.mark.asyncio
 async def test_merged_get_prefers_direct():
     w = _worker()
-    direct = _mk(guild_id=7, direct=True)
-    await w.submit(7, _mk(guild_id=7, direct=False))
+    direct = queue_request(guild_id=7, direct=True)
+    await w.submit(7, queue_request(guild_id=7, direct=False))
     await w.submit(7, direct)
     got = await w._merged_get_nowait()
     assert str(got.uuid) == str(direct.uuid)
@@ -293,7 +268,7 @@ async def test_merged_get_prefers_direct():
 @pytest.mark.asyncio
 async def test_merged_get_youtube_when_no_direct():
     w = _worker()
-    yt = _mk(guild_id=7, direct=False)
+    yt = queue_request(guild_id=7, direct=False)
     await w.submit(7, yt)
     got = await w._merged_get_nowait()
     assert str(got.uuid) == str(yt.uuid)
@@ -310,7 +285,7 @@ async def test_merged_get_empty_raises():
 async def test_merged_get_youtube_backoff_refreshes_cache_and_raises():
     w = _worker()
     w._now_seconds = lambda: 1000.0
-    await w.submit(7, _mk(guild_id=7))
+    await w.submit(7, queue_request(guild_id=7))
     # Arm the shared window in the future so the pop bails.
     await w._manager.client.set(w._youtube_wait_until_key, '1030.0')
     with pytest.raises(asyncio.QueueEmpty):
@@ -322,7 +297,7 @@ async def test_merged_get_youtube_backoff_refreshes_cache_and_raises():
 async def test_youtube_pop_claims_window_with_ttl():
     w = _worker()
     w._now_seconds = lambda: 1000.0
-    await w.submit(7, _mk(guild_id=7))
+    await w.submit(7, queue_request(guild_id=7))
     got = await w._merged_get_nowait()
     assert got is not None
     client = w._manager.client
@@ -334,8 +309,8 @@ async def test_youtube_pop_claims_window_with_ttl():
 @pytest.mark.asyncio
 async def test_round_robin_rotates_across_guilds_direct():
     w = _worker()
-    await w.submit(7, _mk(guild_id=7, direct=True))
-    await w.submit(8, _mk(guild_id=8, direct=True))
+    await w.submit(7, queue_request(guild_id=7, direct=True))
+    await w.submit(8, queue_request(guild_id=8, direct=True))
     first = await w._dequeue_direct()
     second = await w._dequeue_direct()
     assert {first.guild_id, second.guild_id} == {7, 8}
@@ -367,7 +342,7 @@ async def test_backoff_wait_raises_on_shutdown():
 async def test_backoff_wait_interrupts_on_direct_arrival():
     w = _worker()
     w._startup_wait_until = w._now_seconds() + 100  # long window
-    await w.submit(7, _mk(guild_id=7, direct=True))
+    await w.submit(7, queue_request(guild_id=7, direct=True))
     with pytest.raises(DirectItemAvailableException):
         await w.backoff_wait(asyncio.Event())
     assert w.has_direct_pending is True
@@ -493,7 +468,7 @@ async def test_pool_mode_pop_does_not_claim_global_window():
     — that's what lets concurrent drivers pop in parallel instead of serialising.'''
     w = _pool_worker(exits=('us-lax-wg-001', 'us-lax-wg-002'))
     w._now_seconds = lambda: 1000.0
-    await w._enqueue_request(7, _mk())
+    await w._enqueue_request(7, queue_request())
     popped = await w._atomic_pop_youtube()
     assert popped is not None and popped[0] != 'wait' and len(popped) == 3
     assert await w._manager.client.get(w._youtube_wait_until_key) is None
@@ -526,7 +501,7 @@ async def test_update_youtube_tracking_failure_keys_by_exit():
     leaving the default bucket and other exits untouched.'''
     w = _worker()
     w._now_seconds = lambda: 1000.0
-    result = _result(_mk(), success=False, error_type=DownloadErrorType.RETRYABLE)
+    result = _result(queue_request(), success=False, error_type=DownloadErrorType.RETRYABLE)
     await w._update_youtube_tracking(result, 'us-lax-wg-001')
     client = w._manager.client
     assert float(await client.get(youtube_wait_until_key('us-lax-wg-001'))) > 1000.0
@@ -542,7 +517,7 @@ async def test_update_youtube_tracking_success_spaces_leased_exit():
     the exit can't immediately be reserved again.'''
     w = _worker()
     w._now_seconds = lambda: 1000.0
-    await w._update_youtube_tracking(_result(_mk(), success=True, extractor='youtube'),
+    await w._update_youtube_tracking(_result(queue_request(), success=True, extractor='youtube'),
                                      'us-sea-wg-001')
     assert await w._reserve_youtube_exit('us-sea-wg-001') is False
 
@@ -552,7 +527,7 @@ async def test_update_youtube_tracking_exitless_uses_default_bucket():
     '''Fixed http-proxy mode (exit_name=None) keeps the legacy default bucket.'''
     w = _worker()
     w._now_seconds = lambda: 1000.0
-    result = _result(_mk(), success=False, error_type=DownloadErrorType.RETRYABLE)
+    result = _result(queue_request(), success=False, error_type=DownloadErrorType.RETRYABLE)
     await w._update_youtube_tracking(result, None)
     assert float(await w._manager.client.get(w._youtube_wait_until_key)) > 1000.0
 
@@ -612,7 +587,7 @@ async def test_direct_failures_independent_of_youtube():
 async def test_update_tracking_youtube_success_extends_and_pops_failure():
     w = _worker()
     await w._record_failure(direct=False)
-    await w.update_tracking(_result(_mk(direct=False), success=True, extractor='youtube'))
+    await w.update_tracking(_result(queue_request(direct=False), success=True, extractor='youtube'))
     assert await w._manager.client.zcard(w._youtube_failures_key) == 0
     assert await w._manager.client.get(w._youtube_wait_until_key) is not None
 
@@ -620,7 +595,7 @@ async def test_update_tracking_youtube_success_extends_and_pops_failure():
 @pytest.mark.asyncio
 async def test_update_tracking_non_youtube_success_no_backoff():
     w = _worker()
-    await w.update_tracking(_result(_mk(direct=False), success=True, extractor='soundcloud'))
+    await w.update_tracking(_result(queue_request(direct=False), success=True, extractor='soundcloud'))
     assert await w._manager.client.get(w._youtube_wait_until_key) is None
 
 
@@ -628,7 +603,7 @@ async def test_update_tracking_non_youtube_success_no_backoff():
 async def test_update_tracking_retryable_failure_extends_by_exponent():
     w = _worker()
     w._now_seconds = lambda: 1000.0
-    await w.update_tracking(_result(_mk(direct=False), success=False,
+    await w.update_tracking(_result(queue_request(direct=False), success=False,
                                     error_type=DownloadErrorType.RETRYABLE))
     # count==1 -> multiplier 2**1 -> >= now + wait_min*2
     assert float(await w._manager.client.get(w._youtube_wait_until_key)) >= 1020.0
@@ -637,7 +612,7 @@ async def test_update_tracking_retryable_failure_extends_by_exponent():
 @pytest.mark.asyncio
 async def test_update_tracking_terminal_failure_no_failure_recorded():
     w = _worker()
-    await w.update_tracking(_result(_mk(direct=False), success=False,
+    await w.update_tracking(_result(queue_request(direct=False), success=False,
                                     error_type=DownloadErrorType.PRIVATE_VIDEO))
     assert await w._manager.client.zcard(w._youtube_failures_key) == 0
     assert await w._manager.client.get(w._youtube_wait_until_key) is not None
@@ -646,7 +621,7 @@ async def test_update_tracking_terminal_failure_no_failure_recorded():
 @pytest.mark.asyncio
 async def test_update_tracking_direct_uses_direct_pool():
     w = _worker()
-    await w.update_tracking(_result(_mk(direct=True), success=False,
+    await w.update_tracking(_result(queue_request(direct=True), success=False,
                                     error_type=DownloadErrorType.RETRYABLE))
     assert await w._manager.client.zcard(FAILURES_DIRECT_KEY) == 1
     # DIRECT never touches the youtube backoff window.
@@ -657,7 +632,7 @@ async def test_update_tracking_direct_uses_direct_pool():
 async def test_update_tracking_direct_success_pops_direct_failure():
     w = _worker()
     await w._record_failure(direct=True)
-    await w.update_tracking(_result(_mk(direct=True), success=True))
+    await w.update_tracking(_result(queue_request(direct=True), success=True))
     assert await w._manager.client.zcard(FAILURES_DIRECT_KEY) == 0
 
 
@@ -689,9 +664,9 @@ async def test_pop_lock_falls_through_on_contention(monkeypatch):
 @pytest.mark.asyncio
 async def test_status_snapshot_reports_per_guild_sizes_and_defaults():
     w = _worker()
-    await w.submit(7, _mk(guild_id=7, direct=False))
-    await w.submit(7, _mk(guild_id=7, direct=True))
-    await w.submit(8, _mk(guild_id=8, direct=False))
+    await w.submit(7, queue_request(guild_id=7, direct=False))
+    await w.submit(7, queue_request(guild_id=7, direct=True))
+    await w.submit(8, queue_request(guild_id=8, direct=False))
     snapshot = await w.status_snapshot()
     # Guild 7 has one youtube + one direct item; guild 8 has one youtube item.
     assert snapshot['queue_sizes'] == {'7': 2, '8': 1}
@@ -705,7 +680,7 @@ async def test_status_snapshot_reports_per_guild_sizes_and_defaults():
 async def test_status_snapshot_reports_backoff_and_failures():
     w = _worker()
     # A YouTube failure extends the shared wait window and grows the failure ZSET.
-    await w.update_tracking(_result(_mk(direct=False), success=False,
+    await w.update_tracking(_result(queue_request(direct=False), success=False,
                                     error_type=DownloadErrorType.RETRYABLE))
     snapshot = await w.status_snapshot()
     assert snapshot['backoff_seconds_remaining'] is not None
@@ -731,7 +706,7 @@ async def test_youtube_failure_logs_egress_exit(mocker):
     w = _worker()
     w.set_exit_probe(_FakeExitProbe())
     logger = mocker.patch.object(w, 'logger')
-    result = _result(_mk(direct=False), success=False, error_type=DownloadErrorType.RETRYABLE)
+    result = _result(queue_request(direct=False), success=False, error_type=DownloadErrorType.RETRYABLE)
     await w.update_tracking(result)
     logger.warning.assert_called_once()
     assert 'us-lax-wg-101' in logger.warning.call_args.args
@@ -743,7 +718,7 @@ async def test_direct_failure_does_not_log_egress(mocker):
     w = _worker()
     w.set_exit_probe(_FakeExitProbe())
     log_exit = mocker.patch.object(w, '_log_exit_failure')
-    result = _result(_mk(direct=True), success=False, error_type=DownloadErrorType.RETRYABLE)
+    result = _result(queue_request(direct=True), success=False, error_type=DownloadErrorType.RETRYABLE)
     await w.update_tracking(result)
     log_exit.assert_not_called()
 
@@ -754,7 +729,7 @@ async def test_youtube_success_does_not_log_egress(mocker):
     w = _worker()
     w.set_exit_probe(_FakeExitProbe())
     log_exit = mocker.patch.object(w, '_log_exit_failure')
-    result = _result(_mk(direct=False), success=True, extractor='youtube')
+    result = _result(queue_request(direct=False), success=True, extractor='youtube')
     await w.update_tracking(result)
     log_exit.assert_not_called()
 
@@ -770,7 +745,7 @@ async def test_pool_is_empty_tracks_the_round_robin_zset():
     w = _worker()
     assert await w._pool_is_empty(direct=True) is True
     assert await w._pool_is_empty(direct=False) is True
-    await w._enqueue_request(7, _mk(direct=True))
+    await w._enqueue_request(7, queue_request(direct=True))
     assert await w._pool_is_empty(direct=True) is False
     # The pools are independent — a DIRECT item leaves the YouTube pool empty.
     assert await w._pool_is_empty(direct=False) is True
@@ -782,19 +757,7 @@ async def test_idle_pop_takes_no_lock():
     discover an empty queue. Pool mode runs a driver per egress exit and every driver
     polls on the idle interval, so that cycle was the pod's dominant redis traffic.'''
     w = _worker()
-    writes = []
-    client = w._manager.client
-    real_set, real_delete = client.set, client.delete
-
-    async def _spy_set(*args, **kwargs):
-        writes.append(('set', args[0]))
-        return await real_set(*args, **kwargs)
-
-    async def _spy_delete(*args, **kwargs):
-        writes.append(('delete', args[0]))
-        return await real_delete(*args, **kwargs)
-
-    client.set, client.delete = _spy_set, _spy_delete
+    writes = spy_redis_writes(w)
 
     assert await w._atomic_pop_direct() is None
     assert await w._atomic_pop_youtube() is None
@@ -870,7 +833,7 @@ async def test_deferred_retry_is_withheld_until_ready():
     instantly just leases the next free exit and burns it.
     '''
     w = _worker()
-    request = _mk()
+    request = queue_request()
     await w._enqueue_deferred_request(request.guild_id, request,
                                       w._now_seconds() + 3600)
     # Parked: nothing on the guild queue, so the consumer loop sees an empty pool.
@@ -895,7 +858,7 @@ async def test_deferred_retry_is_withheld_until_ready():
 async def test_promote_ready_retries_drops_expired_payload():
     '''A deferred entry whose request payload TTL'd away is discarded, not raised.'''
     w = _worker()
-    request = _mk()
+    request = queue_request()
     await w._enqueue_deferred_request(request.guild_id, request, w._now_seconds() - 1)
     await w._manager.client.delete(w._request_key(str(request.uuid)))
 
@@ -915,7 +878,7 @@ async def test_deferred_retry_claimed_once_across_pods():
     '''
     manager = _manager()
     pod_a, pod_b = _worker(manager), _worker(manager)
-    request = _mk()
+    request = queue_request()
     await pod_a._enqueue_deferred_request(request.guild_id, request,
                                           pod_a._now_seconds() - 1)
 
@@ -930,7 +893,7 @@ async def test_deferred_retry_counts_toward_queue_size():
     '''A guild waiting only on a deferred retry does not report an empty queue —
     a caller reading 0 concludes the guild has drained.'''
     w = _worker()
-    request = _mk(guild_id=11)
+    request = queue_request(guild_id=11)
     await w._enqueue_deferred_request(11, request, w._now_seconds() + 3600)
     assert await w.queue_size(11) == 1
     # Scoped to the guild that owns it.
@@ -942,7 +905,7 @@ async def test_clear_guild_queue_drops_deferred_retries():
     '''Clearing a guild takes its parked retries with it — otherwise a cleared
     request reappears minutes later when its hold-off elapses.'''
     w = _worker()
-    mine, theirs = _mk(guild_id=11), _mk(guild_id=12)
+    mine, theirs = queue_request(guild_id=11), queue_request(guild_id=12)
     await w._enqueue_deferred_request(11, mine, w._now_seconds() + 3600)
     await w._enqueue_deferred_request(12, theirs, w._now_seconds() + 3600)
 
@@ -959,7 +922,7 @@ async def test_clear_guild_queue_drops_deferred_retries():
 async def test_clear_guild_queue_honours_preserve_predicate_for_deferred():
     '''A preserved deferred retry survives the clear and stays parked.'''
     w = _worker()
-    request = _mk(guild_id=11)
+    request = queue_request(guild_id=11)
     await w._enqueue_deferred_request(11, request, w._now_seconds() + 3600)
 
     dropped = await w.clear_guild_queue(11, preserve_predicate=lambda _r: True)
@@ -976,7 +939,7 @@ async def test_promote_ready_retries_skips_member_another_pod_claimed(mocker):
     anyway would download the same request on two pods.
     '''
     w = _worker()
-    request = _mk()
+    request = queue_request()
     await w._enqueue_deferred_request(request.guild_id, request, w._now_seconds() - 1)
     mocker.patch.object(w._manager.client, 'zrem', AsyncMock(return_value=0))
 
@@ -990,7 +953,7 @@ async def test_promote_ready_retries_skips_member_another_pod_claimed(mocker):
 async def test_clear_guild_queue_prunes_deferred_with_expired_payload():
     '''A deferred entry whose payload TTL'd away is pruned by a clear, not returned.'''
     w = _worker()
-    request = _mk(guild_id=11)
+    request = queue_request(guild_id=11)
     await w._enqueue_deferred_request(11, request, w._now_seconds() + 3600)
     await w._manager.client.delete(w._request_key(str(request.uuid)))
 
@@ -1005,17 +968,6 @@ async def test_clear_guild_queue_prunes_deferred_with_expired_payload():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_submit_raises_puts_blocked_while_guild_blocked():
-    '''The flag is now enforced on submit — it used to be written and never read,
-    so a blocked guild kept accepting work.'''
-    w = _worker()
-    await w.block_guild(7)
-    with pytest.raises(PutsBlocked):
-        await w.submit(7, _mk(guild_id=7))
-    assert await w.queue_size(7) == 0
-
-
-@pytest.mark.asyncio
 async def test_clear_stale_guild_blocks_drops_legacy_download_blocks():
     '''
     The download tier carries the same pre-TTL leftovers as the search tier.
@@ -1026,11 +978,11 @@ async def test_clear_stale_guild_blocks_drops_legacy_download_blocks():
     w = _worker()
     await w._manager.client.set(w._guild_blocked_key(7), '1')  # legacy: no ex=
     with pytest.raises(PutsBlocked):
-        await w.submit(7, _mk(guild_id=7))
+        await w.submit(7, queue_request(guild_id=7))
 
     assert await w.clear_stale_guild_blocks() == 1
 
-    await w.submit(7, _mk(guild_id=7))
+    await w.submit(7, queue_request(guild_id=7))
     assert await w.queue_size(7) == 1
 
 
@@ -1043,42 +995,11 @@ async def test_clear_stale_guild_blocks_spares_the_queue_keys():
     than the :blocked suffix would delete a guild's queued work.
     '''
     w = _worker()
-    await w.submit(7, _mk(guild_id=7))
-    await w.submit(7, _mk(guild_id=7, direct=True))
+    await w.submit(7, queue_request(guild_id=7))
+    await w.submit(7, queue_request(guild_id=7, direct=True))
 
     assert await w.clear_stale_guild_blocks() == 0
     assert await w.queue_size(7) == 2
-
-
-@pytest.mark.asyncio
-async def test_block_guild_expires():
-    '''The block carries a TTL.  DistributedQueue.block, which this mirrors,
-    blocks a queue object that is dropped when the guild's queue drains or is
-    cleared, so the in-process block is inherently transient and has no unblock
-    call.  A key with no expiry would wedge the guild permanently instead.'''
-    w = _worker()
-    await w.block_guild(7)
-    ttl = await w._manager.client.ttl(w._guild_blocked_key(7))
-    assert 0 < ttl <= GUILD_BLOCK_TTL_SECONDS
-
-
-@pytest.mark.asyncio
-async def test_submit_allowed_again_once_block_expires():
-    '''Once the window lapses the guild accepts submissions again.'''
-    w = _worker()
-    await w.block_guild(7)
-    await w._manager.client.delete(w._guild_blocked_key(7))  # simulate expiry
-    await w.submit(7, _mk(guild_id=7))
-    assert await w.queue_size(7) == 1
-
-
-@pytest.mark.asyncio
-async def test_block_is_scoped_to_one_guild():
-    '''Blocking one guild leaves the others accepting work.'''
-    w = _worker()
-    await w.block_guild(7)
-    await w.submit(8, _mk(guild_id=8))
-    assert await w.queue_size(8) == 1
 
 
 @pytest.mark.asyncio
@@ -1089,5 +1010,5 @@ async def test_internal_requeue_is_not_blocked():
     raising there would take the loop down rather than shed one request.'''
     w = _worker()
     await w.block_guild(7)
-    await w._enqueue_request(7, _mk(guild_id=7))
+    await w._enqueue_request(7, queue_request(guild_id=7))
     assert await w.queue_size(7) == 1

@@ -20,7 +20,9 @@ from discord_core.types.player_session import PlayerSession
 from discord_core.utils.integrations.s3 import delete_file, get_file
 
 from discord_broker.interfaces.broker_protocols import BrokerEntry, CheckoutResult, MediaBrokerBase, Zone
-from discord_broker.workers.media_bundle import BundleRenderer, BundleState
+from discord_broker.workers.media_bundle import BundleState
+
+from tests.fakes.bundle_attach import BundleAttachMixin
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ def _copy_and_checksum(src: Path, dst: Path) -> tuple[str, str]:
     )
 
 
-class AsyncioBroker(MediaBrokerBase):
+class AsyncioBroker(BundleAttachMixin, MediaBrokerBase):
     '''
     In-memory media broker backed by a plain dict registry.
 
@@ -61,15 +63,7 @@ class AsyncioBroker(MediaBrokerBase):
         key = str(media_request.uuid)
         if key not in self._registry:
             self._registry[key] = BrokerEntry(request=media_request)
-        # If the request belongs to a known bundle, attach it.  Loading the
-        # renderer rebuilds the table from BundleState, mutates it via
-        # add_media_request, and we keep the (mutated) state in the dict.
-        bundle_uuid = media_request.bundle_uuid
-        if bundle_uuid and bundle_uuid in self._bundles:
-            renderer = BundleRenderer(self._bundles[bundle_uuid])
-            renderer.add_media_request(media_request)
-            self._bundles[bundle_uuid] = renderer.state
-            await self._maybe_render_bundle(media_request)
+        await self._attach_to_bundle(media_request)
 
     async def update_request_status(self, request_uuid: str, update: LifecycleStatusUpdate) -> None:
         entry = self._registry.get(request_uuid)
