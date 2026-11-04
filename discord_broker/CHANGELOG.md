@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.7.1] - 2026-11-04
+
+### Changed
+
+- Moved the test code that several test modules each carried a copy of into shared helpers, so the tests no longer need the `duplicate-code` pylint suppression.
+
 ## [3.7.0] - 2026-11-04
 
 ### Changed
