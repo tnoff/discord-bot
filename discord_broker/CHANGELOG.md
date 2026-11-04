@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.7.0] - 2026-11-04
+
+### Changed
+
+- Support separate queue and cache buckets (#1188). With `music.storage.cache_bucket_name` set, a fresh download is no longer cataloged when it finishes downloading; after a track plays to the end the broker copies it from the queue bucket to the cache bucket, catalogs it there and deletes the queue object (`RedisBroker.retire_download`). Skipped, cleared and closed tracks only lose their queue object. Checkout and cache eviction pick the bucket from the key prefix, and `--flush-cache` works on the cache bucket. Without `cache_bucket_name` nothing changes.
+
 ## [3.6.5] - 2026-11-03
 
 ### Changed

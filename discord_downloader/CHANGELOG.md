@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.4.0] - 2026-11-04
+
+### Changed
+
+- With `music.download.storage.cache_bucket_name` set (#1188) the downloader uploads to `queue/<file>` instead of `cache/<file>`. The cache bucket is never used by this pod. Without it nothing changes.
+
 ## [3.3.15] - 2026-11-03
 
 ### Changed

@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.16.0] - 2026-11-04
+
+### Changed
+
+- Read each song from the bucket its key lives in (#1188): with `music.download.storage.cache_bucket_name` set, `cache/` keys come from the cache bucket and the rest from the queue bucket. Without it nothing changes.
+
 ## [3.15.5] - 2026-11-03
 
 ### Changed
