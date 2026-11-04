@@ -33,6 +33,27 @@ from discord_broker.workers.media_bundle import BundleRenderer, BundleState
 
 logger = logging.getLogger(__name__)
 
+# Object key prefixes (discord-bot#1188). The downloader keys a song under QUEUE_KEY_PREFIX while the
+# buckets are split, and the broker moves it to CACHE_KEY_PREFIX in the cache bucket once it has
+# played. The downloader and the gateway hold the same two strings; the pods cannot import each other.
+QUEUE_KEY_PREFIX = 'queue/'
+CACHE_KEY_PREFIX = 'cache/'
+
+
+def bucket_for_key(key: str, bucket_name: str | None, cache_bucket_name: str | None) -> str | None:
+    '''
+    The bucket an object key lives in.
+
+    The buckets are split (discord-bot#1188) when cache_bucket_name is set: bucket_name is then the
+    queue bucket. Which one an object is in is decided by its key, not recorded per object: keys under
+    cache/ are in the cache bucket and everything else in the queue bucket. Objects and catalog rows
+    from before the split are all cache/ keys in what is now the cache bucket, so nothing is moved.
+    Without cache_bucket_name there is one bucket and every key is in bucket_name, as before.
+    '''
+    if cache_bucket_name and str(key).startswith(CACHE_KEY_PREFIX):
+        return cache_bucket_name
+    return bucket_name
+
 # Re-exported so callers that already import DownloadResultQueue from
 # broker_protocols keep working.  The canonical home is interfaces/result_queue.py
 # — kept separate to avoid dragging the broker engine's deps into the dispatcher
@@ -132,11 +153,12 @@ class MediaBrokerBase(PlayerSessionStore, ABC):
     template methods that call the abstract can_evict_base. All other broker
     operations are declared as abstract methods.
 
-    Concrete subclasses must set video_cache and bucket_name in __init__.
+    Concrete subclasses must set video_cache, bucket_name and cache_bucket_name in __init__.
     '''
 
     video_cache: VideoCacheStore | None
     bucket_name: str | None
+    cache_bucket_name: str | None
 
     # ------------------------------------------------------------------
     # Shared cache helpers (template methods)
@@ -180,7 +202,7 @@ class MediaBrokerBase(PlayerSessionStore, ABC):
             if not to_delete:
                 return 0
             for vc in to_delete:
-                delete_file(self.bucket_name, str(vc.base_path))
+                delete_file(bucket_for_key(str(vc.base_path), self.bucket_name, self.cache_bucket_name), str(vc.base_path))
             await self.video_cache.remove_video_cache([vc.id for vc in to_delete])
             return len(to_delete)
 
@@ -257,6 +279,7 @@ class MediaBrokerBase(PlayerSessionStore, ABC):
 
     def __init__(self, video_cache: VideoCacheStore | None = None,
                  bucket_name: str | None = None,
+                 cache_bucket_name: str | None = None,
                  dispatcher: 'BundleDispatchSink | None' = None,
                  download_max_retries: int = 3,
                  search_max_retries: int = 3,
@@ -276,6 +299,7 @@ class MediaBrokerBase(PlayerSessionStore, ABC):
         '''
         self.video_cache = video_cache
         self.bucket_name = bucket_name
+        self.cache_bucket_name = cache_bucket_name
         self.dispatcher = dispatcher
         self.download_max_retries = download_max_retries
         self.search_max_retries = search_max_retries

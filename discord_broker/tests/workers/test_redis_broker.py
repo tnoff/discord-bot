@@ -30,8 +30,10 @@ def _make_registry() -> RedisBrokerRegistry:
     return RedisBrokerRegistry(RedisManager.from_client(client))
 
 
-def _make_broker(video_cache=None, bucket_name=None, registry: RedisBrokerRegistry | None = None) -> RedisBroker:
-    return RedisBroker(registry or _make_registry(), video_cache=video_cache, bucket_name=bucket_name)
+def _make_broker(video_cache=None, bucket_name=None, registry: RedisBrokerRegistry | None = None,
+                 cache_bucket_name=None) -> RedisBroker:
+    return RedisBroker(registry or _make_registry(), video_cache=video_cache, bucket_name=bucket_name,
+                       cache_bucket_name=cache_bucket_name)
 
 
 def _make_request(guild_id: int = 1, channel_id: int = 2) -> MediaRequest:
@@ -730,6 +732,20 @@ async def test_evict_cache_evict_all_keeps_entries_in_use():
 async def test_evict_cache_without_video_cache_removes_nothing():
     '''No catalog configured: nothing to flag, nothing removed.'''
     assert await _make_broker().evict_cache(evict_all=True) == 0
+
+
+@pytest.mark.asyncio
+async def test_cache_cleanup_deletes_from_the_cache_bucket_when_split():
+    '''Evicted cache entries are cache/ keys, which live in the cache bucket, not the queue bucket.'''
+    video_cache = MagicMock()
+    video_cache.ready_remove = AsyncMock()
+    video_cache.get_deletable_entries = AsyncMock(return_value=[
+        VideoCacheEntry(id=1, video_url='https://example.com/a', base_path='cache/a.pcm')])
+    video_cache.remove_video_cache = AsyncMock()
+    broker = _make_broker(video_cache=video_cache, bucket_name='queue-bucket', cache_bucket_name='cache-bucket')
+    with patch('discord_broker.interfaces.broker_protocols.delete_file') as mock_delete:
+        assert await broker.cache_cleanup() is True
+    mock_delete.assert_called_once_with('cache-bucket', 'cache/a.pcm')
 
 
 # ---------------------------------------------------------------------------

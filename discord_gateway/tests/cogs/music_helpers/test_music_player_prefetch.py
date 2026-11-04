@@ -24,13 +24,14 @@ from tests.helpers import fake_context, fake_media_download, FakeVoiceClient #py
 GET_FILE = 'discord_gateway.cogs.music_helpers.music_player.get_file'
 
 
-def _player(fake_context, tmp_dir, bucket_name='my-bucket', prefetch_limit=2): #pylint:disable=redefined-outer-name
+def _player(fake_context, tmp_dir, bucket_name='my-bucket', prefetch_limit=2, cache_bucket_name=None): #pylint:disable=redefined-outer-name
     '''A player over the real guild queue, with the bucket configured on both sides.'''
     engine = AsyncioBroker(bucket_name=bucket_name)
     broker = AsyncioBrokerClient(engine, guild_queue=make_guild_queue_for(engine))
     return MusicPlayer(
         fake_context['bot'], fake_context['guild'], fake_context['channel'], {}, 10, 0.01, Path(tmp_dir),
         broker, 'gw-test', prefetch_limit=prefetch_limit, bucket_name=bucket_name,
+        cache_bucket_name=cache_bucket_name,
     )
 
 
@@ -322,3 +323,29 @@ async def test_cleanup_cancels_downloads_in_flight(fake_context): #pylint:disabl
             with pytest.raises(asyncio.CancelledError):
                 await waiter
             blocked.release()
+
+
+@pytest.mark.asyncio
+async def test_prefetch_reads_each_key_from_its_own_bucket(fake_context): #pylint:disable=redefined-outer-name
+    """With a cache bucket, a cache/ key is fetched from it and any other key from the queue bucket."""
+    with TemporaryDirectory() as tmp_dir:
+        player = _player(fake_context, tmp_dir, bucket_name='queue-bucket', cache_bucket_name='cache-bucket')
+        keys = []
+        for key in ('queue/fresh.pcm', 'cache/played.pcm'):
+            with fake_media_download(tmp_dir, fake_context=fake_context) as md:
+                md.file_path = Path(key)
+                keys.append(key)
+                await _enqueue(player, md)
+        with patch(GET_FILE, side_effect=_writes_audio) as mock_get:
+            player.trigger_prefetch()
+            await _settle(player)
+        fetched = {call.args[1]: call.args[0] for call in mock_get.call_args_list}
+        assert fetched == {'queue/fresh.pcm': 'queue-bucket', 'cache/played.pcm': 'cache-bucket'}
+
+
+def test_bucket_for_key_without_a_cache_bucket_is_always_the_one_bucket(fake_context): #pylint:disable=redefined-outer-name
+    """Before the split is switched on, a cache/ key is in bucket_name as it always was."""
+    with TemporaryDirectory() as tmp_dir:
+        player = _player(fake_context, tmp_dir, bucket_name='one-bucket')
+        assert player._bucket_for_key('cache/a.pcm') == 'one-bucket' #pylint:disable=protected-access
+        assert player._bucket_for_key('queue/a.pcm') == 'one-bucket' #pylint:disable=protected-access

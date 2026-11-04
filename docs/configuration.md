@@ -104,7 +104,11 @@ Configure with:
                                     it the broker tracks bundle state but cannot
                                     update Discord messages.
     general.monitoring            — optional OTLP / health-server config
-    music.storage.bucket_name     — S3 bucket (required for HA checkout)
+    music.storage.bucket_name     — S3 bucket (required for HA checkout); the queue bucket when
+                                    cache_bucket_name is set
+    music.storage.cache_bucket_name — optional S3 bucket for songs that have played. Set, the queue and
+                                    cache are split (discord-bot#1188): a song is cached only after it
+                                    has played. Unset, one bucket holds both, as before.
     music.download.cache          — optional video-cache config. Only
                                     enable_cache_files is read here; the eviction
                                     policy belongs to the db pod that owns the rows.
@@ -123,7 +127,11 @@ Configure with:
     general.monitoring                 — optional OTLP / health-server config
     music.broker_client.url            — Broker pod URL (required; downloader posts
                                          IN_PROGRESS / RETRY / register_download_result)
-    music.download.storage.bucket_name — S3 bucket (required for cache-mode checkout)
+    music.download.storage.bucket_name — S3 bucket (required for cache-mode checkout); the queue bucket when
+                                    cache_bucket_name is set
+    music.download.storage.cache_bucket_name — optional; set when the queue and cache buckets are split
+                                    (discord-bot#1188). Only selects the queue/ key prefix: this pod never
+                                    reads or writes that bucket.
     music.download.download_dir_path   — scratch dir (default: a TemporaryDirectory)
     music.download.*                   — yt-dlp + backoff config (extra_ytdlp_options,
                                          max_video_length, banned_videos_list,

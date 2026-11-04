@@ -1,0 +1,1 @@
+Read each song from the bucket its key lives in (#1188): with `music.download.storage.cache_bucket_name` set, `cache/` keys come from the cache bucket and the rest from the queue bucket. Without it nothing changes.

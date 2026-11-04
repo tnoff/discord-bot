@@ -6,8 +6,10 @@ file I/O is the caller's responsibility (HttpBrokerClient). S3 is required;
 local-disk mode will not work across separate pods.
 '''
 import asyncio
+import copy
 import logging
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import List
 
 from discord_core.types.download import LifecycleEvent, DownloadResult, LifecycleStatusUpdate
@@ -16,9 +18,11 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist_add_request import parse_media_request
 
 from discord_core.types.player_session import PlayerSession
-from discord_core.utils.integrations.s3 import delete_file
+from discord_core.utils.integrations.s3 import ObjectStorageException, delete_file, get_file, upload_file
 
-from discord_broker.interfaces.broker_protocols import BrokerEntry, CheckoutResult, MediaBrokerBase, Zone
+from discord_broker.interfaces.broker_protocols import (
+    CACHE_KEY_PREFIX, QUEUE_KEY_PREFIX, BrokerEntry, CheckoutResult, MediaBrokerBase, Zone, bucket_for_key,
+)
 from discord_broker.workers.broker_registry import RedisBrokerRegistry
 from discord_broker.workers.media_bundle import BundleRenderer, BundleState
 
@@ -207,7 +211,9 @@ class RedisBroker(MediaBrokerBase):
             data['download'] = download_dict
             data['zone'] = 'available'
             await self._registry.set_entry(key, data)
-        if self.video_cache:
+        # With split buckets a fresh download is not cached yet: it joins the catalog when it has
+        # played (retire_download). A cache hit is already in the catalog, and this bumps its use.
+        if self.video_cache and (not self.cache_bucket_name or media_download.cache_hit):
             await self.video_cache.iterate_file(media_download)
         # Render under the bundle lock so it doesn't race with concurrent
         # register_request / status pushes touching the same bundle.
@@ -233,7 +239,8 @@ class RedisBroker(MediaBrokerBase):
         data = await self._registry.get_entry(media_request_uuid)
         if data is None or not data.get('download') or not data['download'].get('file_path'):
             return None
-        return CheckoutResult(s3_key=data['download']['file_path'], bucket_name=self.bucket_name)
+        key = data['download']['file_path']
+        return CheckoutResult(s3_key=key, bucket_name=bucket_for_key(key, self.bucket_name, self.cache_bucket_name))
 
     async def remove(self, media_request_uuid: str) -> None:
         data = await self._registry.get_entry(media_request_uuid)
@@ -250,12 +257,60 @@ class RedisBroker(MediaBrokerBase):
     async def discard(self, media_request_uuid: str) -> None:
         data = await self._registry.get_entry(media_request_uuid)
         await self._registry.delete_entry(media_request_uuid)
-        if data and data.get('download') and not self.video_cache:
+        if data and data.get('download') and (not self.video_cache or self.cache_bucket_name):
             file_path = data['download'].get('file_path')
-            if file_path and self.bucket_name:
+            # With split buckets only the queue's own objects are garbage here: a cached object is
+            # still the cache's, however this request ended.
+            if file_path and self.bucket_name and (not self.cache_bucket_name or str(file_path).startswith(QUEUE_KEY_PREFIX)):
                 await asyncio.to_thread(delete_file, self.bucket_name, file_path)
         if data is not None:
             await self._maybe_render_bundle(parse_media_request(data['request']))
+
+    async def retire_download(self, download: MediaDownload | None, played: bool) -> None:
+        '''
+        Dispose of a song's object in the queue bucket once its queue entry is gone.
+
+        A song that played to the end (played=True) is first copied into the cache bucket under
+        cache/ and entered in the catalog, so the cache holds exactly the songs that have played.
+        The queue object is then deleted, unless another entry still queues the same key.
+
+        Does nothing without split buckets, or for an object that is not in the queue bucket
+        (a cache hit, or a key from before the split). Failures are logged and never raised: this
+        runs after the track is done, and the queue bucket's expiry removes what is left behind.
+
+        download : The finished entry's download, read before the entry was released
+        played : False for a skipped, cleared or closed track
+        '''
+        if download is None or not download.file_path or not self.cache_bucket_name:
+            return
+        key = str(download.file_path)
+        if not key.startswith(QUEUE_KEY_PREFIX):
+            return
+        try:
+            if played and self.video_cache and not download.cache_hit:
+                await self._promote_to_cache(download, key)
+            if not await self._key_in_use(key):
+                await asyncio.to_thread(delete_file, self.bucket_name, key)
+        except ObjectStorageException:
+            logger.warning('Could not retire %s from the queue bucket', key, exc_info=True)
+
+    async def _promote_to_cache(self, download: MediaDownload, queue_key: str) -> None:
+        '''Copy the queue object into the cache bucket and catalog it under its new key.'''
+        cache_key = CACHE_KEY_PREFIX + queue_key[len(QUEUE_KEY_PREFIX):]
+        with TemporaryDirectory() as tmp_dir:
+            local_path = Path(tmp_dir) / Path(queue_key).name
+            await asyncio.to_thread(get_file, self.bucket_name, queue_key, local_path)
+            await asyncio.to_thread(upload_file, self.cache_bucket_name, local_path, cache_key)
+        promoted = copy.copy(download)
+        promoted.file_path = Path(cache_key)
+        await self.video_cache.iterate_file(promoted)
+
+    async def _key_in_use(self, key: str) -> bool:
+        '''True if a registry entry still points at this object key.'''
+        for data in await self._registry.all_entries():
+            if data.get('download') and data['download'].get('file_path') == key:
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # Eviction queries

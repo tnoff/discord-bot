@@ -391,6 +391,27 @@ async def test_prepare_source_s3_mode():
 
 
 @pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_s3_mode_split_buckets_uploads_under_the_queue_prefix():
+    '''With a cache bucket configured the song waits in the queue bucket as queue/<file>; this pod never uploads to the cache bucket.'''
+    with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:
+        download_path = Path(tmp_file.name)
+    pcm_path = download_path.with_suffix('.pcm')
+    pcm_path.write_bytes(b'pcm data')
+    fake_context = generate_fake_context()
+    x = make_download_client(MockYTDLP(fake_file_path=download_path),
+                             bucket_name='queue-bucket', cache_bucket_name='cache-bucket')
+    y = fake_source_dict(fake_context)
+    with patch('discord_downloader.interfaces.download_protocols.upload_file', return_value=True) as upload_mock:
+        with patch('discord_downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+            result = await x.create_source(y, 3)
+    assert result.status.success
+    upload_mock.assert_called_once()
+    assert upload_mock.call_args[0][0] == 'queue-bucket'
+    assert str(upload_mock.call_args[0][2]) == f'queue/{pcm_path.name}'
+    assert result.file_name == Path(f'queue/{pcm_path.name}')
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_s3_mode_audio_processing_error():
     '''In S3 mode, when AudioProcessingError occurs the original file is still uploaded to S3'''
     with NamedTemporaryFile(delete=False, suffix='.mp3') as tmp_file:

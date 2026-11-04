@@ -82,7 +82,8 @@ def test_run_constructs_broker_with_dispatcher_and_health(mocker):
     m['guild_queue_registry'].assert_called_once_with(m['redis_manager'].from_general_config.return_value)
     m['guild_queue'].assert_called_once_with(
         m['broker'].return_value, m['guild_queue_registry'].return_value, m['dispatch'].return_value,
-        record_plays=True, ensure_history_playlist=m['history_worker'].return_value.ensure_history_playlist)
+        record_plays=True, ensure_history_playlist=m['history_worker'].return_value.ensure_history_playlist,
+        retire_download=None)
     assert m['server'].call_args.kwargs['guild_queue'] is m['guild_queue'].return_value
     # Metrics poller built from the result queue + registry + search queue, handed to run_broker.
     m['metrics'].assert_called_once_with(

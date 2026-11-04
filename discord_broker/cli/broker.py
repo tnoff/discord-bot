@@ -25,7 +25,11 @@ Configure with:
                                     it the broker tracks bundle state but cannot
                                     update Discord messages.
     general.monitoring            — optional OTLP / health-server config
-    music.storage.bucket_name     — S3 bucket (required for HA checkout)
+    music.storage.bucket_name     — S3 bucket (required for HA checkout); the queue bucket when
+                                    cache_bucket_name is set
+    music.storage.cache_bucket_name — optional S3 bucket for songs that have played. Set, the queue and
+                                    cache are split (discord-bot#1188): a song is cached only after it
+                                    has played. Unset, one bucket holds both, as before.
     music.download.cache          — optional video-cache config. Only
                                     enable_cache_files is read here; the eviction
                                     policy belongs to the db pod that owns the rows.
@@ -142,9 +146,12 @@ async def flush_cache_entries(settings: dict, general_config: GeneralConfig,
     '''
     general_settings = settings.get('general', {})
     music_settings = settings.get('music', {})
-    bucket_name = music_settings.get('storage', {}).get('bucket_name')
+    storage_settings = music_settings.get('storage', {})
+    bucket_name = storage_settings.get('bucket_name')
+    cache_bucket_name = storage_settings.get('cache_bucket_name')
     video_cache = _build_video_cache(music_settings.get('download', {}).get('cache', {}),
-                                     general_settings.get('database_http_url'), bucket_name,
+                                     general_settings.get('database_http_url'),
+                                     cache_bucket_name or bucket_name,
                                      seam_contract=general_config.seam_contract)
     if video_cache is None:
         raise DiscordBotException('Video cache is not enabled on this pod, nothing to flush')
@@ -153,8 +160,8 @@ async def flush_cache_entries(settings: dict, general_config: GeneralConfig,
     await redis_manager.start()
     try:
         broker = RedisBroker(RedisBrokerRegistry(redis_manager), video_cache=video_cache,
-                             bucket_name=bucket_name)
-        click.echo(f'{await broker.get_cache_count()} cached entries in bucket {bucket_name}')
+                             bucket_name=bucket_name, cache_bucket_name=cache_bucket_name)
+        click.echo(f'{await broker.get_cache_count()} cached entries in bucket {cache_bucket_name or bucket_name}')
         if not assume_yes:
             click.confirm('Delete every entry that is not queued or playing?', abort=True)
         removed = await broker.evict_cache(evict_all=True)
@@ -229,12 +236,13 @@ def run(settings: dict, general_config: GeneralConfig):
     general_settings = settings.get('general', {})
     music_settings = settings.get('music', {})
     bucket_name = music_settings.get('storage', {}).get('bucket_name')
+    cache_bucket_name = music_settings.get('storage', {}).get('cache_bucket_name')
     download_cfg = music_settings.get('download', {})
     music_general_cfg = music_settings.get('general', {})
 
     database_http_url = general_settings.get('database_http_url')
     video_cache = _build_video_cache(download_cfg.get('cache', {}), database_http_url,
-                                     bucket_name,
+                                     cache_bucket_name or bucket_name,
                                      seam_contract=general_config.seam_contract)
 
     dispatch_http_url = general_settings.get('dispatch_http_url')
@@ -257,6 +265,7 @@ def run(settings: dict, general_config: GeneralConfig):
         registry,
         video_cache=video_cache,
         bucket_name=bucket_name,
+        cache_bucket_name=cache_bucket_name,
         dispatcher=dispatcher,
         download_max_retries=int(download_cfg.get('max_download_retries', 3)),
         search_max_retries=int(download_cfg.get('max_youtube_music_search_retries', 3)),
@@ -295,7 +304,9 @@ def run(settings: dict, general_config: GeneralConfig):
         )
     guild_queue = GuildQueueBroker(
         broker, guild_queues, dispatcher, record_plays=history_worker is not None,
-        ensure_history_playlist=history_worker.ensure_history_playlist if history_worker else None)
+        ensure_history_playlist=history_worker.ensure_history_playlist if history_worker else None,
+        # A played song moves from the queue bucket into the cache only when the buckets are split.
+        retire_download=broker.retire_download if cache_bucket_name else None)
 
     # Redis-backed bot-ready queues so multiple broker pods share them and a
     # pod restart doesn't lose in-flight DownloadResults / SearchResolutions.

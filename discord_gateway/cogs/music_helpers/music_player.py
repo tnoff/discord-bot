@@ -26,6 +26,9 @@ from discord_gateway.types.cleanup_reason import CleanupReason
 # Past this many seconds the per-track timing log is escalated from DEBUG to
 # WARNING so a stall is visible in prod without DEBUG logging enabled.
 PLAY_STAGING_SLOW_SECONDS = 5.0
+# Keys under this prefix are in the cache bucket (discord-bot#1188). The broker and the downloader hold
+# the same string; the pods cannot import each other.
+CACHE_KEY_PREFIX = 'cache/'
 
 # How long the player loop will wait for a voice client to appear before giving up
 # on a track. Sized against the real handshake, not a guess: the incident this was
@@ -74,7 +77,8 @@ class MusicPlayer:
                  broker: BrokerClient,
                  gateway_id: str,
                  prefetch_limit: int = 5,
-                 bucket_name: str | None = None):
+                 bucket_name: str | None = None,
+                 cache_bucket_name: str | None = None):
         '''
         Music Player to sit in voice chat
 
@@ -124,6 +128,9 @@ class MusicPlayer:
         # Bucket the queued items' file paths are object keys in. None means the
         # downloads are local files already, so there is nothing to stage.
         self.bucket_name: str | None = bucket_name
+        # Bucket of the songs that have played, when the queue and cache are split. A key under
+        # CACHE_KEY_PREFIX is read from here, anything else from bucket_name.
+        self.cache_bucket_name: str | None = cache_bucket_name
         # Staging downloads in flight, by request uuid, so playback and the
         # prefetch window never fetch the same object twice.
         self._staging: dict[str, asyncio.Task] = {}
@@ -356,7 +363,7 @@ class MusicPlayer:
             if checkout_result and checkout_result.s3_key and checkout_result.bucket_name:
                 s3_fetch_started = monotonic()
                 # Already on disk when the prefetch window got here first.
-                file_path = await self._ensure_staged(media_uuid, checkout_result.bucket_name,
+                file_path = await self._ensure_staged(media_uuid, self._bucket_for_key(checkout_result.s3_key) or checkout_result.bucket_name,
                                                       checkout_result.s3_key)
                 s3_fetch_seconds = monotonic() - s3_fetch_started
             elif self.bucket_name and self._staged_path(media_uuid, media_download.file_path).exists():
@@ -521,11 +528,25 @@ class MusicPlayer:
         self._sweep_staged(keep)
         for item in queue.items[:self.prefetch_limit]:
             try:
-                await self._ensure_staged(str(item.media_request.uuid), self.bucket_name, str(item.file_path))
+                await self._ensure_staged(str(item.media_request.uuid), self._bucket_for_key(item.file_path),
+                                          str(item.file_path))
             except ObjectStorageException as exc:
                 # Playback retries the fetch at checkout, so a failed prefetch
                 # costs only the head start.
                 self.logger.warning(f'Prefetch of "{item.webpage_url}" failed in guild {self.guild.id}: {exc}')
+
+    def _bucket_for_key(self, key) -> str | None:
+        '''
+        The bucket an object key is in.
+
+        With a cache bucket configured the answer comes from the key, because the checkout's stamped
+        bucket is the one this client was configured with and cannot tell the two apart: keys under
+        cache/ are the played songs' and everything else is still in the queue bucket. Without one
+        there is a single bucket.
+        '''
+        if self.cache_bucket_name and str(key).startswith(CACHE_KEY_PREFIX):
+            return self.cache_bucket_name
+        return self.bucket_name
 
     def _staged_path(self, media_uuid: str, s3_key) -> Path:
         '''Where the object for this request is staged under the player directory.'''

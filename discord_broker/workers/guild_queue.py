@@ -13,9 +13,10 @@ from typing import Awaitable, Callable
 
 from discord_core.cogs.music_helpers.common import MultipleMutableType
 from discord_core.types.checkout_result import CheckoutResult
+from discord_core.types.media_download import MediaDownload
 
 from discord_broker.interfaces.broker_protocols import (
-    BrokerEntry, BundleDispatchSink, ClaimedTrack, GuildQueue, PlayingTrack, Zone,
+    BrokerEntry, BundleDispatchSink, ClaimedTrack, GuildQueue, PlayingTrack, Zone, bucket_for_key,
 )
 from discord_broker.workers.guild_queue_registry import ENQUEUE_OK, GuildQueueRegistry
 from discord_broker.workers.play_order import play_order_messages
@@ -36,7 +37,8 @@ class GuildQueueBroker:
 
     def __init__(self, broker: RedisBroker, queues: GuildQueueRegistry,
                  dispatcher: BundleDispatchSink | None = None, record_plays: bool = False,
-                 ensure_history_playlist: Callable[[int], Awaitable[int]] | None = None):
+                 ensure_history_playlist: Callable[[int], Awaitable[int]] | None = None,
+                 retire_download: Callable[[MediaDownload | None, bool], Awaitable[None]] | None = None):
         '''
         dispatcher: where the play-order message is pushed.  None disables the message entirely
         (the queue still works), the way the broker's bundle UI does without a dispatcher.
@@ -47,14 +49,19 @@ class GuildQueueBroker:
         history playlist exists from the first command and holds playlist index 0 (the history worker
         creates it on the first play otherwise). Best-effort: a failure is logged and never fails the
         open. None when there is no db pod.
+        retire_download: called, off the request, with a track's download and whether it played to the
+        end, once its queue entry is gone; RedisBroker.retire_download moves a played song from the
+        queue bucket into the cache and deletes what is left. None when the buckets are not split.
         '''
         self._broker = broker
         self._queues = queues
         self._dispatcher = dispatcher
         self._record_plays = record_plays
         self._ensure_history_playlist = ensure_history_playlist
+        self._retire_download = retire_download
         # Strong references: the loop holds a running task only weakly.
         self._ensures: set[asyncio.Task] = set()
+        self._retiring: set[asyncio.Task] = set()
 
     @staticmethod
     def _play_order_key(guild_id: int) -> str:
@@ -150,11 +157,40 @@ class GuildQueueBroker:
             await self._render(guild_id)
         return shuffled
 
+    def _spawn_retire(self, download, played: bool) -> None:
+        '''
+        Dispose of a song's queue-bucket object off the request that ended its queue entry.
+
+        A promotion downloads and re-uploads the whole file, which is too long to make a finishing
+        track's request wait for. The task's failure is logged by the callback, not raised.
+        '''
+        if self._retire_download is None:
+            return
+        task = asyncio.create_task(self._retire_download(download, played))
+        self._retiring.add(task)
+        task.add_done_callback(self._retire_done)
+
+    async def wait_for_retired(self) -> None:
+        '''
+        Wait for the queue-bucket clean-ups started so far, e.g. before the process exits.
+
+        A clean-up that failed has already been logged by its callback, so it is not raised here.
+        '''
+        await asyncio.gather(*self._retiring, return_exceptions=True)
+
+    def _retire_done(self, task: asyncio.Task) -> None:
+        self._retiring.discard(task)
+        if not task.cancelled() and task.exception() is not None:
+            logger.warning('Retiring a queue-bucket object failed', exc_info=task.exception())
+
     async def clear(self, guild_id: int) -> int:
         '''Empty the guild's queue, dropping every entry that was in it. Returns how many.'''
         uuids = await self._queues.queue_clear(guild_id)
         for uuid in uuids:
+            entry = await self._broker.get_entry(uuid)
             await self._broker.remove(uuid)
+            if entry is not None:
+                self._spawn_retire(entry.download, played=False)
         if uuids:
             await self._render(guild_id)
         return len(uuids)
@@ -197,7 +233,8 @@ class GuildQueueBroker:
         '''CheckoutResult for an entry already checked out, None when it has no file to hand over.'''
         if entry.download is None or not entry.download.file_path:
             return None
-        return CheckoutResult(s3_key=str(entry.download.file_path), bucket_name=self._broker.bucket_name)
+        key = str(entry.download.file_path)
+        return CheckoutResult(s3_key=key, bucket_name=bucket_for_key(key, self._broker.bucket_name, self._broker.cache_bucket_name))
 
     async def heartbeat(self, guild_id: int, media_request_uuid: str) -> bool:
         '''Keep the guild's now-playing record alive. False if that track is no longer playing.'''
@@ -220,10 +257,13 @@ class GuildQueueBroker:
         Clears the now-playing and skip markers, adds the track to the guild's history unless
         it was skipped, then releases its entry.  History is written first because the release
         deletes the entry it is built from.
+
+        With split buckets, a track that played to the end is then moved into the cache (see
+        RedisBroker.retire_download) and a skipped one is just deleted from the queue bucket.
         '''
         history_item = None
+        entry = await self._broker.get_entry(media_request_uuid)
         if not skipped:
-            entry = await self._broker.get_entry(media_request_uuid)
             if entry is not None:
                 history_item = {
                     'uuid': media_request_uuid,
@@ -236,6 +276,8 @@ class GuildQueueBroker:
         await self._queues.finish_track(guild_id, media_request_uuid, skipped, history_item, history_cap,
                                         emit_event=self._record_plays)
         await self._broker.release(media_request_uuid)
+        if entry is not None:
+            self._spawn_retire(entry.download, played=not skipped)
         await self._render(guild_id)
 
     async def get_history(self, guild_id: int) -> list[dict]:
@@ -251,7 +293,10 @@ class GuildQueueBroker:
         queued, claimed, playing = await self._queues.queue_close(guild_id)
         uuids = [uuid for uuid in (playing, claimed, *queued) if uuid]
         for uuid in uuids:
+            entry = await self._broker.get_entry(uuid)
             await self._broker.release(uuid)
+            if entry is not None:
+                self._spawn_retire(entry.download, played=False)
         await self._render(guild_id)
         return len(uuids)
 

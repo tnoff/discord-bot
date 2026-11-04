@@ -17,7 +17,11 @@ Configure with:
     general.monitoring                 — optional OTLP / health-server config
     music.broker_client.url            — Broker pod URL (required; downloader posts
                                          IN_PROGRESS / RETRY / register_download_result)
-    music.download.storage.bucket_name — S3 bucket (required for cache-mode checkout)
+    music.download.storage.bucket_name — S3 bucket (required for cache-mode checkout); the queue bucket when
+                                    cache_bucket_name is set
+    music.download.storage.cache_bucket_name — optional; set when the queue and cache buckets are split
+                                    (discord-bot#1188). Only selects the queue/ key prefix: this pod never
+                                    reads or writes that bucket.
     music.download.download_dir_path   — scratch dir (default: a TemporaryDirectory)
     music.download.*                   — yt-dlp + backoff config (extra_ytdlp_options,
                                          max_video_length, banned_videos_list,
@@ -186,6 +190,7 @@ def run(settings: dict, general_config: GeneralConfig):
         wait_period_minimum=int(download_cfg.get('youtube_wait_period_minimum', 30)),
         wait_period_max_variance=int(download_cfg.get('youtube_wait_period_max_variance', 10)),
         bucket_name=bucket_name,
+        cache_bucket_name=storage_cfg.get('cache_bucket_name'),
         normalize_audio=bool(download_cfg.get('normalize_audio', False)),
         broker=broker_client,
         max_retries=int(download_cfg.get('max_download_retries', 3)),
