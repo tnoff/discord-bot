@@ -15,7 +15,7 @@ from discord.ext.commands import Bot, Context, group, command
 from discord.errors import ClientException
 from opentelemetry.trace import SpanKind
 from opentelemetry.metrics import Observation
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
 from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
@@ -25,10 +25,8 @@ from discord_core.utils.common import (is_peer_unavailable, rm_tree,
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations
-from discord_core.types.video_cache import MusicCacheConfig
 from discord_core.clients.http_broker_client import HttpBrokerClient
 from discord_core.interfaces.broker_client_protocol import BrokerClient
-from discord_core.interfaces.download_client_protocol import RETRY_BACKOFF_SECONDS_MINIMUM
 from discord_core.interfaces.commands_client import CommandsUnavailable
 from discord_core.types.player_session import PlayerSession
 from discord_core.clients.dispatch_client_base import DispatchClientBase
@@ -60,15 +58,6 @@ class MusicPlayerConfig(BaseModel):
     inactive_voice_channel_timeout: int = Field(default=180, ge=1)
     player_dir_path: Optional[str] = None
 
-class MusicPlaylistConfig(BaseModel):
-    '''Music playlist configuration'''
-    server_playlist_max_size: int = Field(default=64, ge=1)
-
-class ServerQueuePriorityConfig(BaseModel):
-    '''Server queue priority configuration'''
-    server_id: int
-    priority: int
-
 class MusicStorageConfig(BaseModel):
     '''Music storage backend configuration'''
     # The queue bucket when cache_bucket_name is set (songs waiting to be played), otherwise the one
@@ -80,43 +69,16 @@ class MusicStorageConfig(BaseModel):
     prefetch_limit: int = Field(default=5, ge=0)
 
 class MusicDownloadConfig(BaseModel):
-    '''Music download configuration'''
-    download_dir_path: Optional[str] = None
-    max_video_length: int = Field(default=900, ge=1)
-    extra_ytdlp_options: dict = Field(default_factory=dict)
-    banned_videos_list: list[str] = Field(default_factory=list)
-    youtube_wait_period_minimum: int = Field(default=30, ge=1)
-    youtube_wait_period_max_variance: int = Field(default=10, ge=1)
-    # Per-egress bucket for the shared YouTube backoff/failure keys. Pods behind
-    # distinct egress IPs should use distinct keys so their rate-limits don't couple.
-    youtube_egress_key: str = 'default'
-    # No spotify_credentials / youtube_api_key. The cog does not hold provider
-    # credentials any more -- source expansion is a round trip to the search pod,
-    # which reads both out of music.download in ITS config (cli/search.py). Left
-    # here they would be a config surface nothing reads: pydantic's default
-    # extra='ignore' means discord.bot.conf can keep carrying them through the
-    # cutover either way, so the only thing declaring them would buy is the
-    # implication that the bot still uses them.
-    server_queue_priority: list[ServerQueuePriorityConfig] = Field(default_factory=list)
-    cache: MusicCacheConfig = Field(default_factory=MusicCacheConfig)
-    storage: Optional[MusicStorageConfig] = None
-    normalize_audio: bool = False
-    max_download_retries: int = Field(default=3, ge=1)
-    # Hold-off before a failed YouTube download is retried, doubling per attempt.
-    # 0 restores the immediate requeue (see RETRY_BACKOFF_SECONDS_MINIMUM).
-    retry_backoff_seconds_minimum: int = Field(default=RETRY_BACKOFF_SECONDS_MINIMUM, ge=0)
-    max_youtube_music_search_retries: int = Field(default=3, ge=1)
-    # Mostly to keep a cap on the queue to avoid issues
-    failure_tracking_max_size: int = Field(default=100, ge=1)
-    # Recommended to be at least an hour
-    failure_tracking_max_age_seconds: int = Field(default=600, ge=1)
+    '''The part of music.download the gateway reads.
 
-    @model_validator(mode='after')
-    def validate_cache_requires_storage(self) -> 'MusicDownloadConfig':
-        '''Require storage when enable_cache_files is set.'''
-        if self.cache.enable_cache_files and self.storage is None:
-            raise ValueError('enable_cache_files requires storage to be configured')
-        return self
+    The rest of the block (yt-dlp options, retry and backoff, failure tracking, the video cache,
+    per-guild queue priority) belongs to the pods that act on it: the downloader, search, broker
+    and commands pods each read their own keys from the same config. Left here they would be a
+    config surface nothing in this pod reads, and a validated one, so a typo in them would fail
+    the gateway's startup for a setting it never uses. Unlisted keys are ignored (pydantic's
+    default extra='ignore'), so a shared config file can keep carrying them.'''
+    download_dir_path: Optional[str] = None
+    storage: Optional[MusicStorageConfig] = None
 
 class BrokerClientConfig(BaseModel):
     '''Config for connecting to the broker pod's HTTP server.
@@ -137,7 +99,6 @@ class MusicConfig(BaseModel):
     '''Top-level music cog configuration'''
     general: MusicGeneralConfig = Field(default_factory=MusicGeneralConfig)
     player: MusicPlayerConfig = Field(default_factory=MusicPlayerConfig)
-    playlist: MusicPlaylistConfig = Field(default_factory=MusicPlaylistConfig)
     download: MusicDownloadConfig = Field(default_factory=MusicDownloadConfig)
     broker_client: BrokerClientConfig
 

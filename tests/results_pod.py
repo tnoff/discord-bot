@@ -22,8 +22,8 @@ from discord_commands.utils.media_enqueuer import MediaEnqueuer, TrackQueuer
 from discord_commands.command_logic.broker_player_gateway import BrokerPlayerGateway
 from discord_commands.loop_logic.music_results import MusicResultsLoop
 from discord_commands.workers.result_loops import ResultLoops
-from discord_gateway.cogs.music import MusicConfig
 
+from tests.fakes.pod_music_config import PodMusicConfig
 from tests.helpers import (
     attach_in_process_broker, attach_in_process_download, attach_in_process_search, merge_config_blocks,
 )
@@ -50,14 +50,14 @@ class ResultsPod:
     def __init__(self, fake_context, fake_stores, music: dict | None = None, download_worker_cls=None,
                  source_search_client=None, ytm_client=None, with_search: bool = False,
                  dispatcher=_FROM_CONTEXT, db_engine=None):
-        self.config = MusicConfig.model_validate(music or music_settings())
+        self.pod_config = PodMusicConfig.model_validate(music or music_settings())
         self.logger = getLogger('results_pod')
         self.logging_config = None
         self.download_dir = Path(TemporaryDirectory().name)  #pylint:disable=consider-using-with
         self.download_dir.mkdir(exist_ok=True, parents=True)
         self.dispatcher = fake_context['dispatcher'] if dispatcher is _FROM_CONTEXT else dispatcher
         self.server_queue_priority = {int(item.server_id): item.priority
-                                      for item in self.config.download.server_queue_priority}
+                                      for item in self.pod_config.download.server_queue_priority}
         self.stop_event = Event()
         self.woken: list[int] = []
         self.playlist_store = fake_stores.playlist
@@ -69,7 +69,7 @@ class ResultsPod:
         attach_in_process_download(self, worker_cls=download_worker_cls)
         self.search_driver = attach_in_process_search(self, client=ytm_client) if with_search else None
 
-        queue_max_size = self.config.player.queue_max_size
+        queue_max_size = self.pod_config.player.queue_max_size
         self.player_gateway = BrokerPlayerGateway(
             self.broker_client, self.download_client,
             TrackQueuer(self.broker_client, self.logger, queue_max_size), poll_interval=0)
@@ -82,8 +82,8 @@ class ResultsPod:
         self.enqueuer = MediaEnqueuer(
             self.broker_client, self.search_client, self.youtube_music_search_client,
             self.download_client, self.playlist_store, self.player_gateway, self.dispatcher, self.logger,
-            queue_max_size, self.config.playlist.server_playlist_max_size,
-            self.config.general.message_delete_after, self.server_queue_priority)
+            queue_max_size, self.pod_config.playlist.server_playlist_max_size,
+            self.pod_config.general.message_delete_after, self.server_queue_priority)
         self.results = MusicResultsLoop(self.logger, self.broker_client, self.download_client, self.enqueuer,
                                         self.player_gateway, self.playlist_store, self.server_queue_priority)
         self.loops = ResultLoops(self.broker_client, self.results, self.logger, poll_interval=0)

@@ -49,6 +49,7 @@ from tests.fakes.asyncio_youtube_music_search_client import AsyncioYoutubeMusicS
 from tests.fakes.stub_youtube_music_client import StubYoutubeMusicClient
 from tests.fakes.asyncio_broker import AsyncioBroker
 from tests.fakes.asyncio_queues import make_guild_queue_for
+from tests.fakes.pod_music_config import pod_music_config
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.fakes.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
 
@@ -340,11 +341,12 @@ def attach_in_process_broker(cog: Any, video_cache: Optional[Any] = None,
     and this function is standing up the broker. Without an engine the config's
     cache settings are inert, which is exactly what a bot process sees.
     '''
-    bucket_name = cog.config.download.storage.bucket_name if cog.config.download.storage else None
-    if video_cache is None and cog.config.download.cache.enable_cache_files and db_engine and bucket_name:
-        max_mb = cog.config.download.cache.max_cache_size_mb
+    config = pod_music_config(cog)
+    bucket_name = config.download.storage.bucket_name if config.download.storage else None
+    if video_cache is None and config.download.cache.enable_cache_files and db_engine and bucket_name:
+        max_mb = config.download.cache.max_cache_size_mb
         video_cache = VideoCacheClient(
-            cog.config.download.cache.max_cache_files,
+            config.download.cache.max_cache_files,
             partial(async_mock_session, db_engine),
             max_cache_size_bytes=(max_mb * 1024 * 1024 if max_mb else None),
             storage_type='s3',
@@ -353,9 +355,9 @@ def attach_in_process_broker(cog: Any, video_cache: Optional[Any] = None,
         video_cache=video_cache,
         bucket_name=bucket_name,
         dispatcher=cog.dispatcher,
-        download_max_retries=cog.config.download.max_download_retries,
-        search_max_retries=cog.config.download.max_youtube_music_search_retries,
-        message_delete_after=cog.config.general.message_delete_after,
+        download_max_retries=config.download.max_download_retries,
+        search_max_retries=config.download.max_youtube_music_search_retries,
+        message_delete_after=config.general.message_delete_after,
     )
     # Only broker_client is set on the cog: it is real production state, just a
     # different implementation. The engine and the cache are NOT re-attached as
@@ -407,25 +409,26 @@ def attach_in_process_download(cog: Any, worker_cls: Optional[type] = None) -> A
     patching discord_gateway.cogs.music.AsyncioDownloadWorker, which no longer exists
     to patch.
     '''
-    bucket_name = cog.config.download.storage.bucket_name if cog.config.download.storage else None
+    config = pod_music_config(cog)
+    bucket_name = config.download.storage.bucket_name if config.download.storage else None
     worker = (worker_cls or AsyncioDownloadWorker)(
         cog.logging_config,
         cog.download_dir,
-        queue_max_size=cog.config.player.queue_max_size,
-        extra_ytdlp_options=cog.config.download.extra_ytdlp_options,
-        max_video_length=cog.config.download.max_video_length,
-        banned_video_list=cog.config.download.banned_videos_list,
+        queue_max_size=config.player.queue_max_size,
+        extra_ytdlp_options=config.download.extra_ytdlp_options,
+        max_video_length=config.download.max_video_length,
+        banned_video_list=config.download.banned_videos_list,
         failure_queue=FailureQueue(
-            max_size=cog.config.download.failure_tracking_max_size,
-            max_age_seconds=cog.config.download.failure_tracking_max_age_seconds,
+            max_size=config.download.failure_tracking_max_size,
+            max_age_seconds=config.download.failure_tracking_max_age_seconds,
         ),
-        wait_period_minimum=cog.config.download.youtube_wait_period_minimum,
-        wait_period_max_variance=cog.config.download.youtube_wait_period_max_variance,
+        wait_period_minimum=config.download.youtube_wait_period_minimum,
+        wait_period_max_variance=config.download.youtube_wait_period_max_variance,
         bucket_name=bucket_name,
-        normalize_audio=cog.config.download.normalize_audio,
+        normalize_audio=config.download.normalize_audio,
         broker=cog.broker_client,
-        max_retries=cog.config.download.max_download_retries,
-        retry_backoff_seconds_minimum=cog.config.download.retry_backoff_seconds_minimum,
+        max_retries=config.download.max_download_retries,
+        retry_backoff_seconds_minimum=config.download.retry_backoff_seconds_minimum,
     )
     cog.download_client = AsyncioDownloadClient(worker)
     return cog.download_client
@@ -445,6 +448,7 @@ def attach_in_process_search(cog: Any, client: Optional[Any] = None) -> YoutubeM
     returns the driver that used to be cog.youtube_music_search_driver. Callers
     drive one iteration with `await driver.run_once(cog.bot_shutdown_event)`.
     '''
+    config = pod_music_config(cog)
     worker = AsyncioYoutubeMusicSearchWorker(
         cog.logging_config,
         # Defaults to a STUB, not a live client. This line read
@@ -453,21 +457,21 @@ def attach_in_process_search(cog: Any, client: Optional[Any] = None) -> YoutubeM
         # tests/fakes/stub_youtube_music_client.py for what that cost.
         client or StubYoutubeMusicClient(),
         FailureQueue(
-            max_size=cog.config.download.failure_tracking_max_size,
-            max_age_seconds=cog.config.download.failure_tracking_max_age_seconds,
+            max_size=config.download.failure_tracking_max_size,
+            max_age_seconds=config.download.failure_tracking_max_age_seconds,
         ),
-        cog.config.download.youtube_wait_period_minimum,
-        cog.config.download.youtube_wait_period_max_variance,
-        queue_max_size=cog.config.player.queue_max_size * 2,
+        config.download.youtube_wait_period_minimum,
+        config.download.youtube_wait_period_max_variance,
+        queue_max_size=config.player.queue_max_size * 2,
     )
     cog.youtube_music_search_client = AsyncioYoutubeMusicSearchClient(worker)
     return YoutubeMusicSearchDriver(
         cog.youtube_music_search_client,
         cog.broker_client,
         cog.logger,
-        max_retries=cog.config.download.max_youtube_music_search_retries,
+        max_retries=config.download.max_youtube_music_search_retries,
         queue_priority={int(item.server_id): item.priority
-                        for item in cog.config.download.server_queue_priority},
+                        for item in config.download.server_queue_priority},
     )
 
 class AsyncIterator():
