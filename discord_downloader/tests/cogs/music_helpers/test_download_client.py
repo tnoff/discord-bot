@@ -9,9 +9,6 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from yt_dlp.utils import DownloadError
 
 from discord_core.cogs.music_helpers.common import SearchType
@@ -30,6 +27,7 @@ from discord_downloader.utils.integrations.egress_pool import (
     DownloadEgress, HttpProxyEgress, PoolEgress, ExitPool, ExitClients, MullvadSocks5Resolver,
     ClusterSocks5Resolver)
 
+from tests.tracing_support import record_spans
 from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
 from tests.helpers import fake_source_dict, generate_fake_context
 
@@ -717,19 +715,6 @@ async def test_prepare_source_errors_survive_the_appended_tail():
         assert result.media_request.download_retry_information.retry_count == 0
 
 
-def _recording_exporter(mocker):
-    '''Swap in a recording tracer so span attributes survive to an assertion.
-
-    The suite runs with no global tracer provider, so spans are non-recording and
-    drop attributes set inside the context manager entirely.
-    '''
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    mocker.patch('discord_core.utils.otel.TRACER', provider.get_tracer('test'))
-    return exporter
-
-
 def _create_source_span(exporter):
     '''The single create_source span recorded by the exporter.'''
     spans = [sp for sp in exporter.get_finished_spans() if sp.name.endswith('.create_source')]
@@ -746,7 +731,7 @@ async def test_unrecognised_error_marks_the_span_unclassified(mocker):
     indistinguishable, which is how the dead age-gate matcher stayed invisible
     while it burned every retry and stamped ERROR spans.
     '''
-    exporter = _recording_exporter(mocker)
+    exporter = record_spans(mocker)
     x = make_download_client(yield_dlp_error('Some entirely new failure mode nobody has seen'))
     result = await x.create_source(fake_source_dict(generate_fake_context()), 3)
     assert result.status.error_type == DownloadErrorType.RETRYABLE
@@ -772,7 +757,7 @@ async def test_known_transient_errors_are_marked_classified(mocker):
         "(connect timeout=20.0)')",
     )
     for message in messages:
-        exporter = _recording_exporter(mocker)
+        exporter = record_spans(mocker)
         x = make_download_client(yield_dlp_error(message))
         result = await x.create_source(fake_source_dict(generate_fake_context()), 3)
         # Same handling as any other fallback error -- only the reporting differs.
@@ -785,7 +770,7 @@ async def test_recognised_error_is_not_marked_unclassified(mocker):
     '''A classified rejection leaves the attribute off entirely -- absence means
     recognised, so a Tempo query for error_classified=false returns only the
     messages no branch matched.'''
-    exporter = _recording_exporter(mocker)
+    exporter = record_spans(mocker)
     x = make_download_client(yield_dlp_error('Sign in to confirm your age. ' + \
                                              'Use --cookies-from-browser or --cookies'))
     result = await x.create_source(fake_source_dict(generate_fake_context()), 3)

@@ -1,8 +1,9 @@
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock
 
 import pytest
 from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.common import envelope_from_ctx
+from discord_gateway.tests.cogs.music_cog_support import forwarding_cog
 from discord_gateway.tests.cogs.test_music import BASE_MUSIC_CONFIG
 
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
@@ -42,9 +43,7 @@ async def test_playlist_group_no_subcommand(fake_context):  #pylint:disable=rede
 async def test_playlist_stubs_forward_to_the_commands_pod(fake_context, stub, args, kwargs, command, forwarded):  #pylint:disable=redefined-outer-name
     '''The behaviour of these commands is tested in discord_commands; this checks only that each
     stub forwards its command name and parsed arguments, and runs nothing itself.'''
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.commands_client = AsyncMock()
+    cog = forwarding_cog(fake_context, BASE_MUSIC_CONFIG)
     await getattr(cog, stub).callback(cog, fake_context['context'], *args, **kwargs)
     cog.commands_client.forward.assert_awaited_once()
     forward_args = cog.commands_client.forward.await_args.args

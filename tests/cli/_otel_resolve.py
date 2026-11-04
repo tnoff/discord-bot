@@ -297,3 +297,27 @@ def unparse(expr: ast.expr) -> str:
         return ast.unparse(expr)
     except Exception:  # pylint: disable=broad-except
         return '<unparsable>'
+
+
+class CallSiteVisitor(ast.NodeVisitor):
+    '''Finds every call to one of `call_names`, with the enclosing class (if any) so
+    `self.X`/`cls.X` references can be resolved against it.
+
+    `hits` is a list of (ast.Call, enclosing class name or None).
+    '''
+    call_names: tuple = ()
+
+    def __init__(self):
+        self.class_stack: list[str] = []
+        self.hits: list[tuple] = []
+
+    # ast.NodeVisitor dispatches by this exact method name.
+    def visit_ClassDef(self, node):  # pylint: disable=invalid-name
+        self.class_stack.append(node.name)
+        self.generic_visit(node)
+        self.class_stack.pop()
+
+    def visit_Call(self, node):  # pylint: disable=invalid-name
+        if isinstance(node.func, ast.Name) and node.func.id in self.call_names:
+            self.hits.append((node, self.class_stack[-1] if self.class_stack else None))
+        self.generic_visit(node)

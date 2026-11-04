@@ -18,7 +18,6 @@ from aiohttp.test_utils import TestClient, TestServer
 from click.testing import CliRunner
 from sqlalchemy import text
 
-from discord_core.cli._lib import common as cli_common
 from discord_core.exceptions import DiscordBotException
 
 from discord_db.cli import database as database_cli
@@ -28,6 +27,7 @@ from discord_db.clients.playlist_client import PlaylistClient
 from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
 
 from tests.helpers import fake_engine  # pylint: disable=unused-import
+from tests.signal_support import capture_signals, fire_sigterm
 
 GUILD_ID = 8675
 
@@ -254,33 +254,16 @@ def _shutdown_collaborators(mocker):
     return server
 
 
-def _capture_signals(mocker):
-    '''Intercept signal registration so the test can fire SIGTERM itself.'''
-    captured = {}
-
-    def _fake_signal(signum, handler):
-        captured[signum] = handler
-
-    mocker.patch.object(cli_common.signal, 'signal', new=_fake_signal)
-    return captured
-
-
-async def _fire_sigterm(captured):
-    for _ in range(4):
-        await asyncio.sleep(0)
-    captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
-
-
 @pytest.mark.asyncio
 async def test_main_loop_drains_on_shutdown(mocker):
     '''SIGTERM sets the stop event and the server is drained in the finally.'''
     server = _shutdown_collaborators(mocker)
     health_server = mocker.Mock()
     health_server.serve = mocker.AsyncMock()
-    captured = _capture_signals(mocker)
+    captured = capture_signals(mocker)
 
     await asyncio.gather(database_cli.main_loop(server, health_server),
-                         _fire_sigterm(captured))
+                         fire_sigterm(captured))
 
     server.serve.assert_awaited_once()
     health_server.serve.assert_awaited_once()
@@ -291,9 +274,9 @@ async def test_main_loop_drains_on_shutdown(mocker):
 async def test_main_loop_runs_without_health(mocker):
     '''A pod with no health server still serves and still drains.'''
     server = _shutdown_collaborators(mocker)
-    captured = _capture_signals(mocker)
+    captured = capture_signals(mocker)
 
-    await asyncio.gather(database_cli.main_loop(server, None), _fire_sigterm(captured))
+    await asyncio.gather(database_cli.main_loop(server, None), fire_sigterm(captured))
 
     server.serve.assert_awaited_once()
     server.drain_and_stop.assert_awaited_once()
@@ -311,9 +294,9 @@ async def test_server_drains_even_if_serve_dies(mocker):
     '''
     server = _shutdown_collaborators(mocker)
     server.serve.side_effect = OSError('address already in use')
-    captured = _capture_signals(mocker)
+    captured = capture_signals(mocker)
 
-    await asyncio.gather(database_cli.main_loop(server, None), _fire_sigterm(captured))
+    await asyncio.gather(database_cli.main_loop(server, None), fire_sigterm(captured))
 
     server.drain_and_stop.assert_awaited_once()
 

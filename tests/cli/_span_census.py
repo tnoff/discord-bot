@@ -23,7 +23,8 @@ import ast
 from dataclasses import dataclass
 from pathlib import Path
 
-from tests.cli._otel_resolve import Corpus, pod_of, unparse
+from tests.cli._doc_blocks import exempt_table, replace_block
+from tests.cli._otel_resolve import CallSiteVisitor, Corpus, pod_of, unparse
 from tests.cli._roots import SERVICE_ROOTS, CORE_ROOT
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -70,25 +71,9 @@ class ExemptSpan:
     expression: str
 
 
-class _SpanVisitor(ast.NodeVisitor):
-    '''Finds every span-wrapper call, tracking the enclosing class (if any)
-    so `self.X`/`cls.X` references can be resolved against it.
-    '''
-
-    def __init__(self):
-        self.class_stack: list[str] = []
-        self.hits: list[tuple] = []  # (ast.Call, enclosing class name or None)
-
-    # ast.NodeVisitor dispatches by this exact method name.
-    def visit_ClassDef(self, node):  # pylint: disable=invalid-name
-        self.class_stack.append(node.name)
-        self.generic_visit(node)
-        self.class_stack.pop()
-
-    def visit_Call(self, node):  # pylint: disable=invalid-name
-        if isinstance(node.func, ast.Name) and node.func.id in _WRAPPER_NAMES:
-            self.hits.append((node, self.class_stack[-1] if self.class_stack else None))
-        self.generic_visit(node)
+class _SpanVisitor(CallSiteVisitor):
+    '''Finds every span-wrapper call.'''
+    call_names = tuple(_WRAPPER_NAMES)
 
 
 def _kind_of(call: ast.Call) -> str | None:
@@ -177,11 +162,8 @@ def _exempt_appendix(exempt: list) -> str:
         'gap in the resolver: see `tests/cli/_otel_resolve.py` for exactly',
         'which constructs it does and does not follow.',
         '',
-        '| Source | Why | Expression |',
-        '|---|---|---|',
+        *exempt_table(rows),
     ]
-    for source, reason, expression in rows:
-        lines.append(f'| `{source}` | {reason} | `{expression}` |')
     return '\n'.join(lines)
 
 
@@ -190,16 +172,8 @@ def render_trace_linking_doc(original: str, resolved: list, exempt: list) -> str
     else -- the hand-written narrative -- untouched.
     '''
 
-    def _replace(text: str, begin: str, end: str, body: str) -> str:
-        if begin not in text or end not in text:
-            raise AssertionError(
-                f'Expected markers not found in trace_linking.md: {begin!r} / {end!r}. '
-                'They were removed by hand -- restore them before regenerating.'
-            )
-        start = text.index(begin) + len(begin)
-        stop = text.index(end, start)
-        return text[:start] + '\n\n' + body + '\n\n' + text[stop:]
-
-    text = _replace(original, _BEGIN_DISPATCHER, _END_DISPATCHER, _dispatcher_table(resolved))
-    text = _replace(text, _BEGIN_EXEMPT, _END_EXEMPT, _exempt_appendix(exempt))
+    text = replace_block(original, _BEGIN_DISPATCHER, _END_DISPATCHER,
+                         _dispatcher_table(resolved), 'trace_linking.md')
+    text = replace_block(text, _BEGIN_EXEMPT, _END_EXEMPT, _exempt_appendix(exempt),
+                         'trace_linking.md')
     return text

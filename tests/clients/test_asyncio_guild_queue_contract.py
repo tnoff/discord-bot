@@ -10,19 +10,15 @@ Observations use titles, never uuids: each stack mints its own.
 '''
 import contextlib
 import inspect
-from pathlib import Path
 
 import aiohttp
 import pytest
 from aiohttp.test_utils import TestServer
 
 from discord_core.clients.http_broker_client import HttpBrokerClient
-from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.interfaces.guild_queue_client import GuildQueueClient
-from discord_core.types.media_download import MediaDownload
-from discord_core.types.media_request import MediaRequest
-from discord_core.types.search import SearchResult
 
+from tests.fakes.worker_requests import register_track
 from tests.fakes.asyncio_broker import AsyncioBroker
 from tests.fakes.asyncio_queues import (
     make_broker_http_server, make_guild_queue_broker, make_guild_queue_for,
@@ -35,18 +31,7 @@ TITLES = ('one', 'two', 'three', 'four')
 
 
 async def _register(broker, title: str, cache_hit: bool = False) -> str:
-    request = MediaRequest(
-        guild_id=GUILD, channel_id=2, requester_name='Alice', requester_id=9,
-        search_result=SearchResult(search_type=SearchType.DIRECT,
-                                   raw_search_string=f'https://example.com/{title}'))
-    await broker.register_request(request)
-    download = MediaDownload(
-        Path(f'{title}.mp3'),
-        {'id': title, 'title': title, 'webpage_url': f'https://example.com/{title}',
-         'uploader': 'Someone', 'duration': 90, 'extractor': 'youtube'}, request)
-    download.cache_hit = cache_hit
-    await broker.register_download(download)
-    return str(request.uuid)
+    return await register_track(broker, GUILD, title, cache_hit)
 
 
 class _Stack:

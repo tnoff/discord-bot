@@ -2,9 +2,6 @@ from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock
 
 import pytest
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace.status import StatusCode
 
 from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage, SearchType
@@ -13,6 +10,7 @@ from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
+from tests.tracing_support import record_spans
 from tests.fakes.pipeline_fakes import (yield_download_worker_bot_flagged,
                                         yield_download_worker_download_error,
                                         yield_download_worker_download_exception,
@@ -185,19 +183,6 @@ async def test_download_result_runs_cache_cleanup(fake_context, fake_stores):  #
             pod.broker_client.cache_cleanup.assert_awaited_once()
 
 
-def consumer_span_exporter(mocker):
-    """Swap in a recording tracer so span *status* survives to an assertion.
-
-    The suite runs with no global tracer provider, so spans are non-recording
-    and drop their status entirely (see tests/utils/test_otel.py).
-    """
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    mocker.patch('discord_core.utils.otel.TRACER', provider.get_tracer('test'))
-    return exporter
-
-
 def process_results_span_status(exporter):
     """Status of the process_download_results consumer span."""
     spans = [s for s in exporter.get_finished_spans() if s.name.endswith('process_download_results')]
@@ -215,7 +200,7 @@ async def test_video_too_long_marks_request_rejected(fake_context, fake_stores, 
     await pod.broker_client.register_request(s)
     await pod.download_client.submit(guild_id, s)
     await pod.download_client.run(pod.stop_event)
-    exporter = consumer_span_exporter(mocker)
+    exporter = record_spans(mocker)
     await pod.loops.process_download_results()
     assert s.lifecycle_stage == MediaRequestLifecycleStage.FAILED
     assert s.rejected is True
@@ -234,7 +219,7 @@ async def test_retry_limit_exceeded_keeps_consumer_span_error(fake_context, fake
     await pod.broker_client.register_request(s)
     await pod.download_client.submit(guild_id, s)
     await pod.download_client.run(pod.stop_event)
-    exporter = consumer_span_exporter(mocker)
+    exporter = record_spans(mocker)
     await pod.loops.process_download_results()
     assert s.rejected is False
     assert process_results_span_status(exporter) is StatusCode.ERROR

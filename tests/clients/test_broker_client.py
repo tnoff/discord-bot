@@ -2,7 +2,6 @@
 Tests for AsyncioBrokerClient and HttpBrokerClient.
 '''
 import asyncio
-from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -33,7 +32,8 @@ from tests.fakes.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearch
 
 from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
 from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
-from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
+from tests.fakes.broker_setup import broker_and_request, broker_with_result_queue
+from tests.helpers import downloaded_request, successful_download_result, fake_source_dict, generate_fake_context
 
 
 
@@ -61,16 +61,14 @@ def _make_request():
 @pytest.mark.asyncio
 class TestAsyncioBrokerClient:
     async def test_register_request_delegates(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         client = AsyncioBrokerClient(broker, asyncio.Queue())
         await client.register_request(mr)
         entry = await broker.get_entry(str(mr.uuid))
         assert entry is not None
 
     async def test_update_request_status_delegates(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         client = AsyncioBrokerClient(broker, asyncio.Queue())
         await client.update_request_status(
@@ -80,29 +78,20 @@ class TestAsyncioBrokerClient:
         assert entry.request.lifecycle_stage == MediaRequestLifecycleStage.IN_PROGRESS
 
     async def test_register_download_result_enqueues_and_returns_none(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         result_queue: asyncio.Queue = asyncio.Queue()
         client = AsyncioBrokerClient(broker, result_queue)
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                result = DownloadResult(
-                    status=DownloadStatus(success=True),
-                    media_request=mr,
-                    ytdlp_data={'id': 'abc', 'title': 'Test', 'webpage_url': 'http://example.com',
-                                'uploader': 'tester', 'duration': 120, 'extractor': 'youtube'},
-                    file_name=md.file_path,
-                )
-                returned = await client.register_download_result(result)
+        with downloaded_request(mr) as md:
+            result = successful_download_result(mr, md)
+            returned = await client.register_download_result(result)
         assert returned is None
         assert not result_queue.empty()
         queued = result_queue.get_nowait()
         assert queued.media_request is mr
 
     async def test_register_search_result_enqueues(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         search_queue: asyncio.Queue = asyncio.Queue()
         client = AsyncioBrokerClient(broker, search_result_queue=search_queue)
         await client.register_search_result(SearchResolution(media_request=mr, span_context={'t': 1}))
@@ -110,8 +99,7 @@ class TestAsyncioBrokerClient:
         assert search_queue.get_nowait().media_request is mr
 
     async def test_next_search_result_round_trip(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         client = AsyncioBrokerClient(broker)  # default AsyncioSearchResultQueue
         assert await client.next_search_result() is None
         await client.register_search_result(SearchResolution(media_request=mr))
@@ -124,13 +112,11 @@ class TestAsyncioBrokerClient:
         assert isinstance(client.search_result_queue, SearchResultQueue)
 
     async def test_checkout_returns_s3_key(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         client = AsyncioBrokerClient(broker, asyncio.Queue())
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                await broker.register_download(md)
-                result = await client.checkout(str(mr.uuid), 123)
+        with downloaded_request(mr) as md:
+            await broker.register_download(md)
+            result = await client.checkout(str(mr.uuid), 123)
         assert isinstance(result, CheckoutResult)
         assert result.s3_key is not None
 
@@ -141,20 +127,17 @@ class TestAsyncioBrokerClient:
         assert result is None
 
     async def test_checkout_marks_the_entry_checked_out(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         client = AsyncioBrokerClient(broker, asyncio.Queue())
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                await broker.register_download(md)
-                await client.checkout(str(mr.uuid), 123)
-                entry = await broker.get_entry(str(mr.uuid))
+        with downloaded_request(mr) as md:
+            await broker.register_download(md)
+            await client.checkout(str(mr.uuid), 123)
+            entry = await broker.get_entry(str(mr.uuid))
         assert entry.zone == Zone.CHECKED_OUT
         assert entry.checked_out_by == 123
 
     async def test_release_delegates(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         client = AsyncioBrokerClient(broker, asyncio.Queue())
         await client.release(str(mr.uuid))
@@ -169,8 +152,7 @@ class TestAsyncioBrokerClient:
 @pytest.mark.asyncio
 class TestHttpBrokerClient:
     async def test_register_request(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
@@ -179,8 +161,7 @@ class TestHttpBrokerClient:
         assert entry is not None
 
     async def test_update_request_status(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
@@ -192,23 +173,12 @@ class TestHttpBrokerClient:
         assert entry.request.lifecycle_stage == MediaRequestLifecycleStage.IN_PROGRESS
 
     async def test_register_download_result_enqueues_on_server_queue(self):
-        broker = _make_broker()
-        mr = _make_request()
-        await broker.register_request(mr)
-        result_queue: asyncio.Queue = asyncio.Queue()
-        server = make_broker_http_server(broker, result_queue=result_queue)
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                result = DownloadResult(
-                    status=DownloadStatus(success=True),
-                    media_request=mr,
-                    ytdlp_data={'id': 'abc', 'title': 'Test', 'webpage_url': 'http://example.com',
-                                'uploader': 'tester', 'duration': 120, 'extractor': 'youtube'},
-                    file_name=md.file_path,
-                )
-                async with TestClient(TestServer(server.build_app())) as tc:
-                    hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
-                    returned = await hc.register_download_result(result)
+        _, mr, result_queue, server = await broker_with_result_queue()
+        with downloaded_request(mr) as md:
+            result = successful_download_result(mr, md)
+            async with TestClient(TestServer(server.build_app())) as tc:
+                hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+                returned = await hc.register_download_result(result)
         assert returned is None
         assert not result_queue.empty()
         queued = result_queue.get_nowait()
@@ -217,8 +187,7 @@ class TestHttpBrokerClient:
     async def test_register_and_next_search_result(self):
         '''Full HTTP round-trip: register_search_result POSTs, next_search_result
         GETs it back, and an empty queue returns None (204).'''
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         search_queue = AsyncioSearchResultQueue()
         server = make_broker_http_server(broker, search_result_queue=search_queue)
         async with TestClient(TestServer(server.build_app())) as tc:
@@ -241,15 +210,13 @@ class TestHttpBrokerClient:
         assert result is None
 
     async def test_checkout_with_valid_entry_returns_s3_key(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         server = make_broker_http_server(broker)
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                await broker.register_download(md)
-                async with TestClient(TestServer(server.build_app())) as tc:
-                    hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
-                    result = await hc.checkout(str(mr.uuid), 123)
+        with downloaded_request(mr) as md:
+            await broker.register_download(md)
+            async with TestClient(TestServer(server.build_app())) as tc:
+                hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+                result = await hc.checkout(str(mr.uuid), 123)
         assert isinstance(result, CheckoutResult)
         assert result.s3_key is not None
 
@@ -267,8 +234,7 @@ class TestHttpBrokerClient:
         assert result.bucket_name == 'my-bucket'
 
     async def test_release(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
@@ -297,8 +263,7 @@ class TestHttpBrokerClient:
 
     async def test_remove(self):
         '''remove calls POST /requests/{uuid}/remove and the entry is deleted.'''
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
@@ -308,8 +273,7 @@ class TestHttpBrokerClient:
 
     async def test_discard(self):
         '''discard calls POST /requests/{uuid}/discard and drops the entry.'''
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
@@ -320,23 +284,20 @@ class TestHttpBrokerClient:
     async def test_register_download_round_trip(self):
         '''register_download serialises a MediaDownload over the wire and
         the entry lands in the broker as AVAILABLE.'''
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         server = make_broker_http_server(broker)
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                async with TestClient(TestServer(server.build_app())) as tc:
-                    hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
-                    await hc.register_download(md)
+        with downloaded_request(mr) as md:
+            async with TestClient(TestServer(server.build_app())) as tc:
+                hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+                await hc.register_download(md)
         entry = await broker.get_entry(str(mr.uuid))
         assert entry is not None
         assert entry.zone.value == 'available'
 
     async def test_check_cache_miss(self):
         '''check_cache returns None when the broker has no cache hit.'''
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         server = make_broker_http_server(broker)
         async with TestClient(TestServer(server.build_app())) as tc:
             hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
@@ -350,45 +311,35 @@ class TestHttpBrokerClientCacheAndQueue:
 
     async def test_check_cache_hit_round_trips_media_download(self):
         '''check_cache returns a MediaDownload when the broker reports a hit.'''
-        broker = _make_broker()
-        mr = _make_request()
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                broker.check_cache = AsyncMock(return_value=md)
-                server = make_broker_http_server(broker)
-                async with TestClient(TestServer(server.build_app())) as tc:
-                    hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
-                    result = await hc.check_cache(mr)
-                assert result is not None
-                assert str(result.file_path) == str(md.file_path)
-                assert result.webpage_url == md.webpage_url
+        broker, mr = broker_and_request()
+        with downloaded_request(mr) as md:
+            broker.check_cache = AsyncMock(return_value=md)
+            server = make_broker_http_server(broker)
+            async with TestClient(TestServer(server.build_app())) as tc:
+                hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+                result = await hc.check_cache(mr)
+            assert result is not None
+            assert str(result.file_path) == str(md.file_path)
+            assert result.webpage_url == md.webpage_url
 
     async def test_next_result_returns_payload_when_queue_has_one(self, mocker):
         '''next_result decodes the JSON payload into a DownloadResult AND opens the
         broker.next_result span only on the result path.'''
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                result = DownloadResult(
-                    status=DownloadStatus(success=True),
-                    media_request=mr,
-                    ytdlp_data={'id': 'abc', 'title': 'Test', 'webpage_url': 'http://e.com',
-                                'uploader': 'tester', 'duration': 120, 'extractor': 'youtube'},
-                    file_name=md.file_path,
+        with downloaded_request(mr) as md:
+            result = successful_download_result(mr, md)
+            server = make_broker_http_server(broker)
+            async with TestClient(TestServer(server.build_app())) as tc:
+                hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
+                await hc.register_download_result(result)
+                # Spy only around next_result (register_download_result opens
+                # its own span). wraps= keeps the real span behaviour intact.
+                span_spy = mocker.patch.object(
+                    http_broker_client_module, 'async_otel_span_wrapper',
+                    wraps=http_broker_client_module.async_otel_span_wrapper,
                 )
-                server = make_broker_http_server(broker)
-                async with TestClient(TestServer(server.build_app())) as tc:
-                    hc = HttpBrokerClient(str(tc.make_url('')), session=tc.session)
-                    await hc.register_download_result(result)
-                    # Spy only around next_result (register_download_result opens
-                    # its own span). wraps= keeps the real span behaviour intact.
-                    span_spy = mocker.patch.object(
-                        http_broker_client_module, 'async_otel_span_wrapper',
-                        wraps=http_broker_client_module.async_otel_span_wrapper,
-                    )
-                    popped = await hc.next_result()
+                popped = await hc.next_result()
         assert popped is not None
         assert str(popped.media_request.uuid) == str(mr.uuid)
         span_spy.assert_called_once_with('broker.next_result', kind=SpanKind.CLIENT)
@@ -536,27 +487,23 @@ class TestAsyncioBrokerClientFullSurface:
         assert client.local_broker is broker
 
     async def test_next_result_pops_then_none(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         await broker.register_request(mr)
         client = AsyncioBrokerClient(broker, AsyncioDownloadResultQueue())
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                await client.register_download_result(_dl_result(mr, md.file_path))
-                popped = await client.next_result()
+        with downloaded_request(mr) as md:
+            await client.register_download_result(_dl_result(mr, md.file_path))
+            popped = await client.next_result()
         assert popped.media_request is mr
         assert await client.next_result() is None
 
     async def test_register_download_remove_discard_delegate(self):
-        broker = _make_broker()
-        mr = _make_request()
+        broker, mr = broker_and_request()
         client = AsyncioBrokerClient(broker, AsyncioDownloadResultQueue())
-        with TemporaryDirectory() as tmp_dir:
-            with fake_media_download(tmp_dir, media_request=mr) as md:
-                await client.register_download(md)
-                assert await broker.get_entry(str(mr.uuid)) is not None
-                await client.discard(str(mr.uuid))
-                assert await broker.get_entry(str(mr.uuid)) is None
+        with downloaded_request(mr) as md:
+            await client.register_download(md)
+            assert await broker.get_entry(str(mr.uuid)) is not None
+            await client.discard(str(mr.uuid))
+            assert await broker.get_entry(str(mr.uuid)) is None
         await broker.register_request(mr)
         await client.remove(str(mr.uuid))
         assert await broker.get_entry(str(mr.uuid)) is None

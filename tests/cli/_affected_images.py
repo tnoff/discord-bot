@@ -30,15 +30,13 @@ closure is what tells those apart: the deleted file's old owners are the images
 whose contents really did change. #956 and #957 both deleted modules, and a
 filter without this would have failed on each of them.
 '''
-import argparse
 import json
-import subprocess  # nosec B404 - fixed argv, no shell, reads git metadata only
 import sys
 from pathlib import Path
 
+from tests.cli._git_diff import REPO_ROOT, base_head_parser, diff_paths, git_show, report_changed
 from tests.cli._roots import SHIPS_AHEAD_OF_CONSUMER, TESTS_DIR, root_of
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 CLOSURE_PATH = 'tests/cli/image-closure.json'
 
 # Inputs that are not python modules. docker/entrypoint.sh is genuinely
@@ -177,38 +175,20 @@ def affected(changed_files, deleted_files, head_closure, base_closure):
     return images, orphans
 
 
-def _git_show(ref: str, path: str) -> str:
-    '''File contents at `ref`, or '' when it is not there.'''
-    result = subprocess.run(['git', 'show', f'{ref}:{path}'],  # nosec B603 B607 - fixed argv
-                            cwd=REPO_ROOT, capture_output=True, text=True, check=False)
-    return result.stdout if result.returncode == 0 else ''
-
-
 def main(argv=None) -> int:
     '''Print the build matrix for the changed files, or fail on an orphan.'''
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--base', required=True, help='base ref to diff against')
-    parser.add_argument('--head', default='HEAD', help='head ref (default HEAD)')
-    args = parser.parse_args(argv)
+    args = base_head_parser(__doc__).parse_args(argv)
 
-    def _names(*extra):
-        result = subprocess.run(  # nosec B603 B607 - fixed argv
-            ['git', 'diff', '--name-only', *extra, f'{args.base}...{args.head}'],
-            cwd=REPO_ROOT, capture_output=True, text=True, check=True)
-        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
-
-    changed = _names()
-    deleted = _names('--diff-filter=D')
+    changed = diff_paths(args.base, args.head)
+    deleted = diff_paths(args.base, args.head, '--diff-filter=D')
 
     head_closure = json.loads((REPO_ROOT / CLOSURE_PATH).read_text(encoding='utf-8'))
-    base_raw = _git_show(args.base, CLOSURE_PATH)
+    base_raw = git_show(args.base, CLOSURE_PATH)
     base_closure = json.loads(base_raw) if base_raw else None
 
     images, orphans = affected(changed, deleted, head_closure, base_closure)
 
-    print('changed files:', file=sys.stderr)
-    for path in changed:
-        print(f'  {path}', file=sys.stderr)
+    report_changed(changed)
 
     if orphans:
         print('\nERROR: these files belong to no image closure:', file=sys.stderr)

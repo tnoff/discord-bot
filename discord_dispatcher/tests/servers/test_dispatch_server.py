@@ -12,6 +12,7 @@ from discord_core.servers.base import AiohttpServerBase
 from discord_dispatcher.servers.dispatch_server import DispatchHttpServer
 
 from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue
+from tests.net_support import cancel_task, wait_for_port
 
 
 # ---------------------------------------------------------------------------
@@ -50,20 +51,7 @@ class TestDrain:
         '''drain_and_stop() with no in-flight requests sets the shutdown event immediately.'''
         _, server = _make_server()
         task = asyncio.create_task(server.serve())
-        deadline = asyncio.get_event_loop().time() + 5.0
-        while True:
-            try:
-                _, writer = await asyncio.open_connection('0.0.0.0', 8082)
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except OSError:
-                    pass
-                break
-            except OSError:
-                if asyncio.get_event_loop().time() >= deadline:
-                    raise
-                await asyncio.sleep(0.02)
+        await wait_for_port(8082, host='0.0.0.0')
         try:
             await asyncio.wait_for(server.drain_and_stop(), timeout=5.0)
             await asyncio.wait_for(task, timeout=5.0)
@@ -88,30 +76,13 @@ class TestServe:
         '''serve() starts the aiohttp server and handles requests until cancelled.'''
         _, server = _make_server()
         task = asyncio.create_task(server.serve())
-        deadline = asyncio.get_event_loop().time() + 5.0
-        while True:
-            try:
-                _, writer = await asyncio.open_connection('0.0.0.0', 8082)
-                writer.close()
-                try:
-                    await writer.wait_closed()
-                except OSError:
-                    pass
-                break
-            except OSError:
-                if asyncio.get_event_loop().time() >= deadline:
-                    raise
-                await asyncio.sleep(0.02)
+        await wait_for_port(8082, host='0.0.0.0')
         try:
             async with aiohttp.ClientSession() as session:
                 resp = await session.get('http://0.0.0.0:8082/dispatch/results/nonexistent')
                 assert resp.status == 202
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
 
 @pytest.mark.asyncio

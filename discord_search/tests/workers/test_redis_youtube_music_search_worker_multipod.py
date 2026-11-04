@@ -30,73 +30,30 @@ itself; it is kept for fairness parity with the downloader, not correctness.
 # pylint: disable=protected-access
 import asyncio
 
-import fakeredis.aioredis
 import pytest
 
 from discord_core.clients.redis_client import RedisManager
-from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.types.media_request import MediaRequest
-from discord_core.types.search import SearchResult
-
 from discord_core.utils.failure_queue import FailureQueue
 
 from discord_search.workers.redis_youtube_music_search_worker import (
     RedisYoutubeMusicSearchWorker, GUILDS_KEY,
 )
 
-
-class _YieldingRedis:
-    '''Wrap a fakeredis client so every op the racing pop paths touch yields to
-    the event loop before executing.
-
-    Load-bearing for these tests.  fakeredis resolves its awaits synchronously —
-    it never suspends the running coroutine — so two coroutines under
-    asyncio.gather run to completion one after the other and an emergent
-    read-modify-write race can NEVER interleave.  A real Redis round-trip *does*
-    suspend at every await; the ``sleep(0)`` reinstates that suspend point so the
-    cross-pod RMW actually races and the pop lock has something to serialise.  The
-    wrapped ops stay individually atomic (the yield is *before* the single
-    fakeredis op), exactly like Redis.
-    '''
-
-    def __init__(self, inner):
-        self._inner = inner
-
-    def _wrap(self, name):
-        inner_attr = getattr(self._inner, name)
-
-        async def _op(*args, **kwargs):
-            await asyncio.sleep(0)
-            return await inner_attr(*args, **kwargs)
-        return _op
-
-    def __getattr__(self, name):
-        if name in ('get', 'set', 'delete', 'zadd', 'zrange', 'zpopmin',
-                    'zcard', 'zrem', 'zscore'):
-            return self._wrap(name)
-        return getattr(self._inner, name)
+from tests.fakes.worker_requests import queue_request
+from tests.fakes.yielding_redis import two_pod_clients
 
 
 def _two_pods():
     '''Return two workers with independent clients sharing ONE FakeServer — two
     pods, one Redis — each wrapped so Redis ops yield and cross-pod races are real.'''
-    server = fakeredis.FakeServer()
-
-    def _pod():
-        client = _YieldingRedis(
-            fakeredis.aioredis.FakeRedis(server=server, decode_responses=True))
+    def _pod(client):
         return RedisYoutubeMusicSearchWorker(
             None, object(), FailureQueue(max_size=10, max_age_seconds=600),
             10, 2, redis_manager=RedisManager.from_client(client))
 
-    return _pod(), _pod()
-
-
-def _mk(*, guild_id=7) -> MediaRequest:
-    return MediaRequest(
-        guild_id=guild_id, channel_id=2, requester_name='tester', requester_id=9,
-        search_result=SearchResult(search_type=SearchType.SEARCH, raw_search_string='song name'),
-    )
+    client_a, client_b = two_pod_clients()
+    return _pod(client_a), _pod(client_b)
 
 
 @pytest.mark.asyncio
@@ -104,7 +61,7 @@ async def test_two_pods_no_double_pop_of_one_request():
     '''Two pods race to pop the single queued request; ZPOPMIN atomicity (under the
     pop lock) lets exactly one win and the other sees an empty queue.'''
     pod_a, pod_b = _two_pods()
-    mr = _mk(guild_id=7)
+    mr = queue_request(guild_id=7)
     await pod_a.submit(7, mr)
 
     results = await asyncio.gather(
@@ -125,7 +82,7 @@ async def test_two_pods_partition_every_request_exactly_once():
     expected = set()
     for guild_id in (1, 2, 3):
         for _ in range(4):
-            mr = _mk(guild_id=guild_id)
+            mr = queue_request(guild_id=guild_id)
             expected.add(str(mr.uuid))
             await pod_a.submit(guild_id, mr)
 
@@ -153,7 +110,7 @@ async def test_two_pods_concurrent_drain_leaves_clean_tracker():
     module docstring's note on why this is not a lock-dependence gate.)'''
     pod_a, pod_b = _two_pods()
     for _ in range(6):
-        await pod_a.submit(7, _mk(guild_id=7))
+        await pod_a.submit(7, queue_request(guild_id=7))
 
     async def _drain(pod):
         while True:

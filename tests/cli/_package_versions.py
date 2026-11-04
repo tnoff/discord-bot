@@ -45,14 +45,11 @@ learn to carve back OUT for a different purpose (test code ships in no
 image). This module asks a different question ("did this PR touch the
 package at all") and test code answers it the same as production code does.
 '''
-import argparse
-import subprocess  # nosec B404 - fixed argv, no shell, reads git metadata only
 import sys
-from pathlib import Path
 
+from tests.cli._git_diff import base_head_parser, diff_paths, report_changed
 from tests.cli._roots import CORE_ROOT, SERVICE_ROOTS, root_of
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 #: Every package root this convention covers, keyed the same way a tag-name
 #: table keys its short names -- not hand-rolled a second time, imported from
@@ -76,9 +73,8 @@ def touched_packages(changed_files: list) -> set:
 def main(argv=None) -> int:
     '''Fail if any touched package's own VERSION was not also touched, or with
     `--list` / `--list-all` print VERSION paths instead.'''
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--base', help='base ref to diff against (required except with --list-all)')
-    parser.add_argument('--head', default='HEAD', help='head ref (default HEAD)')
+    parser = base_head_parser(__doc__, base_required=False,
+                              base_help='base ref to diff against (required except with --list-all)')
     parser.add_argument('--list', action='store_true',
                         help='print each touched package\'s VERSION path to stdout and exit 0')
     parser.add_argument('--list-all', action='store_true',
@@ -92,14 +88,8 @@ def main(argv=None) -> int:
     if not args.base:
         parser.error('--base is required unless --list-all is given')
 
-    result = subprocess.run(  # nosec B603 B607 - fixed argv
-        ['git', 'diff', '--name-only', f'{args.base}...{args.head}'],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=True)
-    changed = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-
-    print('changed files:', file=sys.stderr)
-    for path in changed:
-        print(f'  {path}', file=sys.stderr)
+    changed = diff_paths(args.base, args.head)
+    report_changed(changed)
 
     if args.list:
         # stdout carries only the paths; the changed-files diagnostics above went

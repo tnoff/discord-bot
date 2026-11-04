@@ -8,12 +8,12 @@ outcomes against, and a hand-built closure the way `test_affected_images.py`
 uses for `affected()` is not available here: this module has no measured
 graph to fake, only a changed-file list and a VERSION-file convention.
 '''
-import subprocess  # nosec B404 - fixed argv, no shell, test-only git setup
 
 import pytest
 
 import tests.cli._package_versions as package_versions
 from tests.cli._package_versions import main, touched_packages
+from tests.cli._scratch_repo import commit, head_sha, init_scratch_repo
 
 
 @pytest.mark.parametrize('paths, expected', [
@@ -38,33 +38,18 @@ def test_touched_packages(paths, expected):
     assert touched_packages(paths) == expected
 
 
-def _git(cwd, *args):
-    subprocess.run(['git', *args], cwd=cwd, check=True,  # nosec B603 B607 - fixed argv
-                   capture_output=True, text=True)
-
-
-def _head(cwd):
-    return subprocess.run(  # nosec B603 B607 - fixed argv
-        ['git', 'rev-parse', 'HEAD'], cwd=cwd, check=True,
-        capture_output=True, text=True).stdout.strip()
-
-
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
     '''A throwaway git repo, wired in as `_package_versions.REPO_ROOT`, with
     one base commit holding two packages' VERSION files.'''
-    monkeypatch.setattr(package_versions, 'REPO_ROOT', tmp_path)
-    _git(tmp_path, 'init', '-q', '-b', 'main')
-    _git(tmp_path, 'config', 'user.email', 'test@example.com')
-    _git(tmp_path, 'config', 'user.name', 'Test')
+    init_scratch_repo(tmp_path, monkeypatch)
     (tmp_path / 'discord_core').mkdir()
     (tmp_path / 'discord_core' / 'VERSION').write_text('1.0.0\n', encoding='utf-8')
     (tmp_path / 'discord_search').mkdir()
     (tmp_path / 'discord_search' / 'VERSION').write_text('1.0.0\n', encoding='utf-8')
     (tmp_path / 'README.md').write_text('hello\n', encoding='utf-8')
-    _git(tmp_path, 'add', '-A')
-    _git(tmp_path, 'commit', '-q', '-m', 'base')
-    return tmp_path, _head(tmp_path)
+    commit(tmp_path, 'base')
+    return tmp_path, head_sha(tmp_path)
 
 
 def test_main_passes_when_every_touched_package_bumps_its_own_version(repo, capsys):  # pylint: disable=redefined-outer-name
@@ -72,8 +57,7 @@ def test_main_passes_when_every_touched_package_bumps_its_own_version(repo, caps
     tmp_path, base_sha = repo
     (tmp_path / 'discord_search' / 'clients.py').write_text('x = 1\n', encoding='utf-8')
     (tmp_path / 'discord_search' / 'VERSION').write_text('1.0.1\n', encoding='utf-8')
-    _git(tmp_path, 'add', '-A')
-    _git(tmp_path, 'commit', '-q', '-m', 'bump search')
+    commit(tmp_path, 'bump search')
 
     assert main(['--base', base_sha]) == 0
     assert 'every touched package bumped' in capsys.readouterr().err
@@ -83,8 +67,7 @@ def test_main_fails_when_a_touched_package_does_not_bump_its_version(repo, capsy
     '''The forgotten-bump case this job exists to catch.'''
     tmp_path, base_sha = repo
     (tmp_path / 'discord_search' / 'clients.py').write_text('x = 1\n', encoding='utf-8')
-    _git(tmp_path, 'add', '-A')
-    _git(tmp_path, 'commit', '-q', '-m', 'forgot to bump')
+    commit(tmp_path, 'forgot to bump')
 
     assert main(['--base', base_sha]) == 1
     assert 'discord_search' in capsys.readouterr().err
@@ -94,8 +77,7 @@ def test_main_passes_when_nothing_package_shaped_changed(repo):  # pylint: disab
     '''A doc-only change touches no declared root, so nothing is required.'''
     tmp_path, base_sha = repo
     (tmp_path / 'README.md').write_text('hello again\n', encoding='utf-8')
-    _git(tmp_path, 'add', '-A')
-    _git(tmp_path, 'commit', '-q', '-m', 'docs only')
+    commit(tmp_path, 'docs only')
 
     assert main(['--base', base_sha]) == 0
 
@@ -107,8 +89,7 @@ def test_main_requires_only_the_touched_packages_own_version(repo):  # pylint: d
     (tmp_path / 'discord_core' / 'VERSION').write_text('1.0.1\n', encoding='utf-8')
     (tmp_path / 'discord_search' / 'clients.py').write_text('x = 1\n', encoding='utf-8')
     (tmp_path / 'discord_search' / 'VERSION').write_text('1.0.1\n', encoding='utf-8')
-    _git(tmp_path, 'add', '-A')
-    _git(tmp_path, 'commit', '-q', '-m', 'bump both')
+    commit(tmp_path, 'bump both')
 
     assert main(['--base', base_sha]) == 0
 
@@ -120,8 +101,7 @@ def test_list_prints_each_touched_packages_version_file(repo, capsys):  # pylint
     tmp_path, base_sha = repo
     (tmp_path / 'discord_search' / 'clients.py').write_text('x = 1\n', encoding='utf-8')
     (tmp_path / 'discord_core' / 'utils.py').write_text('x = 1\n', encoding='utf-8')
-    _git(tmp_path, 'add', '-A')
-    _git(tmp_path, 'commit', '-q', '-m', 'touch two, bump none')
+    commit(tmp_path, 'touch two, bump none')
 
     assert main(['--base', base_sha, '--list']) == 0
     captured = capsys.readouterr()
@@ -133,8 +113,7 @@ def test_list_is_empty_when_nothing_package_shaped_changed(repo, capsys):  # pyl
     '''A doc-only PR lists nothing, which the shared workflow reads as "no bump".'''
     tmp_path, base_sha = repo
     (tmp_path / 'README.md').write_text('hello again\n', encoding='utf-8')
-    _git(tmp_path, 'add', '-A')
-    _git(tmp_path, 'commit', '-q', '-m', 'docs only')
+    commit(tmp_path, 'docs only')
 
     assert main(['--base', base_sha, '--list']) == 0
     assert capsys.readouterr().out == ''
@@ -145,13 +124,11 @@ def test_list_and_check_agree_once_the_listed_files_are_bumped(repo):  # pylint:
     names is what makes the check pass.'''
     tmp_path, base_sha = repo
     (tmp_path / 'discord_search' / 'clients.py').write_text('x = 1\n', encoding='utf-8')
-    _git(tmp_path, 'add', '-A')
-    _git(tmp_path, 'commit', '-q', '-m', 'change')
+    commit(tmp_path, 'change')
     assert main(['--base', base_sha]) == 1
 
     (tmp_path / 'discord_search' / 'VERSION').write_text('1.0.1\n', encoding='utf-8')
-    _git(tmp_path, 'add', '-A')
-    _git(tmp_path, 'commit', '-q', '-m', 'bump what --list named')
+    commit(tmp_path, 'bump what --list named')
     assert main(['--base', base_sha]) == 0
 
 

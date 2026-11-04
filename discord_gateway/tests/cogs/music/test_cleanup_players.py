@@ -14,11 +14,10 @@ from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.types.cleanup_reason import CleanupReason
 
+from discord_gateway.tests.cogs.music_cog_support import prepared_cog
 from discord_gateway.tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import FakeGuild, FakeVoiceClient, fake_engine, fake_context #pylint:disable=unused-import
 from tests.helpers import attach_in_process_broker
-from tests.helpers import attach_in_process_search
-from tests.helpers import attach_in_process_download
 
 @pytest.fixture(name='teardown_guild', autouse=True)
 def fixture_teardown_guild(mocker):
@@ -28,12 +27,7 @@ def fixture_teardown_guild(mocker):
 
 @pytest.mark.asyncio
 async def test_cleanup_players_just_bot(mocker, fake_context):  #pylint:disable=redefined-outer-name
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    attach_in_process_search(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG, download=True, search=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'], create_player=True, join_channel=fake_context['channel'])
     fake_context['channel'].members = [fake_context['bot'].user]
@@ -70,10 +64,7 @@ async def test_cleanup_players_no_players(mocker, fake_context):  # pylint: disa
 async def test_cleanup_bot_shutdown_leaves_the_queue_and_its_message(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """BOT_SHUTDOWN keeps the guild's queue open and its play-order message up: the queue is what the
     next gateway picks up, and the broker (not the cog) owns that message."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -87,10 +78,7 @@ async def test_cleanup_bot_shutdown_leaves_the_queue_and_its_message(mocker, fak
 @pytest.mark.asyncio
 async def test_cleanup_asks_the_commands_pod_to_tear_the_guild_down(mocker, fake_context, teardown_guild):  # pylint: disable=redefined-outer-name
     """The queues and the bundles are the commands pod's to clear; the gateway only asks."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -105,10 +93,7 @@ async def test_cleanup_asks_the_commands_pod_to_tear_the_guild_down(mocker, fake
 async def test_cleanup_bot_shutdown_does_not_tear_the_guild_down(mocker, fake_context, teardown_guild):  # pylint: disable=redefined-outer-name
     """A restart parks the queued work and leaves the bundles standing: the downloader and search
     tiers outlive this pod and every request reaches a terminal state that reaps its own entry."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     bundle_uuid = await cog.broker_client.create_bundle(fake_context['guild'].id, fake_context['channel'].id)
@@ -139,10 +124,7 @@ async def test_cleanup_retries_a_teardown_the_pod_did_not_take_once(mocker, fake
 async def test_cleanup_goes_on_when_the_commands_pod_stays_unreachable(mocker, fake_context, teardown_guild):  # pylint: disable=redefined-outer-name
     """The guild's queued work is left to the result loop, but the voice disconnect, the player's own
     cleanup, the broker state and the player dir are not held up behind a pod that is down."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     teardown_guild.side_effect = CommandsUnavailable('down')
@@ -165,12 +147,7 @@ async def test_cleanup_goes_on_when_the_commands_pod_stays_unreachable(mocker, f
 @pytest.mark.asyncio
 async def test_cleanup_removes_guild_player_dir(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup removes the guild's player subdirectory (prefetched files) when it exists."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    attach_in_process_search(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG, download=True, search=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -190,10 +167,7 @@ async def test_cleanup_removes_guild_player_dir(mocker, fake_context):  # pylint
 @pytest.mark.asyncio
 async def test_cleanup_skips_player_dir_on_bot_shutdown(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """cleanup does not remove guild player dir on BOT_SHUTDOWN (cog_unload handles it)."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
 
@@ -212,12 +186,7 @@ async def test_cleanup_skips_player_dir_on_bot_shutdown(mocker, fake_context):  
 async def test_cleanup_disconnect_error_still_reaps_player(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """A voice-client disconnect error is logged but does not abort cleanup or
     leave the player behind (the strand this fix prevents)."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    attach_in_process_download(cog)
-    attach_in_process_search(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG, download=True, search=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'],
                          create_player=True, join_channel=fake_context['channel'])
@@ -250,10 +219,7 @@ async def test_cleanup_orphaned_voice_client_disconnected(fake_context):  # pyli
 @pytest.mark.asyncio
 async def test_cleanup_orphaned_skips_backed_and_guildless(mocker, fake_context):  # pylint: disable=redefined-outer-name
     """The sweep leaves alone clients backed by a player, or with no guild."""
-    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
-    attach_in_process_broker(cog)
-    cog.dispatcher = MagicMock()
-    mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
+    cog = prepared_cog(mocker, fake_context, BASE_MUSIC_CONFIG)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'], create_player=True)
 

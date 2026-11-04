@@ -1,19 +1,17 @@
 '''Tests for the play-order message GuildQueueBroker keeps up to date through its dispatcher.'''
-from pathlib import Path
 
 import fakeredis.aioredis
 import pytest
 
 from discord_core.clients.redis_client import RedisManager
-from discord_core.cogs.music_helpers.common import MultipleMutableType, SearchType
-from discord_core.types.media_download import MediaDownload
-from discord_core.types.media_request import MediaRequest
-from discord_core.types.search import SearchResult
+from discord_core.cogs.music_helpers.common import MultipleMutableType
 
 from discord_broker.workers.broker_registry import RedisBrokerRegistry
 from discord_broker.workers.guild_queue import GuildQueueBroker
 from discord_broker.workers.guild_queue_registry import GuildQueueRegistry
 from discord_broker.workers.redis_broker import RedisBroker
+
+from tests.fakes.worker_requests import register_track
 
 GUILD = 21
 CHANNEL = 555
@@ -52,16 +50,7 @@ def _make(dispatcher=None) -> tuple[RedisBroker, GuildQueueBroker]:
 
 
 async def _track(broker, title: str) -> str:
-    request = MediaRequest(
-        guild_id=GUILD, channel_id=2, requester_name='Alice', requester_id=9,
-        search_result=SearchResult(search_type=SearchType.DIRECT,
-                                   raw_search_string=f'https://example.com/{title}'))
-    await broker.register_request(request)
-    await broker.register_download(MediaDownload(
-        Path(f'{title}.mp3'),
-        {'id': title, 'title': title, 'webpage_url': f'https://example.com/{title}',
-         'uploader': 'Someone', 'duration': 90, 'extractor': 'youtube'}, request))
-    return str(request.uuid)
+    return await register_track(broker, GUILD, title)
 
 
 async def _opened(dispatcher):

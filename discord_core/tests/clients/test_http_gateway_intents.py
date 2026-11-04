@@ -6,13 +6,10 @@ route from the shared registry, records what the client sent, and answers with c
 checks both directions of the contract. The real server is exercised in discord_broker's tests.
 '''
 import ast
-import contextlib
 import inspect
 
 import aiohttp
 import pytest
-from aiohttp import web
-from aiohttp.test_utils import TestServer
 
 from discord_core.clients import http_gateway_intents
 from discord_core.clients.http_broker_client import HttpBrokerClient
@@ -21,48 +18,21 @@ from discord_core.interfaces.gateway_intent_client import GatewayIntentClient
 from discord_core.routes import gateway_intents as intent_routes
 from discord_core.types.gateway_intents import GatewayIntent, IntentKind, IntentResult
 
+from discord_core.tests.clients.stub_broker import StubBrokerBase, connected
+
 GUILD = 42
 GATEWAY = 'gw-1'
 
 INTENT_ROUTES = intent_routes.ALL
 
 
-class StubBroker:
+class StubBroker(StubBrokerBase):
     '''A broker that serves the gateway-intent routes and remembers every call.'''
-
-    def __init__(self):
-        self.calls = []
-        self.answers = {}
-
-    def answer(self, route, body=None, status=200):
-        '''Set what a route answers. body None sends an empty response.'''
-        self.answers[route] = (status, body)
-
-    def _handler(self, route):
-        async def handle(request: web.Request) -> web.StreamResponse:
-            body = await request.json() if request.can_read_body else None
-            self.calls.append({'route': route, 'match': dict(request.match_info), 'body': body})
-            status, answer = self.answers[route]
-            if answer is None:
-                return web.Response(status=status)
-            return web.json_response(answer, status=status)
-        return handle
-
-    def build_app(self) -> web.Application:
-        app = web.Application()
-        for route in INTENT_ROUTES:
-            app.router.add_route(route.method, route.template, self._handler(route))
-        return app
-
-    def last(self, route):
-        return [call for call in self.calls if call['route'] == route][-1]
+    routes = INTENT_ROUTES
 
 
-@contextlib.asynccontextmanager
-async def _connected(stub: StubBroker):
-    async with TestServer(stub.build_app()) as server:
-        async with aiohttp.ClientSession() as session:
-            yield HttpBrokerClient(str(server.make_url('')), session=session)
+def _connected(stub: StubBroker):
+    return connected(stub)
 
 
 # ---------------------------------------------------------------------------

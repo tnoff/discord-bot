@@ -7,11 +7,9 @@ import fakeredis.aioredis
 import pytest
 
 from discord_core.clients.redis_client import RedisManager
-from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.types.download import LifecycleEvent, DownloadResult, DownloadStatus, LifecycleStatusUpdate
 from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequest
-from discord_core.types.search import SearchResult
 from discord_core.types.video_cache import VideoCacheEntry
 
 from discord_core.types.player_session import PlayerSession
@@ -19,6 +17,8 @@ from discord_core.types.player_session import PlayerSession
 from discord_broker.interfaces.broker_protocols import BrokerEntry, Zone
 from discord_broker.workers.broker_registry import RedisBrokerRegistry
 from discord_broker.workers.redis_broker import RedisBroker, _download_from_dict, _download_to_dict, _entry_from_dict
+
+from tests.fakes.worker_requests import direct_request
 
 
 # ---------------------------------------------------------------------------
@@ -34,19 +34,6 @@ def _make_broker(video_cache=None, bucket_name=None, registry: RedisBrokerRegist
                  cache_bucket_name=None) -> RedisBroker:
     return RedisBroker(registry or _make_registry(), video_cache=video_cache, bucket_name=bucket_name,
                        cache_bucket_name=cache_bucket_name)
-
-
-def _make_request(guild_id: int = 1, channel_id: int = 2) -> MediaRequest:
-    return MediaRequest(
-        guild_id=guild_id,
-        channel_id=channel_id,
-        requester_name='tester',
-        requester_id=9,
-        search_result=SearchResult(
-            search_type=SearchType.DIRECT,
-            raw_search_string='https://example.com/video',
-        ),
-    )
 
 
 def _make_download(request: MediaRequest, file_path: Path | None = None) -> MediaDownload:
@@ -87,7 +74,7 @@ def _make_result(request: MediaRequest, file_path: Path | None = None) -> Downlo
 
 def test_download_to_dict_roundtrip():
     '''_download_to_dict serialises all expected keys.'''
-    req = _make_request()
+    req = direct_request()
     dl = _make_download(req, Path('/tmp/test.mp3'))
     d = _download_to_dict(dl)
     assert d['file_path'] == '/tmp/test.mp3'
@@ -97,14 +84,14 @@ def test_download_to_dict_roundtrip():
 
 def test_download_to_dict_none_file_path():
     '''_download_to_dict serialises None file_path as None.'''
-    req = _make_request()
+    req = direct_request()
     dl = _make_download(req, None)
     assert _download_to_dict(dl)['file_path'] is None
 
 
 def test_download_from_dict_reconstructs():
     '''_download_from_dict reconstructs a MediaDownload from a serialised dict.'''
-    req = _make_request()
+    req = direct_request()
     data = {
         'id': 'vid1',
         'title': 'Test Video',
@@ -123,14 +110,14 @@ def test_download_from_dict_reconstructs():
 
 def test_download_from_dict_no_file_path():
     '''_download_from_dict handles missing file_path gracefully.'''
-    req = _make_request()
+    req = direct_request()
     dl = _download_from_dict({'webpage_url': 'https://example.com/video'}, req)
     assert dl.file_path is None
 
 
 def test_entry_from_dict_in_flight_no_download():
     '''_entry_from_dict reconstructs an IN_FLIGHT entry with no download.'''
-    req = _make_request()
+    req = direct_request()
     data = {
         'zone': 'in_flight',
         'checked_out_by': None,
@@ -144,7 +131,7 @@ def test_entry_from_dict_in_flight_no_download():
 
 def test_entry_from_dict_checked_out():
     '''_entry_from_dict reconstructs a CHECKED_OUT entry; a stale guild_file_path key is ignored.'''
-    req = _make_request()
+    req = direct_request()
     dl = _make_download(req, Path('/s3/key.mp3'))
     data = {
         'zone': 'checked_out',
@@ -166,7 +153,7 @@ def test_entry_from_dict_checked_out():
 async def test_register_request_stores_in_flight():
     '''register_request stores a new entry in IN_FLIGHT zone.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     entry = await broker.get_entry(str(req.uuid))
     assert entry is not None
@@ -179,7 +166,7 @@ async def test_register_request_idempotent():
     '''register_request called twice does not overwrite the existing entry.'''
     registry = _make_registry()
     broker = _make_broker(registry=registry)
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     # Advance zone to available via registry to simulate a partial download.
     data = await registry.get_entry(str(req.uuid))
@@ -199,7 +186,7 @@ async def test_register_request_idempotent():
 async def test_update_request_status_in_progress():
     '''update_request_status with IN_PROGRESS marks the request in progress.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     update = LifecycleStatusUpdate(event=LifecycleEvent.IN_PROGRESS)
     await broker.update_request_status(str(req.uuid), update)
@@ -212,7 +199,7 @@ async def test_update_request_status_in_progress():
 async def test_update_request_status_backoff():
     '''update_request_status with BACKOFF does not raise.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     update = LifecycleStatusUpdate(event=LifecycleEvent.BACKOFF)
     await broker.update_request_status(str(req.uuid), update)
@@ -222,7 +209,7 @@ async def test_update_request_status_backoff():
 async def test_update_request_status_retry():
     '''update_request_status with RETRY stores error detail and backoff.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     update = LifecycleStatusUpdate(event=LifecycleEvent.RETRY, error_detail='rate-limited', backoff_seconds=5)
     await broker.update_request_status(str(req.uuid), update)
@@ -243,7 +230,7 @@ async def test_update_request_status_stores_reported_retry_budget(event, attribu
     against a broker defaulted to 3 in prod on 2026-08-13.
     '''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     update = LifecycleStatusUpdate(event=event, error_detail='rate-limited',
                                    backoff_seconds=5, retry_count=4, max_retries=5)
@@ -259,7 +246,7 @@ async def test_update_request_status_stores_reported_retry_budget(event, attribu
 async def test_update_request_status_discarded_deletes_entry():
     '''A DISCARDED status update drops the registry entry (no in_flight leak).'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     assert await broker.get_entry(str(req.uuid)) is not None
     await broker.update_request_status(str(req.uuid), LifecycleStatusUpdate(event=LifecycleEvent.DISCARDED))
@@ -270,7 +257,7 @@ async def test_update_request_status_discarded_deletes_entry():
 async def test_update_request_status_failed_deletes_entry():
     '''A FAILED status update drops the registry entry.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     await broker.update_request_status(
         str(req.uuid), LifecycleStatusUpdate(event=LifecycleEvent.FAILED, failure_reason='boom'))
@@ -281,7 +268,7 @@ async def test_update_request_status_failed_deletes_entry():
 async def test_update_request_status_discarded():
     '''update_request_status with DISCARDED does not raise.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     update = LifecycleStatusUpdate(event=LifecycleEvent.DISCARDED)
     await broker.update_request_status(str(req.uuid), update)
@@ -297,7 +284,7 @@ async def test_update_request_status_discarded():
 async def test_update_request_status_handles_every_event_branch(event):
     '''Each LifecycleEvent branch in update_request_status mutates the entry.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     update = LifecycleStatusUpdate(
         event=event,
@@ -318,7 +305,7 @@ async def test_sync_request_into_bundle_no_op_when_bundle_missing():
     '''_sync_request_into_bundle returns silently if the bundle has been deleted.'''
     broker = _make_broker()
     bundle_uuid = await broker.create_bundle(guild_id=1, channel_id=2)
-    req = _make_request()
+    req = direct_request()
     req.bundle_uuid = bundle_uuid
     await broker.register_request(req)
     await broker.delete_bundle(bundle_uuid)
@@ -336,7 +323,7 @@ async def test_sync_request_into_bundle_no_op_when_request_not_in_bundle():
     in practice but keeps the helper safe).'''
     broker = _make_broker()
     bundle_uuid = await broker.create_bundle(guild_id=1, channel_id=2)
-    req = _make_request()
+    req = direct_request()
     # Set bundle_uuid but never call register_request → request is in the
     # registry (we'll add it manually below) but not in the bundle's
     # bundled_requests list.
@@ -371,7 +358,7 @@ async def test_update_request_status_unknown_uuid_is_noop():
 async def test_register_download_result_returns_media_download():
     '''register_download_result creates and returns a MediaDownload.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     result = _make_result(req, Path('/s3/key.mp3'))
     media_download = await broker.register_download_result(result)
@@ -383,7 +370,7 @@ async def test_register_download_result_returns_media_download():
 async def test_register_download_moves_to_available():
     '''register_download transitions the entry to AVAILABLE zone.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     dl = _make_download(req, Path('/s3/key.mp3'))
     await broker.register_download(dl)
@@ -396,7 +383,7 @@ async def test_register_download_moves_to_available():
 async def test_register_download_creates_entry_if_missing():
     '''register_download creates a new AVAILABLE entry when none exists yet.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     dl = _make_download(req, Path('/s3/key.mp3'))
     await broker.register_download(dl)
     entry = await broker.get_entry(str(req.uuid))
@@ -410,7 +397,7 @@ async def test_register_download_calls_video_cache_iterate():
     video_cache = MagicMock()
     video_cache.iterate_file = AsyncMock()
     broker = _make_broker(video_cache=video_cache)
-    req = _make_request()
+    req = direct_request()
     dl = _make_download(req, Path('/s3/key.mp3'))
     await broker.register_download(dl)
     video_cache.iterate_file.assert_called_once_with(dl)
@@ -425,7 +412,7 @@ async def test_checkout_returns_s3_key():
     '''checkout returns a CheckoutResult carrying the download file_path as the
     S3 key plus the broker's bucket_name (HA — caller fetches from S3).'''
     broker = _make_broker(bucket_name='my-bucket')
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     dl = _make_download(req, Path('/s3/bucket/key.mp3'))
     await broker.register_download(dl)
@@ -438,7 +425,7 @@ async def test_checkout_returns_s3_key():
 async def test_checkout_returns_none_when_atomic_checkout_fails():
     '''checkout returns None when the entry is already checked out.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     dl = _make_download(req, Path('/s3/key.mp3'))
     await broker.register_download(dl)
@@ -455,7 +442,7 @@ async def test_checkout_returns_none_when_no_download():
     '''checkout returns None when the entry has no download.'''
     registry = _make_registry()
     broker = _make_broker(registry=registry)
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     # Force zone to available without a download so atomic_checkout succeeds but file_path is missing.
     data = await registry.get_entry(str(req.uuid))
@@ -473,7 +460,7 @@ async def test_checkout_returns_none_when_no_download():
 async def test_remove_deletes_entry():
     '''remove deletes the entry from the registry.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     await broker.remove(str(req.uuid))
     assert await broker.get_entry(str(req.uuid)) is None
@@ -483,7 +470,7 @@ async def test_remove_deletes_entry():
 async def test_release_deletes_entry():
     '''release deletes the entry from the registry.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     await broker.release(str(req.uuid))
     assert await broker.get_entry(str(req.uuid)) is None
@@ -493,7 +480,7 @@ async def test_release_deletes_entry():
 async def test_discard_deletes_entry():
     '''discard removes the entry even when no download exists.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     await broker.discard(str(req.uuid))
     assert await broker.get_entry(str(req.uuid)) is None
@@ -503,7 +490,7 @@ async def test_discard_deletes_entry():
 async def test_discard_deletes_s3_file_when_no_cache():
     '''discard calls delete_file on S3 when there is a download and no video_cache.'''
     broker = _make_broker(bucket_name='my-bucket')
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     dl = _make_download(req, Path('/s3/key.mp3'))
     await broker.register_download(dl)
@@ -518,7 +505,7 @@ async def test_discard_skips_s3_delete_when_video_cache_configured():
     video_cache = MagicMock()
     video_cache.iterate_file = AsyncMock()
     broker = _make_broker(video_cache=video_cache, bucket_name='my-bucket')
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     dl = _make_download(req, Path('/s3/key.mp3'))
     await broker.register_download(dl)
@@ -542,7 +529,7 @@ async def test_can_evict_request_true_when_missing():
 async def test_can_evict_request_true_when_available():
     '''can_evict_request returns True when the entry is AVAILABLE.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     dl = _make_download(req, Path('/s3/key.mp3'))
     await broker.register_download(dl)
@@ -553,7 +540,7 @@ async def test_can_evict_request_true_when_available():
 async def test_can_evict_request_false_when_checked_out():
     '''can_evict_request returns False when the entry is CHECKED_OUT.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     dl = _make_download(req, Path('/s3/key.mp3'))
     await broker.register_download(dl)
@@ -572,7 +559,7 @@ async def test_can_evict_base_true_when_not_present():
 async def test_can_evict_base_false_when_url_available():
     '''can_evict_base returns False when an AVAILABLE entry references the URL.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     dl = _make_download(req, Path('/s3/key.mp3'))
     await broker.register_download(dl)
@@ -583,7 +570,7 @@ async def test_can_evict_base_false_when_url_available():
 async def test_can_evict_base_false_when_url_checked_out():
     '''can_evict_base returns False when a CHECKED_OUT entry references the URL.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     dl = _make_download(req, Path('/s3/key.mp3'))
     await broker.register_download(dl)
@@ -606,7 +593,7 @@ async def test_get_entry_returns_none_when_missing():
 async def test_get_entry_returns_broker_entry():
     '''get_entry returns a typed BrokerEntry for a known UUID.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     await broker.register_request(req)
     entry = await broker.get_entry(str(req.uuid))
     assert isinstance(entry, BrokerEntry)
@@ -633,8 +620,8 @@ async def test_get_cache_count_delegates_to_video_cache():
 async def test_get_checked_out_by_returns_matching_entries():
     '''get_checked_out_by returns only entries checked out by the given guild.'''
     broker = _make_broker()
-    req1 = _make_request(guild_id=1)
-    req2 = _make_request(guild_id=2)
+    req1 = direct_request(guild_id=1)
+    req2 = direct_request(guild_id=2)
 
     for req in (req1, req2):
         await broker.register_request(req)
@@ -665,7 +652,7 @@ async def test_get_checked_out_by_returns_empty_when_none():
 async def test_check_cache_returns_none_without_video_cache():
     '''check_cache returns None when no video_cache is configured.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     result = await broker.check_cache(req)
     assert result is None
 
@@ -805,7 +792,7 @@ async def test_register_request_with_bundle_uuid_attaches_in_redis():
         guild_id=1, channel_id=2,
         input_string='multi', has_search_banner=True,
     )
-    mr = _make_request()
+    mr = direct_request()
     mr.bundle_uuid = bundle_uuid
     mr.state_machine.mark_queued()
     await broker.register_request(mr)
@@ -827,7 +814,7 @@ async def test_update_request_status_syncs_bundle_copy():
         guild_id=1, channel_id=2,
         input_string='multi', has_search_banner=True,
     )
-    mr = _make_request()
+    mr = direct_request()
     mr.bundle_uuid = bundle_uuid
     mr.state_machine.mark_queued()
     await broker.register_request(mr)
@@ -856,7 +843,7 @@ async def test_concurrent_register_requests_all_land_in_bundle():
         guild_id=1, channel_id=2,
         input_string='multi-item input', has_search_banner=True,
     )
-    requests = [_make_request() for _ in range(3)]
+    requests = [direct_request() for _ in range(3)]
     for mr in requests:
         mr.bundle_uuid = bundle_uuid
         mr.state_machine.mark_queued()
@@ -878,7 +865,7 @@ async def test_register_request_skips_attach_when_bundle_missing():
     '''register_request stores the entry but skips bundle attach when the
     referenced bundle is not in Redis.'''
     broker = _make_broker()
-    req = _make_request()
+    req = direct_request()
     req.bundle_uuid = 'nonexistent-bundle'
     await broker.register_request(req)
     assert await broker.get_entry(str(req.uuid)) is not None
@@ -889,7 +876,7 @@ async def test_register_request_skips_attach_when_bundle_missing():
 async def test_sync_request_into_bundle_noop_without_bundle_uuid():
     '''_sync_request_into_bundle is a no-op when the request has no bundle.'''
     broker = _make_broker()
-    req = _make_request()  # bundle_uuid defaults to None
+    req = direct_request()  # bundle_uuid defaults to None
     await broker._sync_request_into_bundle(req)  # pylint: disable=protected-access
 
 
@@ -898,7 +885,7 @@ async def test_register_download_renders_bundle():
     '''register_download re-renders the request's bundle under the per-bundle lock.'''
     broker = _make_broker()
     bundle_uuid = await broker.create_bundle(guild_id=1, channel_id=2)
-    req = _make_request()
+    req = direct_request()
     req.bundle_uuid = bundle_uuid
     await broker.register_request(req)
     await broker.register_download(_make_download(req))

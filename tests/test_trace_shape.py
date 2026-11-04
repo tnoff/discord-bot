@@ -26,14 +26,12 @@ from functools import partial
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from discord_commands.clients.http_markov_store import HttpMarkovStore
 from discord_db.clients.markov_client import MarkovClient
 from discord_db.servers.database_server import DatabaseHttpServer
 
+from tests.tracing_support import record_spans
 from tests.helpers import assert_one_connected_trace
 from tests.helpers import fake_engine  # pylint:disable=unused-import
 from tests.helpers import async_mock_session
@@ -46,23 +44,9 @@ CHANNEL_ID = 707
 SEVERED_SPAN = 'markov.store.add_channel'
 
 
-def _recording_tracer(mocker) -> InMemorySpanExporter:
-    '''Swap in a recording tracer so emitted spans survive to an assertion.
-
-    The suite runs with no global tracer provider, so spans are non-recording
-    and never reach an exporter -- without this every assertion below would
-    pass vacuously on an empty list.
-    '''
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    mocker.patch('discord_core.utils.otel.TRACER', provider.get_tracer('test'))
-    return exporter
-
-
 async def _capture_add_channel(mocker, fake_engine):  # pylint:disable=redefined-outer-name
     '''Drive one markov write across the HTTP seam, returning its finished spans.'''
-    exporter = _recording_tracer(mocker)
+    exporter = record_spans(mocker)
     server = DatabaseHttpServer(
         markov_store=MarkovClient(partial(async_mock_session, fake_engine)))
     async with TestClient(TestServer(server.build_app())) as tc:

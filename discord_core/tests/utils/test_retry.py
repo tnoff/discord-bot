@@ -7,9 +7,6 @@ retry paths that every pod uses; the discord.errors paths stay next door.
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from aiohttp.client_exceptions import ClientConnectionError, ClientConnectorError, ClientResponseError
 
@@ -131,26 +128,19 @@ async def test_broker_retry_4xx_propagates_immediately():
 # landed an ERROR span for a failure the poller already tolerates.
 # ---------------------------------------------------------------------------
 
-def _recording_tracer():
-    '''Throwaway SDK tracer + exporter; the suite has no global provider.'''
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    return provider.get_tracer('test'), exporter
-
 @pytest.mark.asyncio
-async def test_broker_retry_is_traced_by_default():
+async def test_broker_retry_is_traced_by_default(recording_tracer):
     '''Callers that lose work on failure keep their span -- the flag is opt-in.'''
-    tracer, exporter = _recording_tracer()
+    tracer, exporter = recording_tracer
     with patch('discord_core.utils.otel.TRACER', tracer):
         await async_retry_broker_command(AsyncMock(return_value='ok'))
     assert [s.name for s in exporter.get_finished_spans()] == ['utils.retry_broker_command']
 
 
 @pytest.mark.asyncio
-async def test_broker_retry_untraced_emits_no_span():
+async def test_broker_retry_untraced_emits_no_span(recording_tracer):
     '''traced=False starts no span, and still returns the result.'''
-    tracer, exporter = _recording_tracer()
+    tracer, exporter = recording_tracer
     with patch('discord_core.utils.otel.TRACER', tracer):
         result = await async_retry_broker_command(AsyncMock(return_value='ok'), traced=False)
     assert result == 'ok'
@@ -158,10 +148,10 @@ async def test_broker_retry_untraced_emits_no_span():
 
 
 @pytest.mark.asyncio
-async def test_broker_retry_untraced_emits_no_span_on_exhausted_failure():
+async def test_broker_retry_untraced_emits_no_span_on_exhausted_failure(recording_tracer):
     '''The exhausted-retry path is the one that was stamping ERROR during a worker
     restart, so it must emit nothing too -- and must still raise.'''
-    tracer, exporter = _recording_tracer()
+    tracer, exporter = recording_tracer
     func = AsyncMock(side_effect=ClientConnectionError())
     with patch('discord_core.utils.otel.TRACER', tracer):
         with patch('discord_core.utils.retry.async_sleep', new_callable=AsyncMock):

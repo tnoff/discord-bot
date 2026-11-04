@@ -25,6 +25,7 @@ from discord_commands.clients.http_markov_store import HttpMarkovStore
 from discord_db.clients.markov_client import MarkovClient
 from discord_db.servers.database_server import DatabaseHttpServer
 
+from tests.fakes.recording_store import RecordingStoreBase
 from tests.helpers import fake_engine #pylint:disable=unused-import
 from tests.helpers import async_mock_session
 
@@ -32,17 +33,8 @@ GUILD_ID = 606
 CHANNEL_ID = 707
 
 
-class _RecordingStore:
+class _RecordingStore(RecordingStoreBase):
     '''MarkovStore stand-in that records calls and can fail on demand.'''
-
-    def __init__(self, error=None):
-        self.error = error
-        self.calls = []
-
-    def _record(self, name, *args):
-        self.calls.append((name, *args))
-        if self.error:
-            raise self.error
 
     async def list_channels(self):
         self._record('list_channels')

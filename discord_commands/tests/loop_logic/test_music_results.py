@@ -6,15 +6,13 @@ import pytest
 from discord_core.types.download import DownloadErrorType, DownloadResult, DownloadStatus, LifecycleEvent
 
 from discord_commands.loop_logic.music_results import MusicResultsLoop
+from tests.fakes.broker_mock import enqueue_broker_mock
 from tests.helpers import fake_context, fake_media_download, fake_source_dict  #pylint:disable=unused-import
 
 
 def make_loop(enqueue_result='ok', live_player=True):
     events = []
-    broker = MagicMock()
-    broker.register_download = AsyncMock()
-    broker.enqueue_track = AsyncMock(return_value=enqueue_result)
-    broker.discard = AsyncMock()
+    broker = enqueue_broker_mock(enqueue_result)
     broker.cache_cleanup = AsyncMock()
     enqueue = MagicMock()
     enqueue.push_state = AsyncMock(side_effect=lambda _request, event, **_details: events.append(event))

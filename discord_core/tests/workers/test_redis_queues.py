@@ -3,7 +3,6 @@ import pytest
 import fakeredis.aioredis
 
 from discord_core.clients.redis_client import RedisManager
-from discord_core.types.download import DownloadResult, DownloadStatus
 from discord_core.types.search_resolution import SearchResolution
 
 from discord_core.workers.redis_queues import (
@@ -14,7 +13,8 @@ from discord_core.workers.redis_queues import (
     RedisSearchResultQueue,
     RedisWorkQueue,
 )
-from tests.helpers import fake_source_dict, generate_fake_context
+from tests.download_result_queue_suite import DownloadResultQueueSuite
+from tests.helpers import fake_source_dict, generate_fake_context, minimal_download_result
 
 
 def _manager():
@@ -151,22 +151,18 @@ async def test_redis_work_queue_lazy_queue_creation():
 # RedisDownloadResultQueue
 # ---------------------------------------------------------------------------
 
+class TestRedisDownloadResultQueue(DownloadResultQueueSuite):
+    '''The shared download-result queue cases, against Redis.'''
 
-def _download_result() -> DownloadResult:
-    mr = fake_source_dict(generate_fake_context())
-    return DownloadResult(
-        status=DownloadStatus(success=True),
-        media_request=mr,
-        ytdlp_data={'id': 'x', 'title': 't', 'webpage_url': 'http://e/v'},
-        file_name=None,
-    )
+    def make_queue(self):
+        return RedisDownloadResultQueue(_manager())
 
 
 @pytest.mark.asyncio
 async def test_redis_download_result_queue_round_trip():
     '''put then get_nowait returns a structurally-identical DownloadResult.'''
     q = RedisDownloadResultQueue(_manager())
-    r = _download_result()
+    r = minimal_download_result()
     await q.put(r)
     popped = await q.get_nowait()
     assert popped is not None
@@ -175,31 +171,12 @@ async def test_redis_download_result_queue_round_trip():
 
 
 @pytest.mark.asyncio
-async def test_redis_download_result_queue_empty_returns_none():
-    '''get_nowait returns None when the Redis list is empty.'''
-    q = RedisDownloadResultQueue(_manager())
-    assert await q.get_nowait() is None
-
-
-@pytest.mark.asyncio
-async def test_redis_download_result_queue_depth():
-    '''depth() returns the LLEN of the shared list and drops as items are popped.'''
-    q = RedisDownloadResultQueue(_manager())
-    assert await q.depth() == 0
-    await q.put(_download_result())
-    await q.put(_download_result())
-    assert await q.depth() == 2
-    await q.get_nowait()
-    assert await q.depth() == 1
-
-
-@pytest.mark.asyncio
 async def test_redis_download_result_queue_fifo_order():
     '''Queue is FIFO — first put pops first.'''
     manager = _manager()
     q = RedisDownloadResultQueue(manager)
-    r1 = _download_result()
-    r2 = _download_result()
+    r1 = minimal_download_result()
+    r2 = minimal_download_result()
     await q.put(r1)
     await q.put(r2)
     assert str((await q.get_nowait()).media_request.uuid) == str(r1.media_request.uuid)
@@ -214,7 +191,7 @@ async def test_redis_download_result_queue_shared_across_instances():
     manager = _manager()
     pod_a = RedisDownloadResultQueue(manager)
     pod_b = RedisDownloadResultQueue(manager)
-    r = _download_result()
+    r = minimal_download_result()
     await pod_a.put(r)
     popped = await pod_b.get_nowait()
     assert popped is not None

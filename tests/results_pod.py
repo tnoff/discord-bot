@@ -24,7 +24,9 @@ from discord_commands.loop_logic.music_results import MusicResultsLoop
 from discord_commands.workers.result_loops import ResultLoops
 from discord_gateway.cogs.music import MusicConfig
 
-from tests.helpers import attach_in_process_broker, attach_in_process_download, attach_in_process_search
+from tests.helpers import (
+    attach_in_process_broker, attach_in_process_download, attach_in_process_search, merge_config_blocks,
+)
 
 BASE_MUSIC = {
     'broker_client': {'url': 'http://broker-host:8081'},
@@ -39,14 +41,7 @@ _FROM_CONTEXT = object()
 
 def music_settings(*overrides: dict) -> dict:
     '''The ``music`` block, with each override merged one level deep (``download``, ``player``...).'''
-    merged = {key: dict(value) for key, value in BASE_MUSIC.items()}
-    for override in overrides:
-        for key, value in override.items():
-            if isinstance(value, dict) and isinstance(merged.get(key), dict):
-                merged[key] = merged[key] | value
-            else:
-                merged[key] = value
-    return merged
+    return merge_config_blocks(BASE_MUSIC, *overrides)
 
 
 class ResultsPod:

@@ -1,19 +1,22 @@
 '''Tests for the standalone downloader CLI entrypoint.'''
 import asyncio
-import logging
+import signal
 
 import pytest
-
 
 # RedisManager + the health server are constructed by the shared worker-pod
 # scaffolding now (cli/_lib/worker_pod.py), so that is where they are patched.
 from discord_core.cli._lib import worker_pod
 from discord_core.cli._lib import common as cli_common
-from discord_core.exceptions import DiscordBotException, ExitEarlyException
-from discord_core.utils.common import SeamContractConfig
+from discord_core.exceptions import ExitEarlyException
 from discord_core.utils.loop_health import LOOP_HEALTH, LoopHealth, LoopStatus
 
 from discord_downloader.cli import downloader as downloader_cli
+
+from tests.worker_pod_cli_support import (
+    GeneralConfig, WorkerPodCliSuite, assert_pod_served, health_server_mock, shutdown_mocks,
+)
+from tests.signal_support import capture_signals, fire_sigterm
 
 
 def _pod_worker(mocker):
@@ -51,20 +54,6 @@ def _settings(*, broker_url='http://broker:8081',
     return settings
 
 
-class _GeneralConfig:
-    '''Stand-in for GeneralConfig with the fields run() reads.'''
-    def __init__(self, *, redis_url='redis://localhost:6379', redis_sentinel=None,
-                 monitoring=None, logging_config=None, seam_contract=None):
-        self.redis_url = redis_url
-        self.redis_sentinel = redis_sentinel
-        self.monitoring = monitoring
-        self.logging = logging_config
-        # The real GeneralConfig always has this -- it carries defaults -- so the
-        # stub does too. Defaulting it to None here rather than omitting it keeps
-        # the stub honest about what run() reads.
-        self.seam_contract = seam_contract or SeamContractConfig()
-
-
 def _patch_collaborators(mocker):
     '''Patch every constructor/helper run() touches; return the mocks.'''
     return {
@@ -80,6 +69,29 @@ def _patch_collaborators(mocker):
     }
 
 
+class TestDownloaderCli(WorkerPodCliSuite):
+    '''The shared worker-pod CLI cases, against the download pod.'''
+    cli = downloader_cli
+    run_loop_mock = 'run_downloader'
+
+    def patch_collaborators(self, mocker):
+        return _patch_collaborators(mocker)
+
+    def settings(self):
+        return _settings()
+
+    def make_runner(self, mocker, run):
+        worker = _pod_worker(mocker)
+        worker.run = run
+        return worker
+
+    async def drive(self, runner, stop_event, log, health):
+        await downloader_cli._drive_worker(runner, stop_event, log, health)  # pylint: disable=protected-access
+
+    def runner_run(self, runner):
+        return runner.run
+
+
 def test_run_wires_collaborators(mocker):
     '''run() builds RedisManager/HttpBrokerClient/worker/server and calls run_downloader.'''
     mocks = _patch_collaborators(mocker)
@@ -89,7 +101,7 @@ def test_run_wires_collaborators(mocker):
     server = mocks['DownloadHttpServer'].return_value
 
     settings = _settings()
-    general = _GeneralConfig()
+    general = GeneralConfig()
     downloader_cli.run(settings, general)
 
     mocks['setup_observability'].assert_called_once_with(general)
@@ -133,7 +145,7 @@ def test_run_builds_exit_probe_from_config(mocker):
     settings = _settings(extra_download={
         'egress_probe': 'mullvad',
         'extra_ytdlp_options': {'proxy': 'http://discord-vpn:8888'}})
-    downloader_cli.run(settings, _GeneralConfig())
+    downloader_cli.run(settings, GeneralConfig())
     mocks['build_exit_probe'].assert_called_once_with('mullvad', 'http://discord-vpn:8888')
     worker = mocks['RedisDownloadWorker'].return_value
     worker.set_exit_probe.assert_called_once_with(mocks['build_exit_probe'].return_value)
@@ -145,7 +157,7 @@ def test_run_skips_probe_in_pool_mode(mocker):
     mocks = _patch_collaborators(mocker)
     settings = _settings(extra_download={
         'egress_mode': 'mullvad-socks5', 'egress_exits': ['us-lax-wg-001']})
-    downloader_cli.run(settings, _GeneralConfig())
+    downloader_cli.run(settings, GeneralConfig())
     mocks['build_exit_probe'].assert_not_called()
     mocks['RedisDownloadWorker'].return_value.set_exit_probe.assert_not_called()
     assert mocks['run_downloader'].call_args[0][5] is None  # exit_probe positional
@@ -158,7 +170,7 @@ def test_run_builds_probe_in_fixed_http_proxy_mode(mocker):
         'egress_mode': 'http-proxy',
         'egress_probe': 'mullvad',
         'extra_ytdlp_options': {'proxy': 'http://discord-vpn:8888'}})
-    downloader_cli.run(settings, _GeneralConfig())
+    downloader_cli.run(settings, GeneralConfig())
     mocks['build_exit_probe'].assert_called_once_with('mullvad', 'http://discord-vpn:8888')
     exit_probe = mocks['build_exit_probe'].return_value
     mocks['RedisDownloadWorker'].return_value.set_exit_probe.assert_called_once_with(exit_probe)
@@ -170,7 +182,7 @@ def test_run_pool_mode_fans_out_to_worker_count(mocker):
     mocks = _patch_collaborators(mocker)
     settings = _settings(extra_download={
         'egress_mode': 'mullvad-socks5', 'egress_exits': ['a', 'b', 'c'], 'worker_count': 2})
-    downloader_cli.run(settings, _GeneralConfig())
+    downloader_cli.run(settings, GeneralConfig())
     assert mocks['run_downloader'].call_args.kwargs['driver_count'] == 2
 
 
@@ -179,21 +191,21 @@ def test_run_pool_driver_count_capped_at_exit_count(mocker):
     mocks = _patch_collaborators(mocker)
     settings = _settings(extra_download={
         'egress_mode': 'mullvad-socks5', 'egress_exits': ['a', 'b'], 'worker_count': 5})
-    downloader_cli.run(settings, _GeneralConfig())
+    downloader_cli.run(settings, GeneralConfig())
     assert mocks['run_downloader'].call_args.kwargs['driver_count'] == 2
 
 
 def test_run_http_proxy_mode_is_single_driver(mocker):
     '''Fixed-proxy mode stays single-driver — one egress IP is one rate-limit bucket.'''
     mocks = _patch_collaborators(mocker)
-    downloader_cli.run(_settings(), _GeneralConfig())
+    downloader_cli.run(_settings(), GeneralConfig())
     assert mocks['run_downloader'].call_args.kwargs['driver_count'] == 1
 
 
 def test_run_defaults_egress_mode_to_http_proxy(mocker):
     '''With no egress config, the worker is built in http-proxy mode with no exits.'''
     mocks = _patch_collaborators(mocker)
-    downloader_cli.run(_settings(), _GeneralConfig())
+    downloader_cli.run(_settings(), GeneralConfig())
     _, kwargs = mocks['RedisDownloadWorker'].call_args
     assert kwargs['egress_mode'] == 'http-proxy'
     assert kwargs['egress_exits'] is None
@@ -204,7 +216,7 @@ def test_run_forwards_pool_egress_config(mocker):
     mocks = _patch_collaborators(mocker)
     settings = _settings(extra_download={
         'egress_mode': 'mullvad-socks5', 'egress_exits': ['us-lax-wg-001', 'us-nyc-wg-301']})
-    downloader_cli.run(settings, _GeneralConfig())
+    downloader_cli.run(settings, GeneralConfig())
     _, kwargs = mocks['RedisDownloadWorker'].call_args
     assert kwargs['egress_mode'] == 'mullvad-socks5'
     assert kwargs['egress_exits'] == ['us-lax-wg-001', 'us-nyc-wg-301']
@@ -214,43 +226,10 @@ def test_run_respects_configured_server_host_and_port(mocker):
     '''general.downloader_server overrides host/port.'''
     mocks = _patch_collaborators(mocker)
     settings = _settings(extra_general={'downloader_server': {'host': '127.0.0.1', 'port': 9099}})
-    downloader_cli.run(settings, _GeneralConfig())
+    downloader_cli.run(settings, GeneralConfig())
     _, server_kwargs = mocks['DownloadHttpServer'].call_args
     assert server_kwargs['host'] == '127.0.0.1'
     assert server_kwargs['port'] == 9099
-
-
-def test_run_builds_health_server_when_enabled(mocker):
-    '''A monitoring.health_server.enabled config builds a RedisPingHealthServer.'''
-    mocks = _patch_collaborators(mocker)
-    health_cfg = mocker.Mock(enabled=True, port=8080, bind_address='0.0.0.0')
-    monitoring = mocker.Mock(health_server=health_cfg)
-    general = _GeneralConfig(monitoring=monitoring)
-    downloader_cli.run(_settings(), general)
-    mocks['RedisPingHealthServer'].assert_called_once()
-    _, hs_kwargs = mocks['RedisPingHealthServer'].call_args
-    assert hs_kwargs['port'] == 8080
-    assert hs_kwargs['bind_address'] == '0.0.0.0'
-    health_server = mocks['RedisPingHealthServer'].return_value
-    run_args = mocks['run_downloader'].call_args[0]
-    assert run_args[2] is health_server
-
-
-def test_run_missing_redis_raises(mocker):
-    '''No redis_url and no redis_sentinel -> DiscordBotException.'''
-    _patch_collaborators(mocker)
-    general = _GeneralConfig(redis_url=None, redis_sentinel=None)
-    with pytest.raises(DiscordBotException, match='Redis required'):
-        downloader_cli.run(_settings(), general)
-
-
-def test_run_missing_broker_url_raises(mocker):
-    '''No music.broker_client.url -> DiscordBotException.'''
-    _patch_collaborators(mocker)
-    settings = _settings()
-    settings['music']['broker_client'] = {}
-    with pytest.raises(DiscordBotException, match='broker_client.url required'):
-        downloader_cli.run(settings, _GeneralConfig())
 
 
 def test_run_uses_configured_download_dir(mocker, tmp_path):
@@ -258,67 +237,10 @@ def test_run_uses_configured_download_dir(mocker, tmp_path):
     mocks = _patch_collaborators(mocker)
     target = tmp_path / 'downloads' / 'nested'
     settings = _settings(extra_download={'download_dir_path': str(target)})
-    downloader_cli.run(settings, _GeneralConfig())
+    downloader_cli.run(settings, GeneralConfig())
     assert target.is_dir()
     worker_args, _ = mocks['RedisDownloadWorker'].call_args
     assert str(worker_args[1]) == str(target)
-
-
-@pytest.mark.asyncio
-async def test_drive_worker_guards_broad_exception(mocker):
-    '''A worker.run() exception is logged and the loop continues (does not propagate).'''
-    stop_event = asyncio.Event()
-    calls = []
-
-    async def _run(_evt):
-        calls.append(1)
-        if len(calls) == 1:
-            raise RuntimeError('redis blip')
-        # Second call: request shutdown so the loop exits cleanly.
-        stop_event.set()
-
-    worker = _pod_worker(mocker)
-    worker.run = _run
-    mocker.patch.object(downloader_cli.asyncio, 'sleep', new=mocker.AsyncMock())
-    log = mocker.Mock(spec=logging.Logger)
-
-    health = LoopHealth('test_pool')
-
-    # Must not raise despite the RuntimeError on the first iteration.
-    await downloader_cli._drive_worker(worker, stop_event, log, health)  # pylint: disable=protected-access
-    assert len(calls) == 2
-    log.exception.assert_called_once()
-    # The failed iteration was recorded, the following one re-armed the window.
-    assert health.consecutive_errors == 0
-    assert health.status == LoopStatus.OK
-
-
-@pytest.mark.asyncio
-async def test_drive_worker_exits_on_exit_early(mocker):
-    '''ExitEarlyException breaks the loop without logging an error.'''
-    stop_event = asyncio.Event()
-
-    async def _run(_evt):
-        raise ExitEarlyException('shutdown')
-
-    worker = _pod_worker(mocker)
-    worker.run = _run
-    log = mocker.Mock(spec=logging.Logger)
-    health = LoopHealth('test_pool')
-    await downloader_cli._drive_worker(worker, stop_event, log, health)  # pylint: disable=protected-access
-    log.exception.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_drive_worker_skips_when_already_stopped(mocker):
-    '''A pre-set stop_event means run() is never called.'''
-    stop_event = asyncio.Event()
-    stop_event.set()
-    worker = _pod_worker(mocker)
-    worker.run = mocker.AsyncMock()
-    health = LoopHealth('test_pool')
-    await downloader_cli._drive_worker(worker, stop_event, mocker.Mock(), health)  # pylint: disable=protected-access
-    worker.run.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -348,14 +270,8 @@ async def test_drive_worker_leaves_pool_health_running_for_siblings(mocker):
 @pytest.mark.asyncio
 async def test_main_loop_shutdown_drains_and_closes(mocker):
     '''main_loop sets stop_event on SIGTERM and drains server + closes redis in finally.'''
-    redis_manager = mocker.Mock()
-    redis_manager.start = mocker.AsyncMock()
-    redis_manager.close = mocker.AsyncMock()
-    server = mocker.Mock()
-    server.serve = mocker.AsyncMock()
-    server.drain_and_stop = mocker.AsyncMock()
-    health_server = mocker.Mock()
-    health_server.serve = mocker.AsyncMock()
+    redis_manager, server, metrics = shutdown_mocks(mocker)
+    health_server = health_server_mock(mocker)
 
     worker = _pod_worker(mocker)
 
@@ -366,35 +282,18 @@ async def test_main_loop_shutdown_drains_and_closes(mocker):
 
     worker.run = _run
 
-    metrics = mocker.Mock()
-    metrics.run = mocker.AsyncMock()
     exit_probe = mocker.Mock()
     exit_probe.run = mocker.AsyncMock()
 
-    captured = {}
-
-    def _fake_signal(signum, handler):
-        captured[signum] = handler
-
-    mocker.patch.object(cli_common.signal, 'signal', new=_fake_signal)
-
-    async def _fire_sigterm():
-        # Give main_loop a chance to register handlers + start tasks, then fire.
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        handler = captured[cli_common.signal.SIGTERM]
-        handler(cli_common.signal.SIGTERM, None)
+    captured = capture_signals(mocker)
 
     await asyncio.gather(
         downloader_cli.main_loop(worker, server, health_server, redis_manager, metrics,
                                  exit_probe),
-        _fire_sigterm(),
+        fire_sigterm(captured),
     )
 
-    redis_manager.start.assert_awaited_once()
-    server.serve.assert_awaited_once()
-    health_server.serve.assert_awaited_once()
-    metrics.run.assert_awaited_once()
+    assert_pod_served(redis_manager, server, health_server, metrics)
     exit_probe.run.assert_awaited_once()
     server.drain_and_stop.assert_awaited_once()
     redis_manager.close.assert_awaited_once()
@@ -410,39 +309,22 @@ async def test_main_loop_closes_the_broker_session_on_drain(mocker):
     roll. Covered here as well because the two pods drift apart exactly where
     only one of them is tested.
     '''
-    redis_manager = mocker.Mock()
-    redis_manager.start = mocker.AsyncMock()
-    redis_manager.close = mocker.AsyncMock()
-    server = mocker.Mock()
-    server.serve = mocker.AsyncMock()
-    server.drain_and_stop = mocker.AsyncMock()
+    redis_manager, server, metrics = shutdown_mocks(mocker)
     worker = _pod_worker(mocker)
 
     async def _run(evt):
         await evt.wait()
 
     worker.run = _run
-    metrics = mocker.Mock()
-    metrics.run = mocker.AsyncMock()
     broker_client = mocker.Mock()
     broker_client.close = mocker.AsyncMock()
 
-    captured = {}
-
-    def _fake_signal(signum, handler):
-        captured[signum] = handler
-
-    mocker.patch.object(cli_common.signal, 'signal', new=_fake_signal)
-
-    async def _fire_sigterm():
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+    captured = capture_signals(mocker)
 
     await asyncio.gather(
         downloader_cli.main_loop(worker, server, None, redis_manager, metrics, None,
                                  broker_client=broker_client),
-        _fire_sigterm(),
+        fire_sigterm(captured),
     )
 
     broker_client.close.assert_awaited_once()
@@ -457,12 +339,7 @@ async def test_main_loop_registers_one_shared_health_for_the_driver_pool(mocker)
     this pod's liveness probe whenever a single driver sat in a slow download —
     routine in pool mode, where a driver can block on a flagged exit.
     '''
-    redis_manager = mocker.Mock()
-    redis_manager.start = mocker.AsyncMock()
-    redis_manager.close = mocker.AsyncMock()
-    server = mocker.Mock()
-    server.serve = mocker.AsyncMock()
-    server.drain_and_stop = mocker.AsyncMock()
+    redis_manager, server, metrics = shutdown_mocks(mocker)
 
     worker = _pod_worker(mocker)
 
@@ -470,8 +347,6 @@ async def test_main_loop_registers_one_shared_health_for_the_driver_pool(mocker)
         await evt.wait()
 
     worker.run = _run
-    metrics = mocker.Mock()
-    metrics.run = mocker.AsyncMock()
 
     handles = []
     real_drive = downloader_cli._drive_worker  # pylint: disable=protected-access
@@ -485,15 +360,10 @@ async def test_main_loop_registers_one_shared_health_for_the_driver_pool(mocker)
     captured = {}
     mocker.patch.object(cli_common.signal, 'signal', new=captured.__setitem__)
 
-    async def _fire_sigterm():
-        for _ in range(4):
-            await asyncio.sleep(0)
-        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
-
     await asyncio.gather(
         downloader_cli.main_loop(worker, server, None, redis_manager, metrics, None,
                                  driver_count=3),
-        _fire_sigterm(),
+        fire_sigterm(captured),
     )
 
     # Three drivers, one shared handle, one registry entry.
@@ -513,12 +383,7 @@ async def test_main_loop_owns_marking_the_pool_stopped(mocker):
     mark_stopped only guards against a false 'stalled'), but it makes the end
     state racy, whereas "who calls it" is exactly the regression under test.
     '''
-    redis_manager = mocker.Mock()
-    redis_manager.start = mocker.AsyncMock()
-    redis_manager.close = mocker.AsyncMock()
-    server = mocker.Mock()
-    server.serve = mocker.AsyncMock()
-    server.drain_and_stop = mocker.AsyncMock()
+    redis_manager, server, metrics = shutdown_mocks(mocker)
 
     worker = _pod_worker(mocker)
 
@@ -526,8 +391,6 @@ async def test_main_loop_owns_marking_the_pool_stopped(mocker):
         await evt.wait()
 
     worker.run = _run
-    metrics = mocker.Mock()
-    metrics.run = mocker.AsyncMock()
 
     captured = {}
     mocker.patch.object(cli_common.signal, 'signal', new=captured.__setitem__)
@@ -539,15 +402,10 @@ async def test_main_loop_owns_marking_the_pool_stopped(mocker):
                         new=lambda *names: registry_stops.extend(names))
     per_loop_stop = mocker.patch.object(LoopHealth, 'mark_stopped')
 
-    async def _fire_sigterm():
-        for _ in range(4):
-            await asyncio.sleep(0)
-        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
-
     await asyncio.gather(
         downloader_cli.main_loop(worker, server, None, redis_manager, metrics, None,
                                  driver_count=2),
-        _fire_sigterm(),
+        fire_sigterm(captured),
     )
 
     assert registry_stops == [downloader_cli.LOOP_DOWNLOADER_WORKER]
@@ -558,12 +416,7 @@ async def test_main_loop_owns_marking_the_pool_stopped(mocker):
 @pytest.mark.asyncio
 async def test_main_loop_without_health_server(mocker):
     '''main_loop tolerates a None health_server and a None exit_probe (still drains).'''
-    redis_manager = mocker.Mock()
-    redis_manager.start = mocker.AsyncMock()
-    redis_manager.close = mocker.AsyncMock()
-    server = mocker.Mock()
-    server.serve = mocker.AsyncMock()
-    server.drain_and_stop = mocker.AsyncMock()
+    redis_manager, server, metrics = shutdown_mocks(mocker)
     worker = _pod_worker(mocker)
 
     async def _run(evt):
@@ -571,25 +424,13 @@ async def test_main_loop_without_health_server(mocker):
 
     worker.run = _run
 
-    metrics = mocker.Mock()
-    metrics.run = mocker.AsyncMock()
 
-    captured = {}
-
-    def _capture(signum, handler):
-        captured[signum] = handler
-
-    mocker.patch.object(cli_common.signal, 'signal', new=_capture)
-
-    async def _fire():
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
-        captured[cli_common.signal.SIGINT](cli_common.signal.SIGINT, None)
+    captured = capture_signals(mocker)
 
     # exit_probe=None (attribution disabled) -> the guard skips scheduling it.
     await asyncio.gather(
         downloader_cli.main_loop(worker, server, None, redis_manager, metrics, None),
-        _fire(),
+        fire_sigterm(captured, signum=signal.SIGINT),
     )
     server.drain_and_stop.assert_awaited_once()
     redis_manager.close.assert_awaited_once()
@@ -603,11 +444,7 @@ async def test_main_loop_sweeps_stale_blocks_before_serving(mocker):
     Ordering is the point, not just the call: sweeping after serve() leaves a
     window where the pod rejects work for the very guilds it is about to unblock.
     '''
-    redis_manager = mocker.Mock()
-    redis_manager.start = mocker.AsyncMock()
-    redis_manager.close = mocker.AsyncMock()
-    server = mocker.Mock()
-    server.drain_and_stop = mocker.AsyncMock()
+    redis_manager, server, metrics = shutdown_mocks(mocker)
     worker = _pod_worker(mocker)
 
     order = []
@@ -619,20 +456,12 @@ async def test_main_loop_sweeps_stale_blocks_before_serving(mocker):
         await evt.wait()
 
     worker.run = _run
-    metrics = mocker.Mock()
-    metrics.run = mocker.AsyncMock()
 
-    captured = {}
-    mocker.patch.object(cli_common.signal, 'signal', new=captured.setdefault)
-
-    async def _fire():
-        for _ in range(4):
-            await asyncio.sleep(0)
-        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+    captured = capture_signals(mocker)
 
     await asyncio.gather(
         downloader_cli.main_loop(worker, server, None, redis_manager, metrics, None),
-        _fire(),
+        fire_sigterm(captured),
     )
 
     worker.clear_stale_guild_blocks.assert_awaited_once()
@@ -648,12 +477,7 @@ async def test_main_loop_runs_the_pool_exit_ip_probe(mocker):
     ExitProbe is never built for a pool mode, so egress.ip stayed 'unknown' on
     every span and there was nothing to compare the leased exit against.
     '''
-    redis_manager = mocker.Mock()
-    redis_manager.start = mocker.AsyncMock()
-    redis_manager.close = mocker.AsyncMock()
-    server = mocker.Mock()
-    server.serve = mocker.AsyncMock()
-    server.drain_and_stop = mocker.AsyncMock()
+    redis_manager, server, metrics = shutdown_mocks(mocker)
     worker = _pod_worker(mocker)
 
     probe_ran = asyncio.Event()
@@ -669,20 +493,12 @@ async def test_main_loop_runs_the_pool_exit_ip_probe(mocker):
         await evt.wait()
 
     worker.run = _run
-    metrics = mocker.Mock()
-    metrics.run = mocker.AsyncMock()
 
-    captured = {}
-    mocker.patch.object(cli_common.signal, 'signal', new=captured.setdefault)
-
-    async def _fire():
-        for _ in range(4):
-            await asyncio.sleep(0)
-        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+    captured = capture_signals(mocker)
 
     await asyncio.gather(
         downloader_cli.main_loop(worker, server, None, redis_manager, metrics, None),
-        _fire(),
+        fire_sigterm(captured),
     )
 
     assert probe_ran.is_set()

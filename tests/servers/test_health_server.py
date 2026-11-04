@@ -16,6 +16,8 @@ from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_gateway.servers.health_server import HealthServer
 from discord_dispatcher.servers.dispatch_health_server import DispatchHealthServer
 
+from tests.net_support import cancel_task, wait_for_port
+
 
 class _FakeClock:
     '''Manually advanced monotonic clock so staleness is tested without sleeping.'''
@@ -35,20 +37,6 @@ def _make_bot(is_ready=True, is_closed=False):
     bot.is_ready.return_value = is_ready
     bot.is_closed.return_value = is_closed
     return bot
-
-
-async def _wait_for_port(port: int, timeout: float = 5.0) -> None:
-    """Poll until the port accepts a TCP connection or timeout expires."""
-    deadline = asyncio.get_event_loop().time() + timeout
-    while True:
-        try:
-            _, writer = await asyncio.open_connection('127.0.0.1', port)
-            await close_writer(writer)
-            return
-        except OSError:
-            if asyncio.get_event_loop().time() >= deadline:
-                raise
-            await asyncio.sleep(0.01)
 
 
 async def _raw_request(port: int, path: str = '/health') -> str:
@@ -108,51 +96,39 @@ class TestHealthServerAsync:
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18080)
         task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18080)
+        await wait_for_port(18080)
         try:
             response = await _raw_request(18080)
             assert '200 OK' in response
             assert '"ok"' in response
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
     async def test_health_not_ready(self):
         """Returns 503 when bot is not ready."""
         bot = _make_bot(is_ready=False, is_closed=False)
         hs = HealthServer(bot, port=18081)
         task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18081)
+        await wait_for_port(18081)
         try:
             response = await _raw_request(18081)
             assert '503' in response
             assert 'unavailable' in response
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
     async def test_health_closed(self):
         """Returns 503 when bot is closed."""
         bot = _make_bot(is_ready=True, is_closed=True)
         hs = HealthServer(bot, port=18082)
         task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18082)
+        await wait_for_port(18082)
         try:
             response = await _raw_request(18082)
             assert '503' in response
             assert 'unavailable' in response
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
     async def test_health_is_bot_only_and_carries_no_db_key(self):
         """/health reports the bot and nothing else.
@@ -165,18 +141,14 @@ class TestHealthServerAsync:
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18084)
         task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18084)
+        await wait_for_port(18084)
         try:
             response = await _raw_request(18084)
             assert '200 OK' in response
             body = json.loads(response.split('\r\n\r\n', 1)[1])
             assert body == {'status': 'ok'}
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
     async def test_handle_exception_during_request(self):
         """Exception mid-request is caught and writer is still closed cleanly"""
         bot = _make_bot()
@@ -228,17 +200,13 @@ class TestDispatchHealthServerAsync:
         fake_redis = fakeredis.aioredis.FakeRedis(protocol=2)
         hs = DispatchHealthServer(RedisManager.from_client(fake_redis), port=18090)
         task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18090)
+        await wait_for_port(18090)
         try:
             response = await _raw_request(18090)
             assert '200 OK' in response
             assert '"ok"' in response
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
     async def test_health_stays_ok_when_redis_unavailable(self):
         """Liveness does not ask Redis: a restart cannot fix it, and three failed probes restart the pod."""
@@ -246,17 +214,13 @@ class TestDispatchHealthServerAsync:
         fake_redis.ping = AsyncMock(side_effect=ConnectionError('redis down'))
         hs = DispatchHealthServer(RedisManager.from_client(fake_redis), port=18091)
         task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18091)
+        await wait_for_port(18091)
         try:
             response = await _raw_request(18091)
             assert '200 OK' in response
             fake_redis.ping.assert_not_awaited()
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
     async def test_ready_redis_unavailable(self):
         """Readiness is where Redis is checked: 503 when the ping raises."""
@@ -264,17 +228,13 @@ class TestDispatchHealthServerAsync:
         fake_redis.ping = AsyncMock(side_effect=ConnectionError('redis down'))
         hs = DispatchHealthServer(RedisManager.from_client(fake_redis), port=18095)
         task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18095)
+        await wait_for_port(18095)
         try:
             response = await _raw_request(18095, '/ready')
             assert '503' in response
             assert 'unavailable' in response
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
     async def test_handle_exception_during_request(self):
         """Exception mid-request is caught and writer is still closed cleanly."""
@@ -335,7 +295,7 @@ class TestHealthServerReadiness:
         bot = _make_bot(is_ready=is_ready, is_closed=is_closed)
         hs = HealthServer(bot, port=18100)
         task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18100)
+        await wait_for_port(18100)
         try:
             ready = await _raw_request(18100, path='/ready')
             health = await _raw_request(18100, path='/health')
@@ -344,11 +304,7 @@ class TestHealthServerReadiness:
             if status == '200 OK':
                 assert json.loads(ready.split('\r\n\r\n', 1)[1]) == {'status': 'ok'}
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
     async def test_ready_does_not_depend_on_any_peer(self, mocker):
         '''The peer probe is never called from /ready, so a dead peer cannot flip it.'''
@@ -356,17 +312,13 @@ class TestHealthServerReadiness:
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18101)
         task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18101)
+        await wait_for_port(18101)
         try:
             response = await _raw_request(18101, path='/ready')
             assert '200 OK' in response
             probe.assert_not_called()
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -385,36 +337,28 @@ class TestHealthServerLoopHealth:
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18110)
         task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18110)
+        await wait_for_port(18110)
         try:
             response = await _raw_request(18110, path='/health')
             assert '503' in response
             body = json.loads(response.split('\r\n\r\n', 1)[1])
             assert body['loops'] == {'process_search_results': 'stalled'}
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
     async def test_healthy_loop_reports_ok_in_the_payload(self):
         LOOP_HEALTH.register('process_search_results', stale_after_seconds=60)
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18111)
         task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18111)
+        await wait_for_port(18111)
         try:
             response = await _raw_request(18111, path='/health')
             assert '200 OK' in response
             body = json.loads(response.split('\r\n\r\n', 1)[1])
             assert body['loops'] == {'process_search_results': 'ok'}
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
     async def test_stopped_loop_does_not_fail_a_draining_pod(self):
         # cog_unload marks loops stopped; the pod must keep passing liveness
@@ -426,18 +370,14 @@ class TestHealthServerLoopHealth:
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18112)
         task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18112)
+        await wait_for_port(18112)
         try:
             response = await _raw_request(18112, path='/health')
             assert '200 OK' in response
             body = json.loads(response.split('\r\n\r\n', 1)[1])
             assert body['loops'] == {'process_search_results': 'stopped'}
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
     async def test_readiness_also_reflects_loop_health(self):
         clock = _FakeClock()
@@ -446,16 +386,12 @@ class TestHealthServerLoopHealth:
         bot = _make_bot(is_ready=True, is_closed=False)
         hs = HealthServer(bot, port=18113)
         task = asyncio.create_task(hs.serve())
-        await _wait_for_port(18113)
+        await wait_for_port(18113)
         try:
             response = await _raw_request(18113, path='/ready')
             assert '503' in response
         finally:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            await cancel_task(task)
 
 
 def test_apply_loop_health_omits_the_key_when_no_loops_are_registered():

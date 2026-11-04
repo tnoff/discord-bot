@@ -14,85 +14,35 @@ as only surfacing under real Redis + multiple broker pods.
 '''
 import asyncio
 
-import fakeredis.aioredis
 import pytest
 
 from discord_core.clients.redis_client import RedisManager
-from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.types.download import LifecycleEvent, LifecycleStatusUpdate
 from discord_core.types.media_request import MediaRequest
-from discord_core.types.search import SearchResult
 
 from discord_broker.workers.broker_registry import RedisBrokerRegistry
 from discord_broker.workers.media_bundle import BundleRenderer
 from discord_broker.workers.redis_broker import RedisBroker
 
-
-class _YieldingRedis:
-    '''Wrap a fakeredis client so every get/set/delete yields to the event loop
-    before executing.
-
-    This is load-bearing for these tests.  fakeredis resolves its awaits
-    synchronously — it never suspends the running coroutine — so two coroutines
-    under asyncio.gather run to completion one after the other and an emergent
-    read-modify-write race can NEVER interleave.  A real Redis round-trip *does*
-    suspend at every await; without restoring that suspend point the tests would
-    pass even with the bundle lock removed (verified: they do).  The `sleep(0)`
-    reinstates the interleaving so the cross-pod RMW actually races and the lock
-    has something to serialise.  The wrapped ops stay individually atomic (the
-    yield is *before* the single fakeredis operation), exactly like Redis.
-    '''
-
-    def __init__(self, inner):
-        self._inner = inner
-
-    async def get(self, *args, **kwargs):
-        await asyncio.sleep(0)
-        return await self._inner.get(*args, **kwargs)
-
-    async def set(self, *args, **kwargs):
-        await asyncio.sleep(0)
-        return await self._inner.set(*args, **kwargs)
-
-    async def delete(self, *args, **kwargs):
-        await asyncio.sleep(0)
-        return await self._inner.delete(*args, **kwargs)
-
-    def __getattr__(self, name):
-        return getattr(self._inner, name)
+from tests.fakes.worker_requests import direct_request
+from tests.fakes.yielding_redis import two_pod_clients
 
 
 def _two_pods():
     '''Return (broker_a, reg_a, broker_b, reg_b): two brokers with independent
     clients/registries sharing ONE FakeServer — two pods, one Redis — each
-    wrapped so Redis ops yield (see _YieldingRedis) and cross-pod races are real.'''
-    server = fakeredis.FakeServer()
-
-    def _pod():
-        client = _YieldingRedis(
-            fakeredis.aioredis.FakeRedis(server=server, decode_responses=True))
+    wrapped so Redis ops yield (see YieldingRedis) and cross-pod races are real.'''
+    def _pod(client):
         registry = RedisBrokerRegistry(RedisManager.from_client(client))
         return RedisBroker(registry), registry
 
-    (broker_a, reg_a), (broker_b, reg_b) = _pod(), _pod()
+    client_a, client_b = two_pod_clients()
+    (broker_a, reg_a), (broker_b, reg_b) = _pod(client_a), _pod(client_b)
     return broker_a, reg_a, broker_b, reg_b
 
 
-def _make_request(guild_id: int = 1, channel_id: int = 2) -> MediaRequest:
-    return MediaRequest(
-        guild_id=guild_id,
-        channel_id=channel_id,
-        requester_name='tester',
-        requester_id=9,
-        search_result=SearchResult(
-            search_type=SearchType.DIRECT,
-            raw_search_string='https://example.com/video',
-        ),
-    )
-
-
 def _queued_request(bundle_uuid: str) -> MediaRequest:
-    mr = _make_request()
+    mr = direct_request()
     mr.bundle_uuid = bundle_uuid
     mr.state_machine.mark_queued()
     return mr

@@ -5,36 +5,17 @@ Split out of test_otel.py alongside the module itself: command_wrapper is the
 only OTel helper that needs discord.py at runtime, so it lives apart from the
 span/metric helpers every image imports.
 '''
-from unittest.mock import MagicMock
-
 import pytest
-from discord.ext.commands import Context
 
 from discord_gateway.utils.otel_command import command_wrapper
 
-
-def _make_ctx():
-    '''Return a minimal discord Context instance without calling __init__'''
-    ctx = Context.__new__(Context)
-    ctx.author = MagicMock()
-    ctx.author.id = 1001
-    ctx.channel = MagicMock()
-    ctx.channel.id = 2002
-    ctx.guild = MagicMock()
-    ctx.guild.id = 3003
-    ctx.command = MagicMock()
-    ctx.command.name = 'testcmd'
-    ctx.command.cog = MagicMock()
-    ctx.command.cog.qualified_name = 'TestCog'
-    ctx.message = MagicMock()
-    ctx.message.content = '!testcmd arg1'
-    return ctx
+from tests.fakes.command_context import make_command_context
 
 
 @pytest.mark.asyncio
 async def test_command_wrapper_finds_ctx_and_builds_span_name():
     '''command_wrapper locates the Context arg and derives span_name from it'''
-    ctx = _make_ctx()
+    ctx = make_command_context()
 
     async def _dummy(_self, _ctx):
         return 'ok'

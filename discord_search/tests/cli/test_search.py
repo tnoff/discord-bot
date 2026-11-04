@@ -1,20 +1,21 @@
 '''Tests for the standalone search CLI entrypoint (the shared search pod).'''
 import asyncio
-import logging
+import signal
 
 import pytest
-
 
 # RedisManager + the health server are constructed by the shared worker-pod
 # scaffolding now (cli/_lib/worker_pod.py), so that is where they are patched.
 from discord_core.cli._lib import worker_pod
-from discord_core.cli._lib import common as cli_common
-from discord_core.exceptions import DiscordBotException, ExitEarlyException
-from discord_core.utils.common import SeamContractConfig
-from discord_core.utils.loop_health import LOOP_HEALTH, LoopHealth, LoopStatus
+from discord_core.utils.loop_health import LOOP_HEALTH
 
 from discord_search.cli import search as search_cli
 from discord_search.servers.composite_server import CompositeHttpServer
+
+from tests.worker_pod_cli_support import (
+    GeneralConfig, WorkerPodCliSuite, assert_pod_served, health_server_mock, shutdown_mocks,
+)
+from tests.signal_support import capture_signals, fire_sigterm
 
 
 def _settings(*, broker_url='http://broker:8081', extra_download=None, extra_general=None):
@@ -28,20 +29,6 @@ def _settings(*, broker_url='http://broker:8081', extra_download=None, extra_gen
             'download': download,
         },
     }
-
-
-class _GeneralConfig:
-    '''Stand-in for GeneralConfig with the fields run() reads.'''
-    def __init__(self, *, redis_url='redis://localhost:6379', redis_sentinel=None,
-                 monitoring=None, logging_config=None, seam_contract=None):
-        self.redis_url = redis_url
-        self.redis_sentinel = redis_sentinel
-        self.monitoring = monitoring
-        self.logging = logging_config
-        # The real GeneralConfig always has this -- it carries defaults -- so the
-        # stub does too. Defaulting it to None here rather than omitting it keeps
-        # the stub honest about what run() reads.
-        self.seam_contract = seam_contract or SeamContractConfig()
 
 
 def _patch_collaborators(mocker):
@@ -63,6 +50,29 @@ def _patch_collaborators(mocker):
     }
 
 
+class TestSearchCli(WorkerPodCliSuite):
+    '''The shared worker-pod CLI cases, against the search pod.'''
+    cli = search_cli
+    run_loop_mock = 'run_search'
+
+    def patch_collaborators(self, mocker):
+        return _patch_collaborators(mocker)
+
+    def settings(self):
+        return _settings()
+
+    def make_runner(self, mocker, run):
+        driver = mocker.Mock()
+        driver.run_once = run
+        return driver
+
+    async def drive(self, runner, stop_event, log, health):
+        await search_cli._drive_search(runner, stop_event, log, health)  # pylint: disable=protected-access
+
+    def runner_run(self, runner):
+        return runner.run_once
+
+
 def test_run_wires_collaborators(mocker):
     '''run() builds redis/broker/worker/server/driver and calls run_search.'''
     mocks = _patch_collaborators(mocker)
@@ -72,7 +82,7 @@ def test_run_wires_collaborators(mocker):
     server = mocks['YoutubeMusicSearchHttpServer'].return_value
     driver = mocks['YoutubeMusicSearchDriver'].return_value
 
-    general = _GeneralConfig()
+    general = GeneralConfig()
     search_cli.run(_settings(), general)
 
     mocks['setup_observability'].assert_called_once_with(general)
@@ -136,7 +146,7 @@ def test_media_search_routes_get_the_configured_credentials(mocker):
     search_cli.run(_settings(extra_download={
         'spotify_credentials': {'client_id': 'cid', 'client_secret': 'secret'},
         'youtube_api_key': 'ytkey',
-    }), _GeneralConfig())
+    }), GeneralConfig())
     build.assert_called_once_with(spotify_client_id='cid', spotify_client_secret='secret',
                                   youtube_api_key='ytkey')
     assert mocks['run_search'].called
@@ -152,7 +162,7 @@ def test_media_search_credentials_are_optional(mocker):
     '''
     _patch_collaborators(mocker)
     build = mocker.patch.object(search_cli, 'build_media_search_client')
-    search_cli.run(_settings(), _GeneralConfig())
+    search_cli.run(_settings(), GeneralConfig())
     build.assert_called_once_with(spotify_client_id=None, spotify_client_secret=None,
                                   youtube_api_key=None)
 
@@ -167,7 +177,7 @@ def test_run_forwards_backoff_and_retry_config(mocker):
         'failure_tracking_max_size': 42,
         'failure_tracking_max_age_seconds': 900,
     })
-    search_cli.run(settings, _GeneralConfig())
+    search_cli.run(settings, GeneralConfig())
 
     worker_args, _ = mocks['RedisYoutubeMusicSearchWorker'].call_args
     assert worker_args[3] == 45
@@ -191,7 +201,7 @@ def test_run_forwards_server_queue_priority(mocker):
         {'server_id': '42', 'priority': 1},
         {'server_id': 77, 'priority': 5},
     ]})
-    search_cli.run(settings, _GeneralConfig())
+    search_cli.run(settings, GeneralConfig())
     assert mocks['YoutubeMusicSearchDriver'].call_args.kwargs['queue_priority'] == {42: 1, 77: 5}
 
 
@@ -199,111 +209,15 @@ def test_run_respects_configured_server_host_and_port(mocker):
     '''general.search_server overrides host/port.'''
     mocks = _patch_collaborators(mocker)
     settings = _settings(extra_general={'search_server': {'host': '127.0.0.1', 'port': 9099}})
-    search_cli.run(settings, _GeneralConfig())
+    search_cli.run(settings, GeneralConfig())
     _, server_kwargs = mocks['YoutubeMusicSearchHttpServer'].call_args
     assert server_kwargs['host'] == '127.0.0.1'
     assert server_kwargs['port'] == 9099
 
 
-def test_run_builds_health_server_when_enabled(mocker):
-    '''A monitoring.health_server.enabled config builds a RedisPingHealthServer.'''
-    mocks = _patch_collaborators(mocker)
-    health_cfg = mocker.Mock(enabled=True, port=8080, bind_address='0.0.0.0')
-    monitoring = mocker.Mock(health_server=health_cfg)
-    search_cli.run(_settings(), _GeneralConfig(monitoring=monitoring))
-    mocks['RedisPingHealthServer'].assert_called_once()
-    _, hs_kwargs = mocks['RedisPingHealthServer'].call_args
-    assert hs_kwargs['port'] == 8080
-    assert hs_kwargs['bind_address'] == '0.0.0.0'
-    assert mocks['run_search'].call_args[0][2] is mocks['RedisPingHealthServer'].return_value
-
-
-def test_run_missing_redis_raises(mocker):
-    '''No redis_url and no redis_sentinel -> DiscordBotException.'''
-    _patch_collaborators(mocker)
-    general = _GeneralConfig(redis_url=None, redis_sentinel=None)
-    with pytest.raises(DiscordBotException, match='Redis required'):
-        search_cli.run(_settings(), general)
-
-
-def test_run_missing_broker_url_raises(mocker):
-    '''No music.broker_client.url -> DiscordBotException.'''
-    _patch_collaborators(mocker)
-    settings = _settings()
-    settings['music']['broker_client'] = {}
-    with pytest.raises(DiscordBotException, match='broker_client.url required'):
-        search_cli.run(settings, _GeneralConfig())
-
-
-# NOTE: `_loop_guards_` rather than the name symmetric with the downloader's
-# equivalent test, purely to dodge a trufflehog false positive: its Lob detector
-# reads a 40-character `test_`-prefixed token as an API key and *verifies* it,
-# failing pr-check:secrets. The symmetric name is exactly 40 characters long.
-# Keep any rename off that length — and don't spell the 40-character form out in
-# a comment either, since trufflehog scans the diff, not just the code.
-@pytest.mark.asyncio
-async def test_drive_search_loop_guards_broad_exception(mocker):
-    '''A run_once() exception is logged and the loop continues (does not propagate).'''
-    stop_event = asyncio.Event()
-    calls = []
-
-    async def _run_once(_evt):
-        calls.append(1)
-        if len(calls) == 1:
-            raise RuntimeError('redis blip')
-        stop_event.set()
-
-    driver = mocker.Mock()
-    driver.run_once = _run_once
-    mocker.patch.object(search_cli.asyncio, 'sleep', new=mocker.AsyncMock())
-    log = mocker.Mock(spec=logging.Logger)
-    health = LoopHealth('test_search')
-
-    await search_cli._drive_search(driver, stop_event, log, health)  # pylint: disable=protected-access
-
-    assert len(calls) == 2
-    log.exception.assert_called_once()
-    # The failed iteration was recorded, the following one re-armed the window.
-    assert health.consecutive_errors == 0
-    assert health.status == LoopStatus.OK
-
-
-@pytest.mark.asyncio
-async def test_drive_search_exits_on_exit_early(mocker):
-    '''ExitEarlyException (shutdown mid-backoff) breaks the loop without logging.'''
-    stop_event = asyncio.Event()
-
-    async def _run_once(_evt):
-        raise ExitEarlyException('shutdown')
-
-    driver = mocker.Mock()
-    driver.run_once = _run_once
-    log = mocker.Mock(spec=logging.Logger)
-    await search_cli._drive_search(driver, stop_event, log, LoopHealth('test_search'))  # pylint: disable=protected-access
-    log.exception.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_drive_search_skips_when_already_stopped(mocker):
-    '''A pre-set stop_event means run_once() is never called.'''
-    stop_event = asyncio.Event()
-    stop_event.set()
-    driver = mocker.Mock()
-    driver.run_once = mocker.AsyncMock()
-    await search_cli._drive_search(driver, stop_event, mocker.Mock(), LoopHealth('test_search'))  # pylint: disable=protected-access
-    driver.run_once.assert_not_called()
-
-
 def _shutdown_collaborators(mocker):
     '''Build the async collaborator mocks main_loop drives.'''
-    redis_manager = mocker.Mock()
-    redis_manager.start = mocker.AsyncMock()
-    redis_manager.close = mocker.AsyncMock()
-    server = mocker.Mock()
-    server.serve = mocker.AsyncMock()
-    server.drain_and_stop = mocker.AsyncMock()
-    metrics = mocker.Mock()
-    metrics.run = mocker.AsyncMock()
+    redis_manager, server, metrics = shutdown_mocks(mocker)
     driver = mocker.Mock()
 
     async def _run_once(evt):
@@ -314,39 +228,19 @@ def _shutdown_collaborators(mocker):
     return driver, server, redis_manager, metrics
 
 
-def _capture_signals(mocker):
-    '''Intercept signal registration so the test can fire SIGTERM/SIGINT itself.'''
-    captured = {}
-
-    def _fake_signal(signum, handler):
-        captured[signum] = handler
-
-    mocker.patch.object(cli_common.signal, 'signal', new=_fake_signal)
-    return captured
-
-
 @pytest.mark.asyncio
 async def test_main_loop_shutdown_drains_and_closes(mocker):
     '''main_loop sets stop_event on SIGTERM and drains server + closes redis in finally.'''
     driver, server, redis_manager, metrics = _shutdown_collaborators(mocker)
-    health_server = mocker.Mock()
-    health_server.serve = mocker.AsyncMock()
-    captured = _capture_signals(mocker)
-
-    async def _fire_sigterm():
-        for _ in range(4):
-            await asyncio.sleep(0)
-        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+    health_server = health_server_mock(mocker)
+    captured = capture_signals(mocker)
 
     await asyncio.gather(
         search_cli.main_loop(driver, server, health_server, redis_manager, metrics),
-        _fire_sigterm(),
+        fire_sigterm(captured),
     )
 
-    redis_manager.start.assert_awaited_once()
-    server.serve.assert_awaited_once()
-    health_server.serve.assert_awaited_once()
-    metrics.run.assert_awaited_once()
+    assert_pod_served(redis_manager, server, health_server, metrics)
     server.drain_and_stop.assert_awaited_once()
     redis_manager.close.assert_awaited_once()
 
@@ -361,16 +255,11 @@ async def test_main_loop_registers_the_search_loop_health(mocker):
     a stalled one has to fail this pod's own probe.
     '''
     driver, server, redis_manager, metrics = _shutdown_collaborators(mocker)
-    captured = _capture_signals(mocker)
-
-    async def _fire_sigterm():
-        for _ in range(4):
-            await asyncio.sleep(0)
-        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+    captured = capture_signals(mocker)
 
     await asyncio.gather(
         search_cli.main_loop(driver, server, None, redis_manager, metrics),
-        _fire_sigterm(),
+        fire_sigterm(captured),
     )
 
     assert list(LOOP_HEALTH.snapshot()) == [search_cli.LOOP_SEARCH_WORKER]
@@ -390,16 +279,11 @@ async def test_main_loop_publishes_the_loop_heartbeat_gauge(mocker):
     '''
     driver, server, redis_manager, metrics = _shutdown_collaborators(mocker)
     gauge = mocker.patch.object(worker_pod, 'create_observable_gauge')
-    captured = _capture_signals(mocker)
-
-    async def _fire_sigterm():
-        for _ in range(4):
-            await asyncio.sleep(0)
-        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+    captured = capture_signals(mocker)
 
     await asyncio.gather(
         search_cli.main_loop(driver, server, None, redis_manager, metrics),
-        _fire_sigterm(),
+        fire_sigterm(captured),
     )
 
     gauge.assert_called_once()
@@ -420,18 +304,15 @@ async def test_pod_loop_heartbeat_reports_the_registered_loop(mocker):
     mocker.patch.object(
         worker_pod, 'create_observable_gauge',
         new=lambda _meter, name, callback, _desc: observations.setdefault(name, callback))
-    captured = _capture_signals(mocker)
+    captured = capture_signals(mocker)
 
-    async def _fire_sigterm():
-        for _ in range(4):
-            await asyncio.sleep(0)
+    def _read_gauge():
         # Read the gauge while the loop is still registered and healthy.
         observations['result'] = observations['heartbeat']()
-        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
 
     await asyncio.gather(
         search_cli.main_loop(driver, server, None, redis_manager, metrics),
-        _fire_sigterm(),
+        fire_sigterm(captured, before=_read_gauge),
     )
 
     [observation] = observations['result']
@@ -452,17 +333,12 @@ async def test_main_loop_closes_the_broker_session_on_drain(mocker):
     driver, server, redis_manager, metrics = _shutdown_collaborators(mocker)
     broker_client = mocker.Mock()
     broker_client.close = mocker.AsyncMock()
-    captured = _capture_signals(mocker)
-
-    async def _fire_sigterm():
-        for _ in range(4):
-            await asyncio.sleep(0)
-        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+    captured = capture_signals(mocker)
 
     await asyncio.gather(
         search_cli.main_loop(driver, server, None, redis_manager, metrics,
                              broker_client=broker_client),
-        _fire_sigterm(),
+        fire_sigterm(captured),
     )
 
     broker_client.close.assert_awaited_once()
@@ -475,16 +351,11 @@ async def test_main_loop_drains_without_a_broker_client(mocker):
     cleanly rather than tripping over None in the shutdown path.
     '''
     driver, server, redis_manager, metrics = _shutdown_collaborators(mocker)
-    captured = _capture_signals(mocker)
-
-    async def _fire_sigterm():
-        for _ in range(4):
-            await asyncio.sleep(0)
-        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+    captured = capture_signals(mocker)
 
     await asyncio.gather(
         search_cli.main_loop(driver, server, None, redis_manager, metrics),
-        _fire_sigterm(),
+        fire_sigterm(captured),
     )
 
     server.drain_and_stop.assert_awaited_once()
@@ -498,19 +369,14 @@ async def test_main_loop_marks_the_loop_stopped_on_drain(mocker):
     own liveness probe on the way out.
     '''
     driver, server, redis_manager, metrics = _shutdown_collaborators(mocker)
-    captured = _capture_signals(mocker)
+    captured = capture_signals(mocker)
     registry_stops = []
     mocker.patch.object(LOOP_HEALTH, 'mark_stopped',
                         new=lambda *names: registry_stops.extend(names))
 
-    async def _fire_sigint():
-        for _ in range(4):
-            await asyncio.sleep(0)
-        captured[cli_common.signal.SIGINT](cli_common.signal.SIGINT, None)
-
     await asyncio.gather(
         search_cli.main_loop(driver, server, None, redis_manager, metrics),
-        _fire_sigint(),
+        fire_sigterm(captured, signum=signal.SIGINT),
     )
 
     assert registry_stops == [search_cli.LOOP_SEARCH_WORKER]
@@ -528,16 +394,11 @@ async def test_main_loop_sweeps_stale_blocks_when_given_a_worker(mocker):
     driver, server, redis_manager, metrics = _shutdown_collaborators(mocker)
     worker = mocker.Mock()
     worker.clear_stale_guild_blocks = mocker.AsyncMock(return_value=1)
-    captured = _capture_signals(mocker)
-
-    async def _fire_sigterm():
-        for _ in range(4):
-            await asyncio.sleep(0)
-        captured[cli_common.signal.SIGTERM](cli_common.signal.SIGTERM, None)
+    captured = capture_signals(mocker)
 
     await asyncio.gather(
         search_cli.main_loop(driver, server, None, redis_manager, metrics, worker=worker),
-        _fire_sigterm(),
+        fire_sigterm(captured),
     )
 
     worker.clear_stale_guild_blocks.assert_awaited_once()
