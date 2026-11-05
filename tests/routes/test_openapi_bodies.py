@@ -163,4 +163,3 @@ def test_the_success_examples_are_instances_of_the_request_model(surface, route,
     for call in operation.calls:
         if call.status < 300 and call.body is not None and not callable(call.body):
             operation.request.model_validate(_json(call.body))
-
