@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.0] - 2026-11-05
+
+### Changed
+
+- The downloader now uploads each song under a key that carries a digest of its audio (`queue/<file>.sha256-<digest>.pcm`), so `get_file` and `upload_file` verify it on every later read: the gateway playing it and the broker copying it into the cache.
+
 ## [3.4.1] - 2026-11-04
 
 ### Changed
