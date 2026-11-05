@@ -143,6 +143,10 @@ KNOWN_TRANSIENT_ERROR_MARKERS = frozenset({
     #    .googlevideo.com', port=443) at 0x...>, 'Connection to rr5---sn-...
     #    .googlevideo.com timed out. (connect timeout=20.0)')"
     'timed out',
+    # A fragmented (HLS/DASH) download that lost a fragment; skip_unavailable_fragments is off, so
+    # yt-dlp fails the whole download instead of leaving a gap in the audio:
+    #   "fragment 12 not found, unable to continue"
+    'not found, unable to continue',
 })
 
 

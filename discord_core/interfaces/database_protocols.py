@@ -143,12 +143,14 @@ class VideoCacheStore(Protocol):
         video_cache_ids : Row ids to delete
         '''
 
-    async def ready_remove(self) -> bool:
+    async def ready_remove(self, evict_all: bool = False) -> bool:
         '''
         Apply the eviction policy, flagging excess rows `ready_for_deletion`.
 
         Marks only -- nothing is deleted here, and the flagged rows come back
         from `get_deletable_entries` so the caller can drop their files first.
+
+        evict_all : Flag every row, ignoring the count and size limits
         '''
 
     async def get_deletable_entries(self) -> List[VideoCacheEntry]:

@@ -303,7 +303,18 @@ class RedisBroker(MediaBrokerBase):
             await asyncio.to_thread(upload_file, self.cache_bucket_name, local_path, cache_key)
         promoted = copy.copy(download)
         promoted.file_path = Path(cache_key)
-        await self.video_cache.iterate_file(promoted)
+        try:
+            await self.video_cache.iterate_file(promoted)
+        except Exception:
+            # Not cataloged, so the cache could never evict it: drop the object just uploaded.
+            await asyncio.to_thread(delete_file, self.cache_bucket_name, cache_key)
+            raise
+        # The catalog keeps one row per video. A second copy of a video promoted while the first is
+        # cataloged (different audio, so a different digest in the key) is not recorded, and nothing
+        # would ever evict that object, so it goes.
+        kept = await self.video_cache.get_webpage_url_item(download.media_request)
+        if kept is not None and str(kept.file_path) != cache_key:
+            await asyncio.to_thread(delete_file, self.cache_bucket_name, cache_key)
 
     async def _key_in_use(self, key: str) -> bool:
         '''True if a registry entry still points at this object key.'''

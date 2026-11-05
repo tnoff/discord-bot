@@ -69,6 +69,9 @@ from discord_broker.workers.redis_broker import RedisBroker
 
 logger = logging.getLogger(__name__)
 
+# How long shutdown waits for queue-bucket clean-ups still running, inside the pod's grace period.
+RETIRE_DRAIN_SECONDS = 20
+
 # Mirror of MusicGeneralConfig.message_delete_after (discord_bot/cogs/music.py).
 # Duplicated rather than imported: cogs.music drags the whole cog import chain
 # (discord.py, spotipy, yt-dlp) into this slim process.
@@ -174,7 +177,8 @@ async def flush_cache_entries(settings: dict, general_config: GeneralConfig,
 
 
 async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manager: RedisManager,
-                    broker_metrics: BrokerMetrics, video_cache=None, history_worker=None):
+                    broker_metrics: BrokerMetrics, video_cache=None, history_worker=None,
+                    guild_queue: GuildQueueBroker | None = None):
     '''Run the broker until SIGTERM/SIGINT, then drain the HTTP server, Redis and the db client.
 
     The route checks for this pod's outbound clients -- its dispatch client and
@@ -206,6 +210,15 @@ async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manage
     finally:
         logger.info('Main :: Draining broker server...')
         await broker_server.drain_and_stop()
+        # Queue-bucket clean-ups (a played song's copy into the cache) outlive the request that
+        # started them. The server is drained, so none can start now, and they need Redis and the
+        # catalog client below. Bounded, because the pod's termination grace period is: what is
+        # left is removed by the queue bucket's expiry.
+        if guild_queue is not None:
+            try:
+                await asyncio.wait_for(guild_queue.wait_for_retired(), RETIRE_DRAIN_SECONDS)
+            except asyncio.TimeoutError:
+                logger.warning('Main :: Queue-bucket clean-ups still running after %ss, leaving them', RETIRE_DRAIN_SECONDS)
         await redis_manager.close()
         # The catalog is an HTTP client now, so it owns an aiohttp session that
         # aiohttp complains about ("Unclosed client session") if the process exits
@@ -221,10 +234,12 @@ async def main_loop(broker_server: BrokerHttpServer, health_server, redis_manage
 
 
 def run_broker(broker_server: BrokerHttpServer, health_server, redis_manager: RedisManager,
-               broker_metrics: BrokerMetrics, video_cache=None, history_worker=None):
+               broker_metrics: BrokerMetrics, video_cache=None, history_worker=None,
+               guild_queue: GuildQueueBroker | None = None):
     '''Schedule main_loop on an event loop.'''
     run_loop(main_loop(broker_server, health_server, redis_manager, broker_metrics,
-                       video_cache=video_cache, history_worker=history_worker))
+                       video_cache=video_cache, history_worker=history_worker,
+                       guild_queue=guild_queue))
 
 
 def run(settings: dict, general_config: GeneralConfig):
@@ -336,4 +351,4 @@ def run(settings: dict, general_config: GeneralConfig):
         )
 
     run_broker(broker_server, health_server, redis_manager, broker_metrics,
-               video_cache=video_cache, history_worker=history_worker)
+               video_cache=video_cache, history_worker=history_worker, guild_queue=guild_queue)
