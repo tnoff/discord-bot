@@ -53,7 +53,7 @@ from discord_core.types.clear_guild_result import ClearGuildResult
 from discord_core.utils.failure_queue import FailureQueue, FailureStatus
 
 from discord_core.interfaces.broker_client_protocol import BrokerClient
-from discord_core.utils.integrations.s3 import upload_file
+from discord_core.utils.integrations.s3 import file_digest, key_with_digest, upload_file
 
 from discord_downloader.utils.audio import edit_audio_file, AudioProcessingError
 from discord_downloader.utils.integrations.egress_pool import (
@@ -859,7 +859,10 @@ class DownloadWorkerBase(ABC):
             # Split buckets: the song waits in the queue bucket until it has played. Otherwise it is
             # the cache entry from the start, as before the split.
             key_prefix = QUEUE_KEY_PREFIX if self.cache_bucket_name else CACHE_KEY_PREFIX
-            s3_key = f'{key_prefix}{file_path.name}'
+            # The key also carries a digest of the bytes, so every later read of the object (the
+            # gateway playing it, the broker copying it into the cache) can tell a truncated or
+            # corrupt copy from this one. It is still one key per video unless the audio differs.
+            s3_key = key_with_digest(f'{key_prefix}{file_path.name}', file_digest(file_path))
             upload_file(self.bucket_name, file_path, s3_key)
             file_path.unlink()
             file_path = Path(s3_key)

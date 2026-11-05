@@ -19,6 +19,7 @@ from discord_core.types.search import SearchResult
 
 from discord_core.types.queue import PutsBlocked
 from discord_core.utils.failure_queue import FailureQueue as DownloadFailureQueue, FailureStatus as DownloadStatus
+from discord_core.utils.integrations.s3 import content_digest, key_digest, key_with_digest
 
 from discord_downloader.interfaces import download_protocols
 from discord_downloader.interfaces.download_protocols import VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded, DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator, DirectItemAvailableException
@@ -370,7 +371,7 @@ async def test_prepare_source_s3_mode():
     x = make_download_client(MockYTDLP(fake_file_path=download_path),
                              bucket_name='test-bucket')
     y = fake_source_dict(fake_context)
-    expected_s3_key = f'cache/{pcm_path.name}'
+    expected_s3_key = key_with_digest(f'cache/{pcm_path.name}', content_digest(b'pcm data'))
     with patch('discord_downloader.interfaces.download_protocols.upload_file', return_value=True) as upload_mock:
         with patch('discord_downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path) as edit_mock:
             result = await x.create_source(y, 3)
@@ -382,6 +383,8 @@ async def test_prepare_source_s3_mode():
     assert call_args[0] == 'test-bucket'
     assert call_args[1] == pcm_path
     assert str(call_args[2]) == expected_s3_key
+    # the key names the bytes it holds, which is what upload_file and get_file verify
+    assert key_digest(expected_s3_key) == content_digest(b'pcm data')
     # PCM file deleted after upload
     assert not pcm_path.exists()
     # result carries S3 key path
@@ -405,8 +408,9 @@ async def test_prepare_source_s3_mode_split_buckets_uploads_under_the_queue_pref
     assert result.status.success
     upload_mock.assert_called_once()
     assert upload_mock.call_args[0][0] == 'queue-bucket'
-    assert str(upload_mock.call_args[0][2]) == f'queue/{pcm_path.name}'
-    assert result.file_name == Path(f'queue/{pcm_path.name}')
+    queue_key = key_with_digest(f'queue/{pcm_path.name}', content_digest(b'pcm data'))
+    assert str(upload_mock.call_args[0][2]) == queue_key
+    assert result.file_name == Path(queue_key)
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -419,7 +423,7 @@ async def test_prepare_source_s3_mode_audio_processing_error():
     x = make_download_client(MockYTDLP(fake_file_path=download_path),
                              bucket_name='test-bucket')
     y = fake_source_dict(fake_context)
-    expected_s3_key = f'cache/{download_path.name}'
+    expected_s3_key = key_with_digest(f'cache/{download_path.name}', content_digest(b'raw audio'))
     with patch('discord_downloader.interfaces.download_protocols.upload_file', return_value=True) as upload_mock:
         with patch('discord_downloader.interfaces.download_protocols.edit_audio_file',
                    side_effect=AudioProcessingError('bad codec')):

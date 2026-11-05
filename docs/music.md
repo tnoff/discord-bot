@@ -537,7 +537,7 @@ music:
 
 `upload_file` sends the object's MD5 (`Content-MD5`), so S3 refuses an upload whose bytes do not match, and `get_file` compares the download with the object's ETag. The ETag check only logs a warning, and it is skipped for multipart ETags.
 
-A key can also name its content: `key_with_digest` turns `queue/a.pcm` into `queue/a.sha256-<digest>.pcm`, where the digest is the first 32 hex characters of the file's SHA-256. `upload_file` then refuses a file that does not hash to that digest, and `get_file` raises `ObjectStorageException` rather than write bytes that do not, so a corrupt or truncated object fails the fetch wherever it is read (the gateway's playback and prefetch, the broker's copy into the cache). The digest lives in the key, which is all the broker registry, the cache catalog and the HTTP seam carry, so it needs no field of its own. Keys without a digest are not checked.
+A key can also name its content: `key_with_digest` turns `queue/a.pcm` into `queue/a.sha256-<digest>.pcm`, where the digest is the first 32 hex characters of the file's SHA-256. `upload_file` then refuses a file that does not hash to that digest, and `get_file` raises `ObjectStorageException` rather than write bytes that do not, so a corrupt or truncated object fails the fetch wherever it is read (the gateway's playback and prefetch, the broker's copy into the cache). The digest lives in the key, which is all the broker registry, the cache catalog and the HTTP seam carry, so it needs no field of its own. The downloader embeds the digest in every key it uploads (`queue/<file>.sha256-<digest>.pcm`, or `cache/…` without a cache bucket), so each song is checked on every later read. Objects uploaded before that carry no digest and are not checked.
 
 #### Separate queue and cache buckets
 
@@ -556,8 +556,8 @@ music:
 
 With the split on, `bucket_name` is the queue bucket and a song is cached only after it has played:
 
-1. The downloader uploads the song to the queue bucket as `queue/<file>`, and the player reads it from there.
-2. When the track plays to the end, the broker copies it to the cache bucket as `cache/<file>`, adds it to the cache catalog, and deletes the queue object. A track that is skipped, cleared, or dropped when the guild closes is only deleted.
+1. The downloader uploads the song to the queue bucket as `queue/<file>` (the file name carries a content digest, see Object integrity), and the player reads it from there.
+2. When the track plays to the end, the broker copies it to the cache bucket as `cache/<file>` (the same name, so the digest goes with it), adds it to the cache catalog, and deletes the queue object. A track that is skipped, cleared, or dropped when the guild closes is only deleted.
 3. A later request for the same song is a cache hit and plays from the cache bucket.
 
 Which bucket an object is in is decided by its key: `cache/` keys are in the cache bucket and anything else in the queue bucket. Objects and catalog rows from before the split are already `cache/` keys, so the old bucket just becomes the cache bucket and nothing is migrated. Give the queue bucket an expiry of a few days as a safety net: anything the broker could not clean up (a crash between steps, a failed copy) is removed, and a failed copy is logged rather than raised.
