@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.7.3] - 2026-11-05
+
+### Changed
+
+- Bumped the discord_core pin to core-v3.22.4: a lost-fragment yt-dlp failure counts as a known transient, and the VideoCacheStore protocol declares `ready_remove(evict_all)`.
+
 ## [3.7.2] - 2026-11-05
 
 ### Changed
