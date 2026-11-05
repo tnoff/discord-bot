@@ -153,15 +153,15 @@ def test_unclaimed_module_is_an_orphan_not_an_empty_answer():
     assert images == set()
 
 
-def test_a_core_contract_waiting_for_its_consumer_builds_every_image_and_is_no_orphan():
+def test_a_core_contract_waiting_for_its_consumer_builds_no_image_and_is_no_orphan():
     '''
-    A module on the ships-ahead list is reached by no image yet, so it would be an orphan; it is
-    core, so the answer is every image instead of a failed build (_roots.SHIPS_AHEAD_OF_CONSUMER).
+    A module on the ships-ahead list is reached by no image yet, so it would be an orphan; it is core,
+    and core reaches an image only through a pod's pin (_roots.SHIPS_AHEAD_OF_CONSUMER), so it builds nothing.
     '''
     module = sorted(SHIPS_AHEAD_OF_CONSUMER)[0]
     images, orphans = _affected([module.replace('.', '/') + '.py'])
     assert not orphans
-    assert images == {'bot', 'db'}
+    assert images == set()
 
 
 def test_a_deleted_module_is_attributed_to_its_old_owners():
@@ -256,18 +256,30 @@ def test_a_packages_own_pyproject_bump_builds_only_its_image():
     assert images == {'bot'}
 
 
-def test_discord_cores_own_pyproject_bump_reaches_every_image_that_installs_it():
-    '''discord_core's dependencies reach every pod that installs discord_core --
-    the same measured-cost shape boto3 already accepted in the seam-fold
-    reversal, not a special case for this function.'''
+def test_a_core_change_builds_no_image_because_pods_install_it_from_a_pinned_tag():
+    '''discord_core is not copied into any image, so editing its source or its own pyproject.toml
+    changes none of them. The pod's pin bump is what rebuilds the pod.'''
     closure = {'images': [
         {'image': 'bot', 'entrypoint': 'discord_gateway.cli.bot', 'dockerfile': 'docker/Dockerfile.gateway',
          'modules': ['discord_core.shared', 'discord_gateway.cogs.music']},
         {'image': 'db', 'entrypoint': 'discord_db.cli.database', 'dockerfile': 'docker/Dockerfile.db',
          'modules': ['discord_core.shared', 'discord_db.store']},
     ]}
-    images, _ = affected(['discord_core/pyproject.toml'], [], closure, None)
-    assert images == {'bot', 'db'}
+    images, orphans = affected(['discord_core/shared.py', 'discord_core/pyproject.toml'], [], closure, None)
+    assert images == set()
+    assert not orphans
+
+
+def test_a_pin_bump_builds_the_pod_alongside_a_core_change():
+    '''The release flow: core and one pod's pin in the same push builds that pod only.'''
+    closure = {'images': [
+        {'image': 'bot', 'entrypoint': 'discord_gateway.cli.bot', 'dockerfile': 'docker/Dockerfile.gateway',
+         'modules': ['discord_core.shared', 'discord_gateway.cogs.music']},
+        {'image': 'db', 'entrypoint': 'discord_db.cli.database', 'dockerfile': 'docker/Dockerfile.db',
+         'modules': ['discord_core.shared', 'discord_db.store']},
+    ]}
+    images, _ = affected(['discord_core/shared.py', 'discord_gateway/pyproject.toml'], [], closure, None)
+    assert images == {'bot'}
 
 
 def test_images_for_pyproject_of_an_undeclared_root_is_empty():

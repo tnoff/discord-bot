@@ -253,8 +253,8 @@ def module_prefixes_for(kind: str, name: str | None = None) -> tuple:
 # one, which `test_every_module_is_claimed_by_some_image`, `_affected_images` and the core-is-shared
 # layout rule all treat as a violation (and rightly, for anything else).
 #
-# A listed module is exempt from all three, and a change to one rebuilds every image, because it is
-# core. test_ships_ahead_modules_are_not_yet_shared fails as soon as two images reach a listed
+# A listed module is exempt from all three. (A change to it builds no image: like all of core, it
+# reaches an image only through a pod's pin.) test_ships_ahead_modules_are_not_yet_shared fails as soon as two images reach a listed
 # module, which is the signal to delete it from this set: it is a queue of contracts waiting for a
 # second consumer, not a place for anything to live.
 #
