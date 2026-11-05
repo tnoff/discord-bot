@@ -12,8 +12,8 @@ Same split, and the same stated reason, as BrokerClient, CheckoutResult and
 ClearGuildResult before it.  Re-exported from download_protocols, so existing
 imports keep working.
 
-RETRY_BACKOFF_SECONDS_MINIMUM comes along because the cog's config model defaults
-to it, which would otherwise drag the engine in through a default value.
+RETRY_BACKOFF_SECONDS_MINIMUM comes along because it is the default the download
+pod's config applies, and importing it from here keeps the engine out of the importer.
 '''
 import asyncio
 from typing import Callable, Protocol

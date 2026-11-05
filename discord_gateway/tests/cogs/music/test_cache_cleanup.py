@@ -4,8 +4,6 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.sql.functions import count as sql_count
 
-from discord_core.exceptions import DiscordBotException
-
 from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.tests.cogs.test_music import music_config
@@ -15,24 +13,6 @@ from tests.helpers import async_mock_session, downloaded_from_context
 from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
 from tests.helpers import attach_in_process_broker
 
-
-def test_cache_cleanup_enable_cache_files_requires_storage(fake_context):  #pylint:disable=redefined-outer-name
-    '''enable_cache_files without storage is fatal at construction time.
-
-    Raises DiscordBotException rather than CogMissingRequiredArg on purpose:
-    load_cogs skips a cog that raises the latter, so a music section that IS
-    present and does not validate would silently start a music-less bot.'''
-    config = music_config({
-        'music': {
-            'download': {
-                'cache': {
-                    'enable_cache_files': True,
-                }
-            }
-        }
-    })
-    with pytest.raises(DiscordBotException, match='enable_cache_files requires storage'):
-        Music(fake_context['bot'], config, fake_context['bot'])
 
 @pytest.mark.asyncio
 async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, fake_context):  #pylint:disable=redefined-outer-name
