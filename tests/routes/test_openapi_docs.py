@@ -12,6 +12,7 @@ when the two diverge. A generated file nobody checks is a file that silently
 stops being true.
 '''
 import os
+import re
 
 import pytest
 from openapi_spec_validator import validate
@@ -91,9 +92,9 @@ def test_templated_paths_declare_their_parameters():
             if '{' not in template:
                 continue
             for method, operation in operations.items():
-                declared = {p['name'] for p in operation.get('parameters', [])}
+                declared = {p['name'] for p in operation.get('parameters', []) if p['in'] == 'path'}
                 assert declared, f'{name} {method} {template}: no parameters declared'
-                assert all(f'{{{p}}}' in template for p in declared)
+                assert declared == set(re.findall(r'\{([^}/]+)\}', template))
 
 
 def test_the_version_is_frozen():

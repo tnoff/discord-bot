@@ -4,405 +4,2139 @@ openapi: 3.1.0
 info:
   title: discord broker
   version: 0.0.0
-  description: 'The broker seam, generated from the built aiohttp router by tests/routes/test_openapi_docs.py.
-    Do not edit by hand. Routes only: the seam contract guarantees which routes exist, not the shape of
-    their bodies -- see docs/projects/http-seam-contract.md.'
+  description: The broker seam, generated from the built aiohttp router and the route specs in tests/routes/specs
+    by tests/routes/test_openapi_docs.py. Do not edit by hand. Every request and response body here is
+    exercised against the real handler by tests/routes/test_openapi_bodies.py.
 paths:
   /bundles:
     get:
       operationId: get-bundles
+      summary: List the bundles a guild has.
+      parameters:
+      - name: guild_id
+        in: query
+        required: true
+        schema:
+          type: integer
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListBundlesForGuildResponse'
+        '422':
+          description: guild_id missing or not an integer.
     post:
       operationId: post-bundles
+      summary: Open a bundle for a guild.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateBundleBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateBundleResponse'
+        '422':
+          description: guild_id or channel_id missing.
   /bundles/{uuid}:
     delete:
       operationId: delete-bundles-by-uuid
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Delete a bundle.
       parameters:
       - name: uuid
         in: path
         required: true
         schema:
           type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteBundleResponse'
   /bundles/{uuid}/finalize:
     post:
       operationId: post-bundles-by-uuid-finalize
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Close a bundle to new requests.
       parameters:
       - name: uuid
         in: path
         required: true
         schema:
           type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinalizeBundleResponse'
   /cache/check:
     post:
       operationId: post-cache-check
+      summary: Ask whether the video cache already holds a request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaRequestBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/CheckCacheHitResponse'
+                - $ref: '#/components/schemas/CheckCacheMissResponse'
+        '422':
+          description: Not a media request.
   /cache/cleanup:
     post:
       operationId: post-cache-cleanup
+      summary: Evict cache entries nothing is using.
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CacheCleanupResponse'
   /cache/count:
     get:
       operationId: get-cache-count
+      summary: Count the cache entries.
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetCacheCountResponse'
   /downloads:
     post:
       operationId: post-downloads
+      summary: Report a finished download.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DownloadResult'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterDownloadResponse'
+        '422':
+          description: Not a download result.
   /downloads/register:
     post:
       operationId: post-downloads-register
+      summary: Register a download the gateway built itself.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDownloadDirectBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterDownloadDirectResponse'
+        '422':
+          description: No request in the body.
   /gateways/{gateway_id}/intents/claim:
     post:
       operationId: post-gateways-by-gateway_id-intents-claim
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Take the intents waiting for this gateway.
       parameters:
       - name: gateway_id
         in: path
         required: true
         schema:
           type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClaimIntentsResponse'
+        '204':
+          description: Nothing is waiting.
   /guilds/{guild_id}/claim:
     post:
       operationId: post-guilds-by-guild_id-claim
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Take the next queued track as the one playing.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClaimBody'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/ClaimTrackHitResponse'
+                - $ref: '#/components/schemas/ClaimTrackMissResponse'
+        '422':
+          description: No gateway_id, or guild_id is not an integer.
   /guilds/{guild_id}/close:
     post:
       operationId: post-guilds-by-guild_id-close
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Shut down a guild's player state.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloseGuildResponse'
+        '422':
+          description: guild_id is not an integer.
   /guilds/{guild_id}/finish:
     post:
       operationId: post-guilds-by-guild_id-finish
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Record that the playing track ended.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinishBody'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FinishTrackResponse'
+        '422':
+          description: A field is missing, or guild_id is not an integer.
   /guilds/{guild_id}/history:
     get:
       operationId: get-guilds-by-guild_id-history
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: The tracks that played to the end.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuildHistoryResponse'
+        '422':
+          description: guild_id is not an integer.
   /guilds/{guild_id}/intents:
     post:
       operationId: post-guilds-by-guild_id-intents
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Ask the gateway to do something in a guild.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitIntentBody'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitIntentResponse'
+        '422':
+          description: Unknown kind, or guild_id is not an integer.
   /guilds/{guild_id}/open:
     post:
       operationId: post-guilds-by-guild_id-open
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Open a guild's player state, recovering a track the last owner left unfinished.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpenGuildBody'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpenGuildResponse'
+        '422':
+          description: No text_channel_id, or guild_id is not an integer.
   /guilds/{guild_id}/playing/heartbeat:
     post:
       operationId: post-guilds-by-guild_id-playing-heartbeat
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Say the playing track is still playing.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrackBody'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlayingHeartbeatResponse'
+        '422':
+          description: No uuid, or guild_id is not an integer.
   /guilds/{guild_id}/queue:
     get:
       operationId: get-guilds-by-guild_id-queue
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Read a guild's queue, what is playing, and the markers a poller watches.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuildQueueResponse'
+        '422':
+          description: guild_id is not an integer.
     post:
       operationId: post-guilds-by-guild_id-queue
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Add a downloaded track to a guild's queue.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnqueueBody'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnqueueTrackResponse'
+        '422':
+          description: No uuid, or guild_id is not an integer.
   /guilds/{guild_id}/queue/bump:
     post:
       operationId: post-guilds-by-guild_id-queue-bump
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Move a queued track to the front.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrackBody'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BumpQueuedTrackResponse'
+        '422':
+          description: No uuid, or guild_id is not an integer.
   /guilds/{guild_id}/queue/clear:
     post:
       operationId: post-guilds-by-guild_id-queue-clear
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Drop every queued track for a guild.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClearQueueResponse'
+        '422':
+          description: guild_id is not an integer.
   /guilds/{guild_id}/queue/remove:
     post:
       operationId: post-guilds-by-guild_id-queue-remove
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Take a track out of the queue.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrackBody'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoveQueuedTrackResponse'
+        '422':
+          description: No uuid, or guild_id is not an integer.
   /guilds/{guild_id}/queue/shuffle:
     post:
       operationId: post-guilds-by-guild_id-queue-shuffle
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Shuffle a guild's queue.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShuffleQueueResponse'
+        '422':
+          description: guild_id is not an integer.
   /guilds/{guild_id}/queue/state:
     get:
       operationId: get-guilds-by-guild_id-queue-state
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: 'The cheap change check: the queue version and any pending skip.'
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      - name: since
+        in: query
+        required: false
+        schema:
+          type: integer
+        description: The version the caller last saw.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PollGuildQueueResponse'
+        '204':
+          description: The queue is still at `since` and no skip is pending.
+        '422':
+          description: guild_id or since is not an integer.
   /guilds/{guild_id}/skip:
     post:
       operationId: post-guilds-by-guild_id-skip
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Mark the playing track to be skipped.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrackBody'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkipTrackResponse'
+        '422':
+          description: No uuid, or guild_id is not an integer.
   /intents/{intent_id}/result:
     get:
       operationId: get-intents-by-intent_id-result
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Read an intent's outcome.
       parameters:
       - name: intent_id
         in: path
         required: true
         schema:
           type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IntentResultResponse'
     post:
       operationId: post-intents-by-intent_id-result
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Report how an intent went.
       parameters:
       - name: intent_id
         in: path
         required: true
         schema:
           type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteIntentBody'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompleteIntentResponse'
+        '422':
+          description: ok is missing.
   /requests/{uuid}:
     post:
       operationId: post-requests-by-uuid
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Register a media request with the broker.
       parameters:
       - name: uuid
         in: path
         required: true
         schema:
           type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaRequestBody'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterRequestResponse'
+        '422':
+          description: Not a media request.
   /requests/{uuid}/checkout:
     post:
       operationId: post-requests-by-uuid-checkout
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Hand a downloaded track to a guild, or answer empty when there is none.
       parameters:
       - name: uuid
         in: path
         required: true
         schema:
           type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutBody'
+      responses:
+        '200':
+          description: The S3 key to fetch, or an empty body when nothing can be handed out.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/CheckoutS3Response'
+                - $ref: '#/components/schemas/CheckoutEmptyResponse'
+        '422':
+          description: guild_id missing or not an integer.
   /requests/{uuid}/discard:
     post:
       operationId: post-requests-by-uuid-discard
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Discard a request that will not be downloaded.
       parameters:
       - name: uuid
         in: path
         required: true
         schema:
           type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscardResponse'
   /requests/{uuid}/release:
     post:
       operationId: post-requests-by-uuid-release
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Release a checked-out track.
       parameters:
       - name: uuid
         in: path
         required: true
         schema:
           type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleaseResponse'
   /requests/{uuid}/remove:
     post:
       operationId: post-requests-by-uuid-remove
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Remove a request and its download.
       parameters:
       - name: uuid
         in: path
         required: true
         schema:
           type: string
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoveResponse'
   /requests/{uuid}/status:
     put:
       operationId: put-requests-by-uuid-status
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Record a lifecycle event for a request.
       parameters:
       - name: uuid
         in: path
         required: true
         schema:
           type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LifecycleStatusUpdate'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateStatusResponse'
+        '422':
+          description: Not a status update.
   /results/next:
     get:
       operationId: get-results-next
+      summary: Take the next download result for the gateway, if there is one.
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadResult'
+        '204':
+          description: Nothing is waiting.
   /search-results:
     post:
       operationId: post-search-results
+      summary: Report a resolved search.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchResolution'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterSearchResultResponse'
+        '422':
+          description: Not a search resolution.
   /search-results/next:
     get:
       operationId: get-search-results-next
+      summary: Take the next resolved search for the gateway, if there is one.
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResolution'
+        '204':
+          description: Nothing is waiting.
   /sessions:
     get:
       operationId: get-sessions
+      summary: List the stored player sessions.
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListPlayerSessionsResponse'
   /sessions/{guild_id}:
     delete:
       operationId: delete-sessions-by-guild_id
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Delete a guild's player session.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
-          type: string
+          type: integer
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletePlayerSessionResponse'
+        '422':
+          description: guild_id is not an integer.
     put:
       operationId: put-sessions-by-guild_id
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Store a guild's player session.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
+          type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlayerSession'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SavePlayerSessionResponse'
+        '422':
+          description: Not a session, or its guild_id differs from the path.
+components:
+  schemas:
+    BumpQueuedTrackResponse:
+      description: '`bumped` is False when the track was not queued; `download` is the track moved.'
+      properties:
+        bumped:
+          title: Bumped
+          type: boolean
+        download:
+          anyOf:
+          - $ref: '#/components/schemas/QueuedDownload'
+          - type: 'null'
+          default: null
+      required:
+      - bumped
+      title: BumpQueuedTrackResponse
+      type: object
+    CacheCleanupResponse:
+      description: Whether the cleanup pass removed anything.
+      properties:
+        removed:
+          title: Removed
+          type: boolean
+      required:
+      - removed
+      title: CacheCleanupResponse
+      type: object
+    CachedDownload:
+      description: 'The download record carried with a cache hit.
+
+
+        `request` stays a `dict` rather than a nested `MediaRequest`: the handler
+
+        builds it with `model_dump(mode=''json'')`, and re-parsing it into the model
+
+        only to dump it again risks the datetime class of bug that bit the dispatch
+
+        seam, where a plain `model_dump()` returns objects `json_response` cannot
+
+        serialise.'
+      properties:
+        request:
+          additionalProperties: true
+          title: Request
+          type: object
+        file_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: File Path
+        file_size_bytes:
+          default: null
+          title: File Size Bytes
+        cache_hit:
+          default: null
+          title: Cache Hit
+        ytdl_data:
+          $ref: '#/components/schemas/CachedYtdlData'
+      required:
+      - request
+      - ytdl_data
+      title: CachedDownload
+      type: object
+    CachedYtdlData:
+      description: The yt-dlp metadata carried with a cache hit.
+      properties:
+        id:
+          default: null
+          title: Id
+        title:
+          default: null
+          title: Title
+        webpage_url:
+          default: null
+          title: Webpage Url
+        uploader:
+          default: null
+          title: Uploader
+        duration:
+          default: null
+          title: Duration
+        extractor:
+          default: null
+          title: Extractor
+      title: CachedYtdlData
+      type: object
+    CheckCacheHitResponse:
+      description: Cache hit, with the cached download record.
+      properties:
+        hit:
+          const: true
+          default: true
+          title: Hit
+          type: boolean
+        download:
+          $ref: '#/components/schemas/CachedDownload'
+      required:
+      - download
+      title: CheckCacheHitResponse
+      type: object
+    CheckCacheMissResponse:
+      description: Cache miss. `hit` is the discriminator the client branches on.
+      properties:
+        hit:
+          const: false
+          default: false
+          title: Hit
+          type: boolean
+      title: CheckCacheMissResponse
+      type: object
+    CheckoutBody:
+      description: POST /requests/{uuid}/checkout
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+      required:
+      - guild_id
+      title: CheckoutBody
+      type: object
+    CheckoutEmptyResponse:
+      description: 'Checkout found nothing to hand out (unknown entry, or no download attached).
+
+
+        Two models for one route, because the two answers are different BYTES, not
+
+        one body with optional fields: a hit sends `{''s3_key'': ...}` and a miss sends
+
+        `{}`. (Brokers from before local staging was removed sent
+
+        `{''guild_file_path'': null}` for a miss; the extra key is ignored on read.)'
+      properties: {}
+      title: CheckoutEmptyResponse
+      type: object
+    CheckoutS3Response:
+      description: 'Checkout answered by an HA broker: the file is in S3, caller fetches it.
+
+
+        `bucket_name` is deliberately absent. The client fills it from its own
+
+        config, because the bot already knows which bucket it is configured against
+
+        and the broker telling it would be a second source for one fact.'
+      properties:
+        s3_key:
+          title: S3 Key
           type: string
+      required:
+      - s3_key
+      title: CheckoutS3Response
+      type: object
+    ClaimBody:
+      description: POST /guilds/{guild_id}/claim
+      properties:
+        gateway_id:
+          title: Gateway Id
+          type: string
+      required:
+      - gateway_id
+      title: ClaimBody
+      type: object
+    ClaimIntentsResponse:
+      description: 'Intents leased to the claiming gateway, in the order they were submitted.
+
+
+        Answered 204 with no body when there are none, so an idle poll is an empty response.'
+      properties:
+        intents:
+          items:
+            $ref: '#/components/schemas/IntentBody'
+          title: Intents
+          type: array
+      required:
+      - intents
+      title: ClaimIntentsResponse
+      type: object
+    ClaimTrackHitResponse:
+      description: 'A track claimed and marked as playing.
+
+
+        `bucket_name` is absent for the same reason it is from `CheckoutS3Response`: the client
+
+        already knows which bucket it is configured against.'
+      properties:
+        claimed:
+          const: true
+          default: true
+          title: Claimed
+          type: boolean
+        download:
+          $ref: '#/components/schemas/QueuedDownload'
+        s3_key:
+          title: S3 Key
+          type: string
+      required:
+      - download
+      - s3_key
+      title: ClaimTrackHitResponse
+      type: object
+    ClaimTrackMissResponse:
+      description: Nothing to claim. `claimed` is the discriminator the client branches on.
+      properties:
+        claimed:
+          const: false
+          default: false
+          title: Claimed
+          type: boolean
+      title: ClaimTrackMissResponse
+      type: object
+    ClearQueueResponse:
+      description: How many queued tracks were dropped.
+      properties:
+        cleared:
+          title: Cleared
+          type: integer
+      required:
+      - cleared
+      title: ClearQueueResponse
+      type: object
+    CloseGuildResponse:
+      description: How many entries were released when the guild's player state was shut down.
+      properties:
+        released:
+          title: Released
+          type: integer
+      required:
+      - released
+      title: CloseGuildResponse
+      type: object
+    CompleteIntentBody:
+      description: POST /intents/{intent_id}/result
+      properties:
+        ok:
+          title: Ok
+          type: boolean
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Error
+      required:
+      - ok
+      title: CompleteIntentBody
+      type: object
+    CompleteIntentResponse:
+      description: False when the intent is gone (it expired while the gateway worked on it).
+      properties:
+        recorded:
+          title: Recorded
+          type: boolean
+      required:
+      - recorded
+      title: CompleteIntentResponse
+      type: object
+    CreateBundleBody:
+      description: POST /bundles
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        channel_id:
+          title: Channel Id
+          type: integer
+        input_string:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Input String
+        has_search_banner:
+          default: false
+          title: Has Search Banner
+          type: boolean
+      required:
+      - guild_id
+      - channel_id
+      title: CreateBundleBody
+      type: object
+    CreateBundleResponse:
+      description: 201 with the new bundle's uuid.
+      properties:
+        uuid:
+          title: Uuid
+          type: string
+      required:
+      - uuid
+      title: CreateBundleResponse
+      type: object
+    DeleteBundleResponse:
+      description: 200 from the delete-bundle route.
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: DeleteBundleResponse
+      type: object
+    DeletePlayerSessionResponse:
+      description: 200 from the delete-player-session route.
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: DeletePlayerSessionResponse
+      type: object
+    DiscardResponse:
+      description: 200 from the discard route.
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: DiscardResponse
+      type: object
+    DownloadErrorType:
+      description: Serializable error classification for download failures
+      enum:
+      - retryable
+      - bot_flagged
+      - retry_limit_exceeded
+      - no_exit_available
+      - private_video
+      - terms_violation
+      - unavailable
+      - age_restricted
+      - invalid_format
+      - not_found
+      - file_not_found
+      - too_long
+      - banned
+      title: DownloadErrorType
+      type: string
+    DownloadResult:
+      description: Represent a complete download result from the client
+      properties:
+        status:
+          $ref: '#/components/schemas/DownloadStatus'
+        media_request:
+          discriminator:
+            mapping:
+              'false': '#/components/schemas/PlaylistAddRequest'
+              'true': '#/components/schemas/MediaRequest'
+            propertyName: download_file
+          oneOf:
+          - $ref: '#/components/schemas/MediaRequest'
+          - $ref: '#/components/schemas/PlaylistAddRequest'
+          title: Media Request
+        ytdlp_data:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          title: Ytdlp Data
+        file_name:
+          anyOf:
+          - format: path
+            type: string
+          - type: 'null'
+          title: File Name
+        download_timestamp:
+          format: date-time
+          title: Download Timestamp
+          type: string
+        post_process_timestamp:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          default: null
+          title: Post Process Timestamp
+        file_size_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: File Size Bytes
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+      required:
+      - status
+      - media_request
+      - ytdlp_data
+      - file_name
+      title: DownloadResult
+      type: object
+    DownloadStatus:
+      description: Download Status
+      properties:
+        success:
+          title: Success
+          type: boolean
+        error_type:
+          anyOf:
+          - $ref: '#/components/schemas/DownloadErrorType'
+          - type: 'null'
+          default: null
+        user_message:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: User Message
+        error_detail:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Error Detail
+      required:
+      - success
+      title: DownloadStatus
+      type: object
+    EnqueueBody:
+      description: POST /guilds/{guild_id}/queue. A max_size of 0 means no cap.
+      properties:
+        uuid:
+          title: Uuid
+          type: string
+        max_size:
+          default: 0
+          title: Max Size
+          type: integer
+      required:
+      - uuid
+      title: EnqueueBody
+      type: object
+    EnqueueTrackResponse:
+      description: 'Outcome of queueing a track: ok, or why not.
+
+
+        closed: the guild''s player is shut down. full: the queue is at its cap. duplicate: the track
+
+        is already queued. Rejections are results, not errors; see the module comment on the routes.'
+      properties:
+        result:
+          enum:
+          - ok
+          - closed
+          - full
+          - duplicate
+          title: Result
+          type: string
+      required:
+      - result
+      title: EnqueueTrackResponse
+      type: object
+    FinalizeBundleResponse:
+      description: 200 from the finalize-bundle route.
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: FinalizeBundleResponse
+      type: object
+    FinishBody:
+      description: POST /guilds/{guild_id}/finish
+      properties:
+        uuid:
+          title: Uuid
+          type: string
+        skipped:
+          title: Skipped
+          type: boolean
+        history_cap:
+          title: History Cap
+          type: integer
+      required:
+      - uuid
+      - skipped
+      - history_cap
+      title: FinishBody
+      type: object
+    FinishTrackResponse:
+      description: 200 from the finish-track route.
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: FinishTrackResponse
+      type: object
+    GetCacheCountResponse:
+      description: Number of entries in the video cache.
+      properties:
+        count:
+          title: Count
+          type: integer
+      required:
+      - count
+      title: GetCacheCountResponse
+      type: object
+    GuildHistoryResponse:
+      description: Tracks that played to the end, oldest first. Each item is the history record as stored.
+      properties:
+        items:
+          items:
+            additionalProperties: true
+            type: object
+          title: Items
+          type: array
+      required:
+      - items
+      title: GuildHistoryResponse
+      type: object
+    GuildQueueResponse:
+      description: A guild's queue in play order, its playing track, and the markers a poller watches.
+      properties:
+        version:
+          title: Version
+          type: integer
+        items:
+          items:
+            $ref: '#/components/schemas/QueuedDownload'
+          title: Items
+          type: array
+        playing:
+          anyOf:
+          - $ref: '#/components/schemas/PlayingTrackBody'
+          - type: 'null'
+          default: null
+        skip_for:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Skip For
+        closed:
+          title: Closed
+          type: boolean
+        text_channel_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Text Channel Id
+      required:
+      - version
+      - items
+      - closed
+      title: GuildQueueResponse
+      type: object
+    IntentBody:
+      description: One gateway intent on the wire.
+      properties:
+        id:
+          title: Id
+          type: string
+        guild_id:
+          title: Guild Id
+          type: integer
+        kind:
+          enum:
+          - join
+          - stop
+          - move_messages
+          - wake
+          title: Kind
+          type: string
+        params:
+          additionalProperties: true
+          default: {}
+          title: Params
+          type: object
+      required:
+      - id
+      - guild_id
+      - kind
+      title: IntentBody
+      type: object
+    IntentKind:
+      description: What a gateway is asked to do.
+      enum:
+      - join
+      - stop
+      - move_messages
+      - wake
+      title: IntentKind
+      type: string
+    IntentResultResponse:
+      description: '`done` is False until the gateway completes the intent; ok and error follow it.'
+      properties:
+        done:
+          title: Done
+          type: boolean
+        ok:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Ok
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Error
+      required:
+      - done
+      title: IntentResultResponse
+      type: object
+    LifecycleEvent:
+      description: 'Lifecycle event for broker status updates.
+
+        Emitted by the download worker (BACKOFF/IN_PROGRESS/RETRY/DISCARDED) and by
+
+        the bot pod (QUEUED/COMPLETED/FAILED) so the broker can drive its bundle UI.
+
+        Maps to a PUT /requests/{uuid}/status body for the HTTP broker.'
+      enum:
+      - queued
+      - backoff
+      - in_progress
+      - retry
+      - retry_search
+      - discarded
+      - completed
+      - failed
+      title: LifecycleEvent
+      type: string
+    LifecycleStatusUpdate:
+      description: 'Status update payload pushed to MediaBroker.update_request_status.
+
+        failure_reason carries the user-facing message for FAILED events; the
+
+        broker stores it on the MediaRequest so bundle renders pick it up.'
+      properties:
+        event:
+          $ref: '#/components/schemas/LifecycleEvent'
+        error_detail:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Error Detail
+        backoff_seconds:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Backoff Seconds
+        failure_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Failure Reason
+        rejected:
+          default: false
+          title: Rejected
+          type: boolean
+        retry_count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Retry Count
+        max_retries:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Max Retries
+      required:
+      - event
+      title: LifecycleStatusUpdate
+      type: object
+    ListBundlesForGuildResponse:
+      description: The bundle uuids a guild currently has.
+      properties:
+        uuids:
+          items:
+            type: string
+          title: Uuids
+          type: array
+      required:
+      - uuids
+      title: ListBundlesForGuildResponse
+      type: object
+    ListPlayerSessionsResponse:
+      description: Every stored player session.
+      properties:
+        sessions:
+          items:
+            $ref: '#/components/schemas/PlayerSession'
+          title: Sessions
+          type: array
+      required:
+      - sessions
+      title: ListPlayerSessionsResponse
+      type: object
+    MediaRequest:
+      description: 'Original source of play request
+
+
+        guild_id : Guild where video was requested
+
+        channel_id : Channel where video was requested
+
+        requester_name: Display name of original requester
+
+        requester_id : User id of original requester
+
+        search_result : Search result
+
+        added_from_history : Whether or not this was added from history
+
+        history_playlist_item_id : Delete playlist item from history playlist, pass in database id'
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        channel_id:
+          title: Channel Id
+          type: integer
+        requester_name:
+          title: Requester Name
+          type: string
+        requester_id:
+          title: Requester Id
+          type: integer
+        search_result:
+          $ref: '#/components/schemas/SearchResult'
+        added_from_history:
+          default: false
+          title: Added From History
+          type: boolean
+        history_playlist_item_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: History Playlist Item Id
+        download_file:
+          const: true
+          default: true
+          title: Download File
+          type: boolean
+        uuid:
+          title: Uuid
+          type: string
+        bundle_uuid:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Bundle Uuid
+        queue_order:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Queue Order
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+        lifecycle_stage:
+          $ref: '#/components/schemas/MediaRequestLifecycleStage'
+          default: searching
+        download_retry_information:
+          $ref: '#/components/schemas/RetryInformation'
+        youtube_music_retry_information:
+          $ref: '#/components/schemas/RetryInformation'
+        failure_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Failure Reason
+        rejected:
+          default: false
+          title: Rejected
+          type: boolean
+      required:
+      - guild_id
+      - channel_id
+      - requester_name
+      - requester_id
+      - search_result
+      title: MediaRequest
+      type: object
+    MediaRequestBody:
+      description: 'A media request, as the broker parses it: a plain request or a playlist-add one.'
+      discriminator:
+        mapping:
+          'false': '#/components/schemas/PlaylistAddRequest'
+          'true': '#/components/schemas/MediaRequest'
+        propertyName: download_file
+      oneOf:
+      - $ref: '#/components/schemas/MediaRequest'
+      - $ref: '#/components/schemas/PlaylistAddRequest'
+      title: MediaRequestBody
+    MediaRequestLifecycleStage:
+      description: Lifecycle of a media request through the system
+      enum:
+      - searching
+      - queued
+      - in_progress
+      - failed
+      - completed
+      - discarded
+      - backoff
+      - retry_download
+      - retry_search
+      title: MediaRequestLifecycleStage
+      type: string
+    OpenGuildBody:
+      description: POST /guilds/{guild_id}/open
+      properties:
+        text_channel_id:
+          title: Text Channel Id
+          type: integer
+      required:
+      - text_channel_id
+      title: OpenGuildBody
+      type: object
+    OpenGuildResponse:
+      description: '200 from the open-guild route.
+
+
+        `recovered` is the uuid of a track the previous owner of this guild''s player had started and
+
+        never finished, put back at the head of the queue; None if there was nothing to recover (and
+
+        always None from a broker that predates recovery).'
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+        recovered:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Recovered
+      title: OpenGuildResponse
+      type: object
+    PlayerSession:
+      description: "A guild's player state, persisted across a bot restart so playback can resume.\n\n\
+        Written on BOT_SHUTDOWN and consumed once on the next startup.  It holds only\nwhere the player\
+        \ was: the voice and text channels, and whether it was mid-track.\nThe queue itself lives with\
+        \ the broker (the guild queue), which keeps it, and the\ntrack that was playing, across a gateway\
+        \ restart; the resume re-opens the guild\nand plays on from there.\n\nSessions saved before the\
+        \ queue moved to the broker carry a `queue` key.  It is\nignored on load rather than rejected,\
+        \ so those still resume.\n\nwas_playing distinguishes a player that was mid-track from one that\
+        \ was merely\nparked in a voice channel with an empty queue \u2014 only the former is worth\n\
+        rejoining for."
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        voice_channel_id:
+          title: Voice Channel Id
+          type: integer
+        text_channel_id:
+          title: Text Channel Id
+          type: integer
+        was_playing:
+          default: false
+          title: Was Playing
+          type: boolean
+      required:
+      - guild_id
+      - voice_channel_id
+      - text_channel_id
+      title: PlayerSession
+      type: object
+    PlayingHeartbeatResponse:
+      description: False if the track named is no longer the one playing.
+      properties:
+        alive:
+          title: Alive
+          type: boolean
+      required:
+      - alive
+      title: PlayingHeartbeatResponse
+      type: object
+    PlayingTrackBody:
+      description: 'What the broker knows about a guild''s playing track.
+
+
+        `download` is None when the entry has expired out from under the now-playing record, which
+
+        is rare and means the track keeps playing but its details are gone.'
+      properties:
+        uuid:
+          title: Uuid
+          type: string
+        started_at:
+          title: Started At
+          type: number
+        gateway_id:
+          title: Gateway Id
+          type: string
+        download:
+          anyOf:
+          - $ref: '#/components/schemas/QueuedDownload'
+          - type: 'null'
+          default: null
+      required:
+      - uuid
+      - started_at
+      - gateway_id
+      title: PlayingTrackBody
+      type: object
+    PlaylistAddRequest:
+      description: MediaRequest variant for adding a track to a playlist without playing it.
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        channel_id:
+          title: Channel Id
+          type: integer
+        requester_name:
+          title: Requester Name
+          type: string
+        requester_id:
+          title: Requester Id
+          type: integer
+        search_result:
+          $ref: '#/components/schemas/SearchResult'
+        added_from_history:
+          default: false
+          title: Added From History
+          type: boolean
+        history_playlist_item_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: History Playlist Item Id
+        download_file:
+          const: false
+          default: false
+          title: Download File
+          type: boolean
+        uuid:
+          title: Uuid
+          type: string
+        bundle_uuid:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Bundle Uuid
+        queue_order:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Queue Order
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+        lifecycle_stage:
+          $ref: '#/components/schemas/MediaRequestLifecycleStage'
+          default: searching
+        download_retry_information:
+          $ref: '#/components/schemas/RetryInformation'
+        youtube_music_retry_information:
+          $ref: '#/components/schemas/RetryInformation'
+        failure_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Failure Reason
+        rejected:
+          default: false
+          title: Rejected
+          type: boolean
+        playlist_id:
+          title: Playlist Id
+          type: integer
+      required:
+      - guild_id
+      - channel_id
+      - requester_name
+      - requester_id
+      - search_result
+      - playlist_id
+      title: PlaylistAddRequest
+      type: object
+    PollGuildQueueResponse:
+      description: 'The cheap change check: the queue version and the track a skip is pending for.
+
+
+        Answered 204 with no body when `?since=` equals the current version and no skip is pending,
+
+        so an idle poll is an empty response.'
+      properties:
+        version:
+          title: Version
+          type: integer
+        skip_for:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Skip For
+      required:
+      - version
+      title: PollGuildQueueResponse
+      type: object
+    QueuedDownload:
+      description: 'A track in a guild''s queue, in the shape `media_download_to_dict` writes.
+
+
+        Same fields as `CachedDownload`, deliberately a separate type: the cache seam and the queue
+
+        seam version independently. `request` stays a `dict` for the same reason it does there
+
+        (the server builds it with `model_dump(mode=''json'')`; re-parsing it to dump it again is
+
+        where the dispatch seam''s datetime bug came from).'
+      properties:
+        request:
+          additionalProperties: true
+          title: Request
+          type: object
+        file_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: File Path
+        file_size_bytes:
+          default: null
+          title: File Size Bytes
+        cache_hit:
+          default: null
+          title: Cache Hit
+        ytdl_data:
+          $ref: '#/components/schemas/CachedYtdlData'
+      required:
+      - request
+      - ytdl_data
+      title: QueuedDownload
+      type: object
+    RegisterDownloadDirectBody:
+      description: 'POST /downloads/register: a download the gateway built itself.'
+      properties:
+        request:
+          discriminator:
+            mapping:
+              'false': '#/components/schemas/PlaylistAddRequest'
+              'true': '#/components/schemas/MediaRequest'
+            propertyName: download_file
+          oneOf:
+          - $ref: '#/components/schemas/MediaRequest'
+          - $ref: '#/components/schemas/PlaylistAddRequest'
+          title: Request
+        file_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: File Path
+        ytdl_data:
+          additionalProperties: true
+          default: {}
+          title: Ytdl Data
+          type: object
+        cache_hit:
+          default: false
+          title: Cache Hit
+          type: boolean
+        file_size_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: File Size Bytes
+      required:
+      - request
+      title: RegisterDownloadDirectBody
+      type: object
+    RegisterDownloadDirectResponse:
+      description: 200 from the direct register-download route.
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: RegisterDownloadDirectResponse
+      type: object
+    RegisterDownloadResponse:
+      description: 202 from the register-download route.
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: RegisterDownloadResponse
+      type: object
+    RegisterRequestResponse:
+      description: 201 from the register-request route.
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: RegisterRequestResponse
+      type: object
+    RegisterSearchResultResponse:
+      description: 202 from the register-search-result route.
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: RegisterSearchResultResponse
+      type: object
+    ReleaseResponse:
+      description: 200 from the release route.
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: ReleaseResponse
+      type: object
+    RemoveQueuedTrackResponse:
+      description: '`removed` is False when the track was not queued; `download` is what was removed.'
+      properties:
+        removed:
+          title: Removed
+          type: boolean
+        download:
+          anyOf:
+          - $ref: '#/components/schemas/QueuedDownload'
+          - type: 'null'
+          default: null
+      required:
+      - removed
+      title: RemoveQueuedTrackResponse
+      type: object
+    RemoveResponse:
+      description: 200 from the remove route.
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: RemoveResponse
+      type: object
+    RetryInformation:
+      description: Retry information for media requests
+      properties:
+        retry_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Retry Reason
+        retry_count:
+          default: 0
+          title: Retry Count
+          type: integer
+        retry_max:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Retry Max
+        retry_backoff_seconds:
+          default: 0
+          title: Retry Backoff Seconds
+          type: integer
+        retry_reason_sent:
+          default: false
+          title: Retry Reason Sent
+          type: boolean
+      title: RetryInformation
+      type: object
+    SavePlayerSessionResponse:
+      description: 201 from the save-player-session route.
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: SavePlayerSessionResponse
+      type: object
+    SearchResolution:
+      description: A resolved search request, ready for the bot-side download hand-off.
+      properties:
+        media_request:
+          discriminator:
+            mapping:
+              'false': '#/components/schemas/PlaylistAddRequest'
+              'true': '#/components/schemas/MediaRequest'
+            propertyName: download_file
+          oneOf:
+          - $ref: '#/components/schemas/MediaRequest'
+          - $ref: '#/components/schemas/PlaylistAddRequest'
+          title: Media Request
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+      required:
+      - media_request
+      title: SearchResolution
+      type: object
+    SearchResult:
+      description: SearchClient search results
+      properties:
+        search_type:
+          $ref: '#/components/schemas/SearchType'
+        raw_search_string:
+          title: Raw Search String
+          type: string
+        proper_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Proper Name
+        youtube_music_search_string:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Youtube Music Search String
+      required:
+      - search_type
+      - raw_search_string
+      title: SearchResult
+      type: object
+    SearchType:
+      description: Search Types Supported
+      enum:
+      - youtube
+      - direct
+      - search
+      title: SearchType
+      type: string
+    ShuffleQueueResponse:
+      description: False only if the queue kept changing under every attempt to shuffle it.
+      properties:
+        shuffled:
+          title: Shuffled
+          type: boolean
+      required:
+      - shuffled
+      title: ShuffleQueueResponse
+      type: object
+    SkipTrackResponse:
+      description: 'ok: the skip is recorded and the gateway will act on it. no_player: nothing is playing.
+
+        not_current: the track named is not the one playing (it finished, or was already skipped).'
+      properties:
+        result:
+          enum:
+          - ok
+          - no_player
+          - not_current
+          title: Result
+          type: string
+      required:
+      - result
+      title: SkipTrackResponse
+      type: object
+    SubmitIntentBody:
+      description: POST /guilds/{guild_id}/intents
+      properties:
+        kind:
+          $ref: '#/components/schemas/IntentKind'
+        params:
+          additionalProperties: true
+          default: {}
+          title: Params
+          type: object
+      required:
+      - kind
+      title: SubmitIntentBody
+      type: object
+    SubmitIntentResponse:
+      description: 'The intent accepted.  A `wake` for a guild that already has one pending is not stored
+        twice:
+
+        the id of the pending one comes back.'
+      properties:
+        intent_id:
+          title: Intent Id
+          type: string
+      required:
+      - intent_id
+      title: SubmitIntentResponse
+      type: object
+    TrackBody:
+      description: A body that names one queued request.
+      properties:
+        uuid:
+          title: Uuid
+          type: string
+      required:
+      - uuid
+      title: TrackBody
+      type: object
+    UpdateStatusResponse:
+      description: 200 from the update-status route.
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: UpdateStatusResponse
+      type: object
