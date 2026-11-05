@@ -4,85 +4,959 @@ openapi: 3.1.0
 info:
   title: discord dispatch
   version: 0.0.0
-  description: 'The dispatch seam, generated from the built aiohttp router by tests/routes/test_openapi_docs.py.
-    Do not edit by hand. Routes only: the seam contract guarantees which routes exist, not the shape of
-    their bodies -- see docs/projects/http-seam-contract.md.'
+  description: The dispatch seam, generated from the built aiohttp router and the route specs in tests/routes/specs
+    by tests/routes/test_openapi_docs.py. Do not edit by hand. Every request and response body here is
+    exercised against the real handler by tests/routes/test_openapi_bodies.py.
 paths:
   /dispatch/change_member_role:
     post:
       operationId: post-dispatch-change_member_role
+      summary: Add a role to a member or take it away. Poll the result route with the `request_id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChangeMemberRoleRequestBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangeMemberRoleResponse'
+        '422':
+          description: The body is missing a field or is not JSON.
   /dispatch/delete:
     post:
       operationId: post-dispatch-delete
+      summary: Delete a message.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteRequestBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteResponse'
+        '422':
+          description: The body is missing a field or is not JSON.
   /dispatch/fetch_emojis:
     post:
       operationId: post-dispatch-fetch_emojis
+      summary: Ask for a guild's emoji. Poll the result route with the `request_id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FetchEmojisRequestBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FetchEmojisResponse'
+        '422':
+          description: The body is missing a field or is not JSON.
   /dispatch/fetch_history:
     post:
       operationId: post-dispatch-fetch_history
+      summary: Ask for a channel's recent messages. Poll the result route with the `request_id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FetchHistoryRequestBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FetchHistoryResponse'
+        '422':
+          description: The body is missing a field or is not JSON.
   /dispatch/fetch_member:
     post:
       operationId: post-dispatch-fetch_member
+      summary: Ask for one member and their roles. Poll the result route with the `request_id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FetchMemberRequestBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FetchMemberResponse'
+        '422':
+          description: The body is missing a field or is not JSON.
   /dispatch/fetch_role_members:
     post:
       operationId: post-dispatch-fetch_role_members
+      summary: Ask for the members holding a role. Poll the result route with the `request_id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FetchRoleMembersRequestBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FetchRoleMembersResponse'
+        '422':
+          description: The body is missing a field or is not JSON.
   /dispatch/fetch_roles:
     post:
       operationId: post-dispatch-fetch_roles
+      summary: Ask for a guild's roles. Poll the result route with the `request_id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FetchRolesRequestBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FetchRolesResponse'
+        '422':
+          description: The body is missing a field or is not JSON.
   /dispatch/remove_mutable:
     post:
       operationId: post-dispatch-remove_mutable
+      summary: Remove the message kept under a key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoveMutableRequestBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RemoveMutableResponse'
+        '422':
+          description: The body is missing a field or is not JSON.
   /dispatch/results/{request_id}:
     get:
       operationId: get-dispatch-results-by-request_id
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: The stored result of a fetch, or 202 while there is none yet.
       parameters:
       - name: request_id
         in: path
         required: true
         schema:
           type: string
+      responses:
+        '200':
+          description: The result as the worker stored it, whichever fetch it answers.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                - $ref: '#/components/schemas/ChannelHistoryResultBody'
+                - $ref: '#/components/schemas/GuildEmojisResultBody'
+                - $ref: '#/components/schemas/GuildRolesResultBody'
+                - $ref: '#/components/schemas/MemberResultBody'
+                - $ref: '#/components/schemas/RoleMembersResultBody'
+                - $ref: '#/components/schemas/ChangeMemberRoleResultBody'
+                - $ref: '#/components/schemas/DispatchErrorResultBody'
+        '202':
+          description: No result yet; ask again.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResultPendingResponse'
   /dispatch/send:
     post:
       operationId: post-dispatch-send
+      summary: Send a message.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendRequestBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendResponse'
+        '422':
+          description: The body is missing a field or is not JSON.
   /dispatch/update_mutable:
     post:
       operationId: post-dispatch-update_mutable
+      summary: Create or edit the message kept under a key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMutableRequestBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateMutableResponse'
+        '422':
+          description: The body is missing a field or is not JSON.
   /dispatch/update_mutable_channel:
     post:
       operationId: post-dispatch-update_mutable_channel
+      summary: Move the message kept under a key to another channel.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateMutableChannelRequestBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateMutableChannelResponse'
+        '422':
+          description: The body is missing a field or is not JSON.
+components:
+  schemas:
+    ChangeMemberRoleRequestBody:
+      description: POST /dispatch/change_member_role
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        user_id:
+          title: User Id
+          type: integer
+        role_id:
+          title: Role Id
+          type: integer
+        action:
+          enum:
+          - add
+          - remove
+          title: Action
+          type: string
+        call_id:
+          title: Call Id
+          type: string
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+      required:
+      - guild_id
+      - user_id
+      - role_id
+      - action
+      - call_id
+      title: ChangeMemberRoleRequestBody
+      type: object
+    ChangeMemberRoleResponse:
+      description: 202 from POST /dispatch/change_member_role; poll GET /dispatch/results/{id}.
+      properties:
+        request_id:
+          title: Request Id
+          type: string
+      required:
+      - request_id
+      title: ChangeMemberRoleResponse
+      type: object
+    ChangeMemberRoleResultBody:
+      description: '200 body for a completed change_member_role: the change was made.'
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        user_id:
+          title: User Id
+          type: integer
+        role_id:
+          title: Role Id
+          type: integer
+        action:
+          enum:
+          - add
+          - remove
+          title: Action
+          type: string
+      required:
+      - guild_id
+      - user_id
+      - role_id
+      - action
+      title: ChangeMemberRoleResultBody
+      type: object
+    ChannelHistoryResultBody:
+      description: 200 body for a completed fetch_history.
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        channel_id:
+          title: Channel Id
+          type: integer
+        after_message_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: After Message Id
+        messages:
+          items:
+            $ref: '#/components/schemas/FetchedMessage'
+          title: Messages
+          type: array
+      required:
+      - guild_id
+      - channel_id
+      - messages
+      title: ChannelHistoryResultBody
+      type: object
+    DeleteRequestBody:
+      description: POST /dispatch/delete
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        channel_id:
+          title: Channel Id
+          type: integer
+        message_id:
+          title: Message Id
+          type: integer
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+      required:
+      - guild_id
+      - channel_id
+      - message_id
+      title: DeleteRequestBody
+      type: object
+    DeleteResponse:
+      description: 202 from POST /dispatch/delete
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: DeleteResponse
+      type: object
+    DispatchErrorDetailBody:
+      description: 'The typed half of a failure, as `encode_error` has always built it.
+
+
+        `status` and `code` are what let a caller tell a recoverable Discord 404
+
+        from a real failure -- `is_not_found_error` duck-types on `.status` rather
+
+        than on an isinstance check, because a result delivered through the
+
+        dispatcher carries a rebuilt DispatchRemoteError, never the original
+
+        discord.NotFound. Typing them `Any` keeps that: Discord returns ints, but
+
+        the field is whatever `getattr(exc, ''status'', None)` found, and narrowing it
+
+        would 422 on an exception type that happens to carry a string.'
+      properties:
+        message:
+          title: Message
+          type: string
+        type:
+          title: Type
+          type: string
+        status:
+          default: null
+          title: Status
+        code:
+          default: null
+          title: Code
+      required:
+      - message
+      - type
+      title: DispatchErrorDetailBody
+      type: object
+    DispatchErrorResultBody:
+      description: '200 body for a failed fetch of either kind.
+
+
+        `error` stays a plain string for wire compatibility -- it is what the client
+
+        checks for with `if ''error'' in payload` -- and `error_detail` is what makes
+
+        the failure matchable on the far side.
+
+
+        **`error_detail` is OPTIONAL, and that is a rolling-deploy requirement, not
+
+        laxness.** It was added after `error`, and `DispatchRemoteError.from_payload`
+
+        documents the reason it tolerates its absence: "so a bot talking to a
+
+        not-yet-rolled dispatcher still gets the message, just without the
+
+        status/code". Making it required here would turn every result stored by an
+
+        older dispatcher into a validation failure the moment a new bot pod rolled
+
+        first -- a self-inflicted outage during exactly the window this seam exists
+
+        to survive. Two existing tests encode that shape; they caught this.'
+      properties:
+        error:
+          title: Error
+          type: string
+        error_detail:
+          anyOf:
+          - $ref: '#/components/schemas/DispatchErrorDetailBody'
+          - type: 'null'
+          default: null
+      required:
+      - error
+      title: DispatchErrorResultBody
+      type: object
+    FetchEmojisRequestBody:
+      description: POST /dispatch/fetch_emojis
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        max_retries:
+          default: 3
+          title: Max Retries
+          type: integer
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+      required:
+      - guild_id
+      title: FetchEmojisRequestBody
+      type: object
+    FetchEmojisResponse:
+      description: "202 from POST /dispatch/fetch_emojis \u2014 poll GET /dispatch/results/{id}."
+      properties:
+        request_id:
+          title: Request Id
+          type: string
+      required:
+      - request_id
+      title: FetchEmojisResponse
+      type: object
+    FetchHistoryRequestBody:
+      description: "POST /dispatch/fetch_history\n\n`after` is typed `str`, not `datetime`, and that is\
+        \ load-bearing. The handler\nfolds these fields into `dispatch_request_id(params)`, which is\n\
+        `sha256(json.dumps(params, sort_keys=True, default=str))` \u2014 so a value whose\n*type* changes\
+        \ changes the digest. Parsing `after` into a datetime here would\nmake `default=str` render it\
+        \ differently from the raw ISO string the client\nsends (`request.after.isoformat()` in `dispatch_client_base`),\
+        \ every fetch\nwould get a new request_id, and result reuse would silently stop working.\nKey\
+        \ ORDER is safe (`sort_keys=True`); value types are not."
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        channel_id:
+          title: Channel Id
+          type: integer
+        limit:
+          title: Limit
+          type: integer
+        after:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: After
+        after_message_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: After Message Id
+        oldest_first:
+          default: true
+          title: Oldest First
+          type: boolean
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+      required:
+      - guild_id
+      - channel_id
+      - limit
+      title: FetchHistoryRequestBody
+      type: object
+    FetchHistoryResponse:
+      description: "202 from POST /dispatch/fetch_history \u2014 poll GET /dispatch/results/{id}."
+      properties:
+        request_id:
+          title: Request Id
+          type: string
+      required:
+      - request_id
+      title: FetchHistoryResponse
+      type: object
+    FetchMemberRequestBody:
+      description: POST /dispatch/fetch_member
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        user_id:
+          title: User Id
+          type: integer
+        call_id:
+          title: Call Id
+          type: string
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+      required:
+      - guild_id
+      - user_id
+      - call_id
+      title: FetchMemberRequestBody
+      type: object
+    FetchMemberResponse:
+      description: 202 from POST /dispatch/fetch_member; poll GET /dispatch/results/{id}.
+      properties:
+        request_id:
+          title: Request Id
+          type: string
+      required:
+      - request_id
+      title: FetchMemberResponse
+      type: object
+    FetchRoleMembersRequestBody:
+      description: POST /dispatch/fetch_role_members
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        role_id:
+          title: Role Id
+          type: integer
+        call_id:
+          title: Call Id
+          type: string
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+      required:
+      - guild_id
+      - role_id
+      - call_id
+      title: FetchRoleMembersRequestBody
+      type: object
+    FetchRoleMembersResponse:
+      description: 202 from POST /dispatch/fetch_role_members; poll GET /dispatch/results/{id}.
+      properties:
+        request_id:
+          title: Request Id
+          type: string
+      required:
+      - request_id
+      title: FetchRoleMembersResponse
+      type: object
+    FetchRolesRequestBody:
+      description: POST /dispatch/fetch_roles
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        call_id:
+          title: Call Id
+          type: string
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+      required:
+      - guild_id
+      - call_id
+      title: FetchRolesRequestBody
+      type: object
+    FetchRolesResponse:
+      description: 202 from POST /dispatch/fetch_roles; poll GET /dispatch/results/{id}.
+      properties:
+        request_id:
+          title: Request Id
+          type: string
+      required:
+      - request_id
+      title: FetchRolesResponse
+      type: object
+    FetchedMessage:
+      description: 'Serializable representation of a Discord message returned by dispatch_channel_history.
+
+
+        A pydantic model rather than a dataclass because it IS a wire type: it is
+
+        nested inside `ChannelHistoryResultBody`, and a dataclass cannot round-trip
+
+        through a schema. See projects/seam-body-typing.
+
+
+        **The serializer is load-bearing, not decoration.** Without it `model_dump()`
+
+        returns a `datetime` object, `web.json_response` raises
+
+        "Object of type datetime is not JSON serializable", and the failure lands at
+
+        runtime on a real fetch while every unit test that compares `model_dump()`
+
+        to a dict of datetimes passes. `to_dict()` has always emitted `.isoformat()`;
+
+        this keeps that exactly, so the stored result bytes do not move.'
+      properties:
+        id:
+          title: Id
+          type: integer
+        content:
+          title: Content
+          type: string
+        created_at:
+          title: Created At
+          type: string
+        author_bot:
+          title: Author Bot
+          type: boolean
+      required:
+      - id
+      - content
+      - created_at
+      - author_bot
+      title: FetchedMessage
+      type: object
+    GuildEmojiBody:
+      description: One emoji in a guild-emoji result.
+      properties:
+        id:
+          title: Id
+          type: integer
+        name:
+          title: Name
+          type: string
+        animated:
+          title: Animated
+          type: boolean
+      required:
+      - id
+      - name
+      - animated
+      title: GuildEmojiBody
+      type: object
+    GuildEmojisResultBody:
+      description: 200 body for a completed fetch_emojis.
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        emojis:
+          items:
+            $ref: '#/components/schemas/GuildEmojiBody'
+          title: Emojis
+          type: array
+      required:
+      - guild_id
+      - emojis
+      title: GuildEmojisResultBody
+      type: object
+    GuildRolesResultBody:
+      description: '200 body for a completed fetch_roles: every role, in the order Discord lists them.'
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        roles:
+          items:
+            $ref: '#/components/schemas/RoleBody'
+          title: Roles
+          type: array
+      required:
+      - guild_id
+      - roles
+      title: GuildRolesResultBody
+      type: object
+    MemberBody:
+      description: One member and the ids of the roles they hold.
+      properties:
+        id:
+          title: Id
+          type: integer
+        display_name:
+          title: Display Name
+          type: string
+        role_ids:
+          items:
+            type: integer
+          title: Role Ids
+          type: array
+      required:
+      - id
+      - display_name
+      - role_ids
+      title: MemberBody
+      type: object
+    MemberResultBody:
+      description: 200 body for a completed fetch_member. `member` is None when they are not in the guild.
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        user_id:
+          title: User Id
+          type: integer
+        member:
+          anyOf:
+          - $ref: '#/components/schemas/MemberBody'
+          - type: 'null'
+          default: null
+      required:
+      - guild_id
+      - user_id
+      title: MemberResultBody
+      type: object
+    RemoveMutableRequestBody:
+      description: POST /dispatch/remove_mutable
+      properties:
+        key:
+          title: Key
+          type: string
+      required:
+      - key
+      title: RemoveMutableRequestBody
+      type: object
+    RemoveMutableResponse:
+      description: 202 from POST /dispatch/remove_mutable
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: RemoveMutableResponse
+      type: object
+    ResultPendingResponse:
+      description: "202 from GET /dispatch/results/{request_id} \u2014 the worker has not finished.\n\n\
+        Distinct from the fire-and-forget `{'status': 'ok'}` despite also being a\none-field status: 'ok'\
+        \ means accepted, 'pending' means not answered yet, and\na client that confused them would stop\
+        \ polling."
+      properties:
+        status:
+          const: pending
+          default: pending
+          title: Status
+          type: string
+      title: ResultPendingResponse
+      type: object
+    RoleBody:
+      description: One role.
+      properties:
+        id:
+          title: Id
+          type: integer
+        name:
+          title: Name
+          type: string
+      required:
+      - id
+      - name
+      title: RoleBody
+      type: object
+    RoleMembersResultBody:
+      description: 200 body for a completed fetch_role_members.
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        role_id:
+          title: Role Id
+          type: integer
+        members:
+          items:
+            $ref: '#/components/schemas/MemberBody'
+          title: Members
+          type: array
+      required:
+      - guild_id
+      - role_id
+      - members
+      title: RoleMembersResultBody
+      type: object
+    SendRequestBody:
+      description: POST /dispatch/send
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        channel_id:
+          title: Channel Id
+          type: integer
+        content:
+          title: Content
+          type: string
+        delete_after:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Delete After
+        allow_404:
+          default: false
+          title: Allow 404
+          type: boolean
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+      required:
+      - guild_id
+      - channel_id
+      - content
+      title: SendRequestBody
+      type: object
+    SendResponse:
+      description: 202 from POST /dispatch/send
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: SendResponse
+      type: object
+    UpdateMutableChannelRequestBody:
+      description: POST /dispatch/update_mutable_channel
+      properties:
+        key:
+          title: Key
+          type: string
+        guild_id:
+          title: Guild Id
+          type: integer
+        new_channel_id:
+          title: New Channel Id
+          type: integer
+      required:
+      - key
+      - guild_id
+      - new_channel_id
+      title: UpdateMutableChannelRequestBody
+      type: object
+    UpdateMutableChannelResponse:
+      description: 202 from POST /dispatch/update_mutable_channel
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: UpdateMutableChannelResponse
+      type: object
+    UpdateMutableRequestBody:
+      description: POST /dispatch/update_mutable
+      properties:
+        key:
+          title: Key
+          type: string
+        guild_id:
+          title: Guild Id
+          type: integer
+        content:
+          items: {}
+          title: Content
+          type: array
+        channel_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Channel Id
+        sticky:
+          default: true
+          title: Sticky
+          type: boolean
+        delete_after:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Delete After
+      required:
+      - key
+      - guild_id
+      - content
+      title: UpdateMutableRequestBody
+      type: object
+    UpdateMutableResponse:
+      description: 202 from POST /dispatch/update_mutable
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: UpdateMutableResponse
+      type: object

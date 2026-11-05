@@ -4,31 +4,168 @@ openapi: 3.1.0
 info:
   title: discord commands
   version: 0.0.0
-  description: 'The commands seam, generated from the built aiohttp router by tests/routes/test_openapi_docs.py.
-    Do not edit by hand. Routes only: the seam contract guarantees which routes exist, not the shape of
-    their bodies -- see docs/projects/http-seam-contract.md.'
+  description: The commands seam, generated from the built aiohttp router and the route specs in tests/routes/specs
+    by tests/routes/test_openapi_docs.py. Do not edit by hand. Every request and response body here is
+    exercised against the real handler by tests/routes/test_openapi_bodies.py.
 paths:
   /commands/{command}:
     post:
       operationId: post-commands-by-command
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Hand a command to the pod. 202 means accepted, not run.
       parameters:
       - name: command
         in: path
         required: true
         schema:
           type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommandRequestBody'
+      responses:
+        '202':
+          description: Taken. `duplicate` is true when this request_id was accepted before.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommandAcceptedResponse'
+        '422':
+          description: Not JSON, does not fit the body, unknown command, or bad arguments.
+        '501':
+          description: A known command this build has no handler for.
   /guilds/{guild_id}/teardown:
     post:
       operationId: post-guilds-by-guild_id-teardown
-      responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+      summary: Start releasing a guild's queues. 202 means started, not finished.
       parameters:
       - name: guild_id
         in: path
         required: true
         schema:
+          type: integer
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuildTeardownAccepted'
+        '422':
+          description: guild_id is not an integer.
+components:
+  schemas:
+    CommandAcceptedResponse:
+      description: '202 from POST /commands/{command}: the pod has taken the command, not run it.
+
+
+        `duplicate` is True when this request_id was seen already and the command was not queued again.'
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
           type: string
+        duplicate:
+          default: false
+          title: Duplicate
+          type: boolean
+      title: CommandAcceptedResponse
+      type: object
+    CommandEnvelope:
+      description: Who invoked a command, and from where.
+      properties:
+        guild_id:
+          description: Guild the command was issued in
+          title: Guild Id
+          type: integer
+        channel_id:
+          description: Text channel the command was issued in; replies go here
+          title: Channel Id
+          type: integer
+        author_id:
+          description: User who issued the command
+          title: Author Id
+          type: integer
+        author_display_name:
+          description: How the author is shown in the guild
+          title: Author Display Name
+          type: string
+        channel_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Name of the text channel
+          title: Channel Name
+        author_voice_channel_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          description: Voice channel the author is in, if any
+          title: Author Voice Channel Id
+        author_voice_channel_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          description: Name of the author's voice channel
+          title: Author Voice Channel Name
+        author_voice_guild_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          description: Guild of the author's voice channel
+          title: Author Voice Guild Id
+        author_role_ids:
+          default: []
+          description: Ids of the roles the author holds; the role commands check them
+          items:
+            type: integer
+          title: Author Role Ids
+          type: array
+      required:
+      - guild_id
+      - channel_id
+      - author_id
+      - author_display_name
+      title: CommandEnvelope
+      type: object
+    CommandRequestBody:
+      description: POST /commands/{command}
+      properties:
+        envelope:
+          $ref: '#/components/schemas/CommandEnvelope'
+        args:
+          additionalProperties: true
+          default: {}
+          title: Args
+          type: object
+        request_id:
+          title: Request Id
+          type: string
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+      required:
+      - envelope
+      - request_id
+      title: CommandRequestBody
+      type: object
+    GuildTeardownAccepted:
+      description: '202: the pod has taken the teardown job, not finished it.'
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: GuildTeardownAccepted
+      type: object

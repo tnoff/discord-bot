@@ -4,19 +4,160 @@ openapi: 3.1.0
 info:
   title: discord media_search
   version: 0.0.0
-  description: 'The media_search seam, generated from the built aiohttp router by tests/routes/test_openapi_docs.py.
-    Do not edit by hand. Routes only: the seam contract guarantees which routes exist, not the shape of
-    their bodies -- see docs/projects/http-seam-contract.md.'
+  description: The media_search seam, generated from the built aiohttp router and the route specs in tests/routes/specs
+    by tests/routes/test_openapi_docs.py. Do not edit by hand. Every request and response body here is
+    exercised against the real handler by tests/routes/test_openapi_bodies.py.
 paths:
   /search/spotify:
     post:
       operationId: post-search-spotify
+      summary: Expand a Spotify playlist, album or track.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SpotifyBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: A `catalog`, or an `error` from the provider.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaSearchResponse'
+        '422':
+          description: Not exactly one id.
   /search/youtube:
     post:
       operationId: post-search-youtube
+      summary: Expand a YouTube playlist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/YoutubeBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: A `catalog`, or an `error` from the provider.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MediaSearchResponse'
+        '422':
+          description: No playlist_id.
+components:
+  schemas:
+    CatalogItem:
+      description: Individual Item
+      properties:
+        search_string:
+          title: Search String
+          type: string
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+      required:
+      - search_string
+      title: CatalogItem
+      type: object
+    CatalogResponse:
+      description: Response from 3rd Party Catalog
+      properties:
+        items:
+          items:
+            $ref: '#/components/schemas/CatalogItem'
+          title: Items
+          type: array
+        collection_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Collection Name
+      title: CatalogResponse
+      type: object
+    MediaSearchErrorBody:
+      description: A provider failure, described without naming the provider SDK.
+      properties:
+        provider:
+          title: Provider
+          type: string
+        reason:
+          title: Reason
+          type: string
+        http_status:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Http Status
+      required:
+      - provider
+      - reason
+      title: MediaSearchErrorBody
+      type: object
+    MediaSearchResponse:
+      description: 'Result of one provider expansion: a catalog, or an error, never both.
+
+
+        Both are returned over HTTP 200, which is the deliberate part. A provider
+
+        saying "no such playlist" is not a failure of the pod -- the pod did its job
+
+        and is reporting the answer. Encoding it as a 4xx/5xx would mean the client''s
+
+        retry wrapper re-runs a lookup whose answer will not change, and would also
+
+        lose this body, since HttpClientMixin._http calls raise_for_status(). Non-2xx
+
+        stays reserved for the pod itself being broken, which IS worth a retry.'
+      properties:
+        catalog:
+          anyOf:
+          - $ref: '#/components/schemas/CatalogResponse'
+          - type: 'null'
+          default: null
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/MediaSearchErrorBody'
+          - type: 'null'
+          default: null
+      title: MediaSearchResponse
+      type: object
+    SpotifyBody:
+      description: 'POST /search/spotify: exactly one of the three ids.'
+      properties:
+        playlist_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Playlist Id
+        album_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Album Id
+        track_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Track Id
+      title: SpotifyBody
+      type: object
+    YoutubeBody:
+      description: POST /search/youtube
+      properties:
+        playlist_id:
+          title: Playlist Id
+          type: string
+      required:
+      - playlist_id
+      title: YoutubeBody
+      type: object

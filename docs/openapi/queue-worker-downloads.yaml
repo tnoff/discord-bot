@@ -4,31 +4,486 @@ openapi: 3.1.0
 info:
   title: discord queue_worker/downloads
   version: 0.0.0
-  description: 'The queue_worker/downloads seam, generated from the built aiohttp router by tests/routes/test_openapi_docs.py.
-    Do not edit by hand. Routes only: the seam contract guarantees which routes exist, not the shape of
-    their bodies -- see docs/projects/http-seam-contract.md.'
+  description: The queue_worker/downloads seam, generated from the built aiohttp router and the route
+    specs in tests/routes/specs by tests/routes/test_openapi_docs.py. Do not edit by hand. Every request
+    and response body here is exercised against the real handler by tests/routes/test_openapi_bodies.py.
 paths:
   /downloads:
     post:
       operationId: post-downloads
+      summary: Queue a request for download.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitAcceptedResponse'
+        '409':
+          description: The guild is blocked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitRejectedResponse'
+        '429':
+          description: The queue is full.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitRejectedResponse'
+        '422':
+          description: guild_id or media_request is missing or invalid.
   /downloads/block:
     post:
       operationId: post-downloads-block
+      summary: Refuse new requests for a guild.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BlockBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BlockResponse'
+        '422':
+          description: guild_id is missing.
   /downloads/clear:
     post:
       operationId: post-downloads-clear
+      summary: Drop a guild's pending requests, returning what was dropped.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClearBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ClearGuildResponse'
+        '422':
+          description: guild_id is missing.
   /downloads/status:
     get:
       operationId: get-downloads-status
+      summary: A snapshot of the pod's queues, failures and backoff, for the gateway's poller.
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusSnapshotResponse'
+components:
+  schemas:
+    BlockBody:
+      description: POST {prefix}/block
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+      required:
+      - guild_id
+      title: BlockBody
+      type: object
+    BlockResponse:
+      description: "200 \u2014 the guild is now blocked."
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: BlockResponse
+      type: object
+    ClearBody:
+      description: POST {prefix}/clear. `preserve_playlist_adds` keeps the requests that only add to a
+        playlist.
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        preserve_playlist_adds:
+          default: false
+          title: Preserve Playlist Adds
+          type: boolean
+      required:
+      - guild_id
+      title: ClearBody
+      type: object
+    ClearGuildResponse:
+      description: "200 \u2014 what `clear_guild_queue` dropped and what it kept.\n\nThis is the body\
+        \ `ClearGuildResult` is assembled FROM, and the two are not\nthe same shape: `preserved_bundle_uuids`\
+        \ is a sorted LIST here and becomes a\n`set` in the DTO. That is why typing the DTO would have\
+        \ typed nothing on the\nwire -- the wire is this."
+      properties:
+        dropped:
+          items:
+            additionalProperties: true
+            type: object
+          title: Dropped
+          type: array
+        preserved_bundle_uuids:
+          items:
+            type: string
+          title: Preserved Bundle Uuids
+          type: array
+      required:
+      - dropped
+      - preserved_bundle_uuids
+      title: ClearGuildResponse
+      type: object
+    MediaRequest:
+      description: 'Original source of play request
+
+
+        guild_id : Guild where video was requested
+
+        channel_id : Channel where video was requested
+
+        requester_name: Display name of original requester
+
+        requester_id : User id of original requester
+
+        search_result : Search result
+
+        added_from_history : Whether or not this was added from history
+
+        history_playlist_item_id : Delete playlist item from history playlist, pass in database id'
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        channel_id:
+          title: Channel Id
+          type: integer
+        requester_name:
+          title: Requester Name
+          type: string
+        requester_id:
+          title: Requester Id
+          type: integer
+        search_result:
+          $ref: '#/components/schemas/SearchResult'
+        added_from_history:
+          default: false
+          title: Added From History
+          type: boolean
+        history_playlist_item_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: History Playlist Item Id
+        download_file:
+          const: true
+          default: true
+          title: Download File
+          type: boolean
+        uuid:
+          title: Uuid
+          type: string
+        bundle_uuid:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Bundle Uuid
+        queue_order:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Queue Order
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+        lifecycle_stage:
+          $ref: '#/components/schemas/MediaRequestLifecycleStage'
+          default: searching
+        download_retry_information:
+          $ref: '#/components/schemas/RetryInformation'
+        youtube_music_retry_information:
+          $ref: '#/components/schemas/RetryInformation'
+        failure_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Failure Reason
+        rejected:
+          default: false
+          title: Rejected
+          type: boolean
+      required:
+      - guild_id
+      - channel_id
+      - requester_name
+      - requester_id
+      - search_result
+      title: MediaRequest
+      type: object
+    MediaRequestLifecycleStage:
+      description: Lifecycle of a media request through the system
+      enum:
+      - searching
+      - queued
+      - in_progress
+      - failed
+      - completed
+      - discarded
+      - backoff
+      - retry_download
+      - retry_search
+      title: MediaRequestLifecycleStage
+      type: string
+    PlaylistAddRequest:
+      description: MediaRequest variant for adding a track to a playlist without playing it.
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        channel_id:
+          title: Channel Id
+          type: integer
+        requester_name:
+          title: Requester Name
+          type: string
+        requester_id:
+          title: Requester Id
+          type: integer
+        search_result:
+          $ref: '#/components/schemas/SearchResult'
+        added_from_history:
+          default: false
+          title: Added From History
+          type: boolean
+        history_playlist_item_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: History Playlist Item Id
+        download_file:
+          const: false
+          default: false
+          title: Download File
+          type: boolean
+        uuid:
+          title: Uuid
+          type: string
+        bundle_uuid:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Bundle Uuid
+        queue_order:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Queue Order
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+        lifecycle_stage:
+          $ref: '#/components/schemas/MediaRequestLifecycleStage'
+          default: searching
+        download_retry_information:
+          $ref: '#/components/schemas/RetryInformation'
+        youtube_music_retry_information:
+          $ref: '#/components/schemas/RetryInformation'
+        failure_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Failure Reason
+        rejected:
+          default: false
+          title: Rejected
+          type: boolean
+        playlist_id:
+          title: Playlist Id
+          type: integer
+      required:
+      - guild_id
+      - channel_id
+      - requester_name
+      - requester_id
+      - search_result
+      - playlist_id
+      title: PlaylistAddRequest
+      type: object
+    RetryInformation:
+      description: Retry information for media requests
+      properties:
+        retry_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Retry Reason
+        retry_count:
+          default: 0
+          title: Retry Count
+          type: integer
+        retry_max:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Retry Max
+        retry_backoff_seconds:
+          default: 0
+          title: Retry Backoff Seconds
+          type: integer
+        retry_reason_sent:
+          default: false
+          title: Retry Reason Sent
+          type: boolean
+      title: RetryInformation
+      type: object
+    SearchResult:
+      description: SearchClient search results
+      properties:
+        search_type:
+          $ref: '#/components/schemas/SearchType'
+        raw_search_string:
+          title: Raw Search String
+          type: string
+        proper_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Proper Name
+        youtube_music_search_string:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Youtube Music Search String
+      required:
+      - search_type
+      - raw_search_string
+      title: SearchResult
+      type: object
+    SearchType:
+      description: Search Types Supported
+      enum:
+      - youtube
+      - direct
+      - search
+      title: SearchType
+      type: string
+    StatusSnapshotResponse:
+      description: "200 \u2014 the poller's view of a worker pod.\n\nMirrors `build_status_snapshot`,\
+        \ which is the single place this dict is\nassembled for both the downloader and search workers.\n\
+        \n`backoff_seconds_remaining` is `int | None` and the None is meaningful: the\nbuilder writes\
+        \ `backoff_seconds or None`, so a zero backoff is reported as\nabsent rather than as 0. Typing\
+        \ it plain `int` would change what the poller\nsees the first time a backoff expires."
+      properties:
+        failure_summary:
+          title: Failure Summary
+          type: string
+        failure_count:
+          title: Failure Count
+          type: integer
+        backoff_seconds_remaining:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Backoff Seconds Remaining
+        queue_sizes:
+          additionalProperties:
+            type: integer
+          title: Queue Sizes
+          type: object
+      required:
+      - failure_summary
+      - failure_count
+      - queue_sizes
+      title: StatusSnapshotResponse
+      type: object
+    SubmitAcceptedResponse:
+      description: "202 \u2014 the request is queued."
+      properties:
+        status:
+          const: ok
+          default: ok
+          title: Status
+          type: string
+      title: SubmitAcceptedResponse
+      type: object
+    SubmitBody:
+      description: POST {prefix}
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        media_request:
+          discriminator:
+            mapping:
+              'false': '#/components/schemas/PlaylistAddRequest'
+              'true': '#/components/schemas/MediaRequest'
+            propertyName: download_file
+          oneOf:
+          - $ref: '#/components/schemas/MediaRequest'
+          - $ref: '#/components/schemas/PlaylistAddRequest'
+          title: Media Request
+        priority:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Priority
+      required:
+      - guild_id
+      - media_request
+      title: SubmitBody
+      type: object
+    SubmitRejectedResponse:
+      description: "Non-2xx \u2014 the queue refused the request.\n\n`reason` is the exception CLASS NAME,\
+        \ not a message: the cog branches on it,\nand `detail` carries the human-readable half."
+      properties:
+        status:
+          const: rejected
+          default: rejected
+          title: Status
+          type: string
+        reason:
+          title: Reason
+          type: string
+        detail:
+          title: Detail
+          type: string
+      required:
+      - reason
+      - detail
+      title: SubmitRejectedResponse
+      type: object
