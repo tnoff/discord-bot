@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.22.4] - 2026-11-05
+
+### Changed
+
+- A fragmented download that lost a fragment ("fragment N not found, unable to continue") is now a recognised transient failure, so it no longer shows up as an unclassified error. The `VideoCacheStore.ready_remove` protocol now declares the `evict_all` parameter the db pod already accepts.
+
 ## [3.22.3] - 2026-11-05
 
 ### Changed
