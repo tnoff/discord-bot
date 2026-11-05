@@ -1,0 +1,1 @@
+A played song whose catalog entry fails, or whose video the catalog already holds under another key, no longer leaves an object in the cache bucket that nothing would evict. Shutdown now waits (up to 20 seconds) for queue-bucket clean-ups still running, so a song finishing as the pod rolls is promoted instead of being left to the queue bucket expiry.

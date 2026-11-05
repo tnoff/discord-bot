@@ -134,15 +134,17 @@ def test_normalize_leaves_an_already_clean_message_alone():
 
 
 def test_known_transient_markers_match_production_shapes():
-    '''Both markers are grounded in messages observed in production, matched after
+    '''Each marker is grounded in messages observed in production, matched after
     normalization (the socks one carries a bare carriage return).'''
     eof = normalize_ytdlp_error(
         '[requests] Unexpected error: EOFError: 4 bytes missing; please report this issue')
     socks = normalize_ytdlp_error(
         "\r[download] Got error: (<SocksHTTPSConnection(host='rr4---sn-ab5l6nrr.googlevideo.com', "
         "port=443) at 0x1>, 'Connection to rr4---sn-ab5l6nrr.googlevideo.com timed out.')")
+    fragment = normalize_ytdlp_error('ERROR: fragment 12 not found, unable to continue')
     assert is_known_transient(eof) is True
     assert is_known_transient(socks) is True
+    assert is_known_transient(fragment) is True
 
 
 def test_unrecognised_message_is_not_known_transient():

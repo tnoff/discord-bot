@@ -599,6 +599,7 @@ def _make_split(video_cache=None) -> tuple[RedisBroker, GuildQueueBroker]:
 def _catalog() -> MagicMock:
     video_cache = MagicMock()
     video_cache.iterate_file = AsyncMock()
+    video_cache.get_webpage_url_item = AsyncMock(return_value=None)
     return video_cache
 
 
@@ -753,11 +754,31 @@ async def test_retire_failure_in_the_catalog_is_logged_by_the_task(caplog):
 
     with caplog.at_level(logging.WARNING), \
             patch(f'{S3}.get_file', side_effect=lambda bucket, key, path: Path(path).write_bytes(b'pcm')), \
-            patch(f'{S3}.upload_file'), patch(f'{S3}.delete_file'):
+            patch(f'{S3}.upload_file'), patch(f'{S3}.delete_file') as delete_file:
         await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
         await queues.wait_for_retired()
 
     assert 'Retiring a queue-bucket object failed' in caplog.text
+    # The cache object just uploaded has no catalog row, so it is removed; the queue object stays
+    # for the bucket's expiry.
+    delete_file.assert_called_once_with(CACHE_BUCKET, 'cache/song.pcm')
+
+
+@pytest.mark.asyncio
+async def test_promote_drops_its_copy_when_the_catalog_already_holds_another_for_the_video():
+    """A second copy of a video (another digest in the key) is not cataloged, so its object is removed."""
+    video_cache = _catalog()
+    video_cache.get_webpage_url_item = AsyncMock(return_value=MagicMock(file_path=Path('cache/other.pcm')))
+    broker, queues = _make_split(video_cache)
+    uuid = await _playing(broker, queues, 'song', file_path='queue/song.pcm')
+
+    with patch(f'{S3}.get_file', side_effect=lambda bucket, key, path: Path(path).write_bytes(b'pcm')), \
+            patch(f'{S3}.upload_file'), patch(f'{S3}.delete_file') as delete_file:
+        await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
+        await queues.wait_for_retired()
+
+    assert [call.args for call in delete_file.call_args_list] == [(CACHE_BUCKET, 'cache/song.pcm'),
+                                                                  (BUCKET, 'queue/song.pcm')]
 
 
 @pytest.mark.asyncio

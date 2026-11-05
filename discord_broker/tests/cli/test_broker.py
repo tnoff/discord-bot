@@ -1,4 +1,6 @@
 '''Tests for the standalone broker CLI entrypoint.'''
+import asyncio
+
 import click
 import pytest
 from click.testing import CliRunner
@@ -197,6 +199,44 @@ async def test_main_loop_closes_the_catalog_client(mocker):
                                video_cache=video_cache)
 
     video_cache.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_main_loop_waits_for_queue_bucket_cleanups_before_closing_redis(mocker):
+    '''A promotion in flight at shutdown finishes while Redis and the catalog client are still open.'''
+    order = []
+    broker_server = mocker.AsyncMock()
+    redis_manager = mocker.AsyncMock()
+    redis_manager.close.side_effect = lambda: order.append('redis closed')
+    broker_metrics = mocker.MagicMock()
+    broker_metrics.run = mocker.AsyncMock()
+    guild_queue = mocker.AsyncMock()
+    guild_queue.wait_for_retired.side_effect = lambda: order.append('cleanups done')
+    mocker.patch.object(broker_cli.asyncio, 'Event', return_value=mocker.AsyncMock(wait=mocker.AsyncMock()))
+    mocker.patch.object(broker_cli.signal, 'signal')
+
+    await broker_cli.main_loop(broker_server, None, redis_manager, broker_metrics, guild_queue=guild_queue)
+
+    assert order == ['cleanups done', 'redis closed']
+
+
+@pytest.mark.asyncio
+async def test_main_loop_gives_up_on_cleanups_that_outlast_the_drain_window(mocker, caplog):
+    '''Shutdown is not held past the grace period by a clean-up that hangs.'''
+    broker_server = mocker.AsyncMock()
+    redis_manager = mocker.AsyncMock()
+    broker_metrics = mocker.MagicMock()
+    broker_metrics.run = mocker.AsyncMock()
+    guild_queue = mocker.AsyncMock()
+    guild_queue.wait_for_retired.side_effect = asyncio.TimeoutError
+    mocker.patch.object(broker_cli.asyncio, 'Event', return_value=mocker.AsyncMock(wait=mocker.AsyncMock()))
+    mocker.patch.object(broker_cli.signal, 'signal')
+
+    with caplog.at_level('WARNING'):
+        await broker_cli.main_loop(broker_server, None, redis_manager, broker_metrics, guild_queue=guild_queue)
+
+    assert 'still running' in caplog.text
+    redis_manager.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
