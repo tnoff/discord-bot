@@ -4,205 +4,1977 @@ openapi: 3.1.0
 info:
   title: discord database
   version: 0.0.0
-  description: 'The database seam, generated from the built aiohttp router by tests/routes/test_openapi_docs.py.
-    Do not edit by hand. Routes only: the seam contract guarantees which routes exist, not the shape of
-    their bodies -- see docs/projects/http-seam-contract.md.'
+  description: The database seam, generated from the built aiohttp router and the route specs in tests/routes/specs
+    by tests/routes/test_openapi_docs.py. Do not edit by hand. Every request and response body here is
+    exercised against the real handler by tests/routes/test_openapi_bodies.py.
 paths:
   /database/guild_analytics/get_analytics:
     post:
       operationId: post-database-guild_analytics-get_analytics
+      summary: A guild's play totals.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuildBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuildAnalyticsGetAnalyticsResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/guild_analytics/record_play:
     post:
       operationId: post-database-guild_analytics-record_play
+      summary: Add one play to the totals.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordPlayBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GuildAnalyticsRecordPlayResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/markov/add_channel:
     post:
       operationId: post-database-markov-add_channel
+      summary: Start tracking a channel.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuildChannelBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkovAddChannelResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/markov/generate_words:
     post:
       operationId: post-database-markov-generate_words
+      summary: Walk the chain for up to `count` words.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateWordsBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkovGenerateWordsResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/markov/get_channel:
     post:
       operationId: post-database-markov-get_channel
+      summary: One tracked channel, or null.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuildChannelBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkovGetChannelResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/markov/list_channels:
     post:
       operationId: post-database-markov-list_channels
+      summary: Every tracked channel.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Nothing'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkovListChannelsResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/markov/list_guild_channel_ids:
     post:
       operationId: post-database-markov-list_guild_channel_ids
+      summary: A guild's tracked channel ids.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuildBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkovListGuildChannelIdsResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/markov/prune_relations_before:
     post:
       operationId: post-database-markov-prune_relations_before
+      summary: Drop relations older than the cutoff.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PruneBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkovPruneRelationsBeforeResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/markov/remove_channel:
     post:
       operationId: post-database-markov-remove_channel
+      summary: Stop tracking a channel.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuildChannelBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkovRemoveChannelResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/markov/reset_channel:
     post:
       operationId: post-database-markov-reset_channel
+      summary: Forget a channel's read position.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuildChannelBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkovResetChannelResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/markov/save_messages:
     post:
       operationId: post-database-markov-save_messages
+      summary: Write a batch of messages. The result is how many were written, or null if the channel
+        is not tracked.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveMessagesBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MarkovSaveMessagesResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/add_items:
     post:
       operationId: post-database-playlist-add_items
+      summary: Add items, stopping when the playlist is full. One outcome per item attempted.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddItemsBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistAddItemsResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/count_playlists:
     post:
       operationId: post-database-playlist-count_playlists
+      summary: How many playlists a guild has.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuildBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistCountPlaylistsResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/create_playlist:
     post:
       operationId: post-database-playlist-create_playlist
+      summary: Make a playlist and return it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuildNameBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistCreatePlaylistResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/delete_item:
     post:
       operationId: post-database-playlist-delete_item
+      summary: Drop one item by id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ItemBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistDeleteItemResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/delete_item_by_index:
     post:
       operationId: post-database-playlist-delete_item_by_index
+      summary: Drop the item at a zero-based position and return it, or null if out of range.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IndexBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistDeleteItemByIndexResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/delete_playlist:
     post:
       operationId: post-database-playlist-delete_playlist
+      summary: Drop a playlist and its items.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaylistBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistDeletePlaylistResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/ensure_history_playlist:
     post:
       operationId: post-database-playlist-ensure_history_playlist
+      summary: The id of a guild's history playlist, creating it if absent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuildBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistEnsureHistoryPlaylistResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/get_history_playlist:
     post:
       operationId: post-database-playlist-get_history_playlist
+      summary: A guild's history playlist, or null.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuildBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistGetHistoryPlaylistResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/get_playlist:
     post:
       operationId: post-database-playlist-get_playlist
+      summary: One playlist by id, or null.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaylistBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistGetPlaylistResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/get_playlist_by_name:
     post:
       operationId: post-database-playlist-get_playlist_by_name
+      summary: One playlist by name, or null.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuildNameBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistGetPlaylistByNameResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/get_playlist_size:
     post:
       operationId: post-database-playlist-get_playlist_size
+      summary: How many items a playlist holds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaylistBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistGetPlaylistSizeResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/list_items:
     post:
       operationId: post-database-playlist-list_items
+      summary: A playlist's items, oldest first.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaylistBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistListItemsResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/list_playlists:
     post:
       operationId: post-database-playlist-list_playlists
+      summary: A guild's playlists, newest first.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GuildBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistListPlaylistsResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/mark_queued:
     post:
       operationId: post-database-playlist-mark_queued
+      summary: Stamp when a playlist was last queued.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlaylistBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistMarkQueuedResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/record_history_item:
     post:
       operationId: post-database-playlist-record_history_item
+      summary: Write one played track to the history playlist, evicting the oldest to make room.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordHistoryBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistRecordHistoryItemResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/playlist/rename_playlist:
     post:
       operationId: post-database-playlist-rename_playlist
+      summary: Rename a playlist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenameBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlaylistRenamePlaylistResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/video_cache/get_cache_count:
     post:
       operationId: post-database-video_cache-get_cache_count
+      summary: How many rows the catalog holds.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Nothing'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoCacheGetCacheCountResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/video_cache/get_deletable_entries:
     post:
       operationId: post-database-video_cache-get_deletable_entries
+      summary: The rows flagged for deletion.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Nothing'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoCacheGetDeletableEntriesResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/video_cache/get_webpage_url_item:
     post:
       operationId: post-database-video_cache-get_webpage_url_item
+      summary: Look up a cache hit for a request. A miss is a null result.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MediaRequestBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoCacheGetWebpageUrlItemResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/video_cache/iterate_file:
     post:
       operationId: post-database-video_cache-iterate_file
+      summary: Catalog a finished download.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IterateFileBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoCacheIterateFileResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/video_cache/ready_remove:
     post:
       operationId: post-database-video_cache-ready_remove
+      summary: Apply the eviction policy, or flag every row when `evict_all` is set.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReadyRemoveBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoCacheReadyRemoveResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
   /database/video_cache/remove_video_cache:
     post:
       operationId: post-database-video_cache-remove_video_cache
+      summary: Drop cache rows by id.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RemoveCacheBody'
       responses:
-        default:
-          description: See the handler; the seam contract covers the route, not the body.
+        '200':
+          description: The `result`, or an `error` when the store failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoCacheRemoveVideoCacheResponse'
+        '422':
+          description: A required field is missing or has the wrong shape.
+components:
+  schemas:
+    AddItemsBody:
+      description: playlist/add_items
+      properties:
+        playlist_id:
+          title: Playlist Id
+          type: integer
+        items:
+          items:
+            $ref: '#/components/schemas/PlaylistItemWrite'
+          title: Items
+          type: array
+        max_size:
+          title: Max Size
+          type: integer
+      required:
+      - playlist_id
+      - items
+      - max_size
+      title: AddItemsBody
+      type: object
+    CachedDownload:
+      description: 'The download record carried with a cache hit.
+
+
+        `request` stays a `dict` rather than a nested `MediaRequest`: the handler
+
+        builds it with `model_dump(mode=''json'')`, and re-parsing it into the model
+
+        only to dump it again risks the datetime class of bug that bit the dispatch
+
+        seam, where a plain `model_dump()` returns objects `json_response` cannot
+
+        serialise.'
+      properties:
+        request:
+          additionalProperties: true
+          title: Request
+          type: object
+        file_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: File Path
+        file_size_bytes:
+          default: null
+          title: File Size Bytes
+        cache_hit:
+          default: null
+          title: Cache Hit
+        ytdl_data:
+          $ref: '#/components/schemas/CachedYtdlData'
+      required:
+      - request
+      - ytdl_data
+      title: CachedDownload
+      type: object
+    CachedYtdlData:
+      description: The yt-dlp metadata carried with a cache hit.
+      properties:
+        id:
+          default: null
+          title: Id
+        title:
+          default: null
+          title: Title
+        webpage_url:
+          default: null
+          title: Webpage Url
+        uploader:
+          default: null
+          title: Uploader
+        duration:
+          default: null
+          title: Duration
+        extractor:
+          default: null
+          title: Extractor
+      title: CachedYtdlData
+      type: object
+    DatabaseErrorBody:
+      description: A persistence-tier failure, flattened for the wire.
+      properties:
+        detail:
+          title: Detail
+          type: string
+      required:
+      - detail
+      title: DatabaseErrorBody
+      type: object
+    GenerateWordsBody:
+      description: 'markov/generate_words. `first_word` is optional: `!markov speak` with no seed sends
+        null.'
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        count:
+          title: Count
+          type: integer
+        first_word:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: First Word
+      required:
+      - guild_id
+      - count
+      title: GenerateWordsBody
+      type: object
+    GuildAnalyticsEntry:
+      description: One guild's play totals, detached from any DB session.
+      properties:
+        total_plays:
+          title: Total Plays
+          type: integer
+        cached_plays:
+          title: Cached Plays
+          type: integer
+        total_duration_days:
+          title: Total Duration Days
+          type: integer
+        total_duration_seconds:
+          title: Total Duration Seconds
+          type: integer
+        created_at:
+          format: date-time
+          title: Created At
+          type: string
+      required:
+      - total_plays
+      - cached_plays
+      - total_duration_days
+      - total_duration_seconds
+      - created_at
+      title: GuildAnalyticsEntry
+      type: object
+    GuildAnalyticsGetAnalyticsResponse:
+      properties:
+        result:
+          anyOf:
+          - $ref: '#/components/schemas/GuildAnalyticsEntry'
+          - type: 'null'
+          default: null
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: GuildAnalyticsGetAnalyticsResponse
+      type: object
+    GuildAnalyticsRecordPlayResponse:
+      properties:
+        result:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: GuildAnalyticsRecordPlayResponse
+      type: object
+    GuildBody:
+      description: A body naming a guild.
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+      required:
+      - guild_id
+      title: GuildBody
+      type: object
+    GuildChannelBody:
+      description: A body naming a channel of a guild.
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        channel_id:
+          title: Channel Id
+          type: integer
+      required:
+      - guild_id
+      - channel_id
+      title: GuildChannelBody
+      type: object
+    GuildNameBody:
+      description: A body naming a playlist by guild and name.
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        name:
+          title: Name
+          type: string
+      required:
+      - guild_id
+      - name
+      title: GuildNameBody
+      type: object
+    IndexBody:
+      description: playlist/delete_item_by_index. Zero is the first item, not a missing argument.
+      properties:
+        playlist_id:
+          title: Playlist Id
+          type: integer
+        index:
+          title: Index
+          type: integer
+      required:
+      - playlist_id
+      - index
+      title: IndexBody
+      type: object
+    ItemBody:
+      description: playlist/delete_item
+      properties:
+        item_id:
+          title: Item Id
+          type: integer
+      required:
+      - item_id
+      title: ItemBody
+      type: object
+    IterateFileBody:
+      description: video_cache/iterate_file
+      properties:
+        media_download:
+          $ref: '#/components/schemas/MediaDownloadBody'
+      required:
+      - media_download
+      title: IterateFileBody
+      type: object
+    MarkovAddChannelResponse:
+      properties:
+        result:
+          anyOf:
+          - $ref: '#/components/schemas/MarkovChannelEntry'
+          - type: 'null'
+          default: null
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: MarkovAddChannelResponse
+      type: object
+    MarkovChannelEntry:
+      description: One tracked channel's `markov_channel` row, detached from any DB session.
+      properties:
+        id:
+          title: Id
+          type: integer
+        channel_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Channel Id
+        server_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Server Id
+        last_message_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Last Message Id
+      required:
+      - id
+      title: MarkovChannelEntry
+      type: object
+    MarkovGenerateWordsResponse:
+      properties:
+        result:
+          anyOf:
+          - items:
+              type: string
+            type: array
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: MarkovGenerateWordsResponse
+      type: object
+    MarkovGetChannelResponse:
+      properties:
+        result:
+          anyOf:
+          - $ref: '#/components/schemas/MarkovChannelEntry'
+          - type: 'null'
+          default: null
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: MarkovGetChannelResponse
+      type: object
+    MarkovListChannelsResponse:
+      properties:
+        result:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/MarkovChannelEntry'
+            type: array
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: MarkovListChannelsResponse
+      type: object
+    MarkovListGuildChannelIdsResponse:
+      properties:
+        result:
+          anyOf:
+          - items:
+              type: integer
+            type: array
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: MarkovListGuildChannelIdsResponse
+      type: object
+    MarkovMessageWrite:
+      description: 'One message''s contribution to the chain: its word pairs and its id.
+
+
+        `word_pairs` is empty for a message that contributed nothing -- a bot post, a
+
+        command, an image with no text. Those still advance `last_message_id`, which
+
+        is why an empty list is a normal value here and not a reason to skip the
+
+        write. Dropping them would re-fetch the same messages every cycle forever.'
+      properties:
+        word_pairs:
+          items:
+            maxItems: 2
+            minItems: 2
+            prefixItems:
+            - type: string
+            - type: string
+            type: array
+          title: Word Pairs
+          type: array
+        message_timestamp:
+          format: date-time
+          title: Message Timestamp
+          type: string
+        last_message_id:
+          title: Last Message Id
+          type: integer
+      required:
+      - message_timestamp
+      - last_message_id
+      title: MarkovMessageWrite
+      type: object
+    MarkovPruneRelationsBeforeResponse:
+      properties:
+        result:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: MarkovPruneRelationsBeforeResponse
+      type: object
+    MarkovRemoveChannelResponse:
+      properties:
+        result:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: MarkovRemoveChannelResponse
+      type: object
+    MarkovResetChannelResponse:
+      properties:
+        result:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: MarkovResetChannelResponse
+      type: object
+    MarkovSaveMessagesResponse:
+      properties:
+        result:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: MarkovSaveMessagesResponse
+      type: object
+    MediaDownloadBody:
+      description: A finished download, as the video-cache routes carry it.
+      properties:
+        request:
+          $ref: '#/components/schemas/MediaRequest'
+        file_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: File Path
+        file_size_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: File Size Bytes
+        cache_hit:
+          default: false
+          title: Cache Hit
+          type: boolean
+        ytdl_data:
+          additionalProperties: true
+          default: {}
+          title: Ytdl Data
+          type: object
+      required:
+      - request
+      title: MediaDownloadBody
+      type: object
+    MediaRequest:
+      description: 'Original source of play request
+
+
+        guild_id : Guild where video was requested
+
+        channel_id : Channel where video was requested
+
+        requester_name: Display name of original requester
+
+        requester_id : User id of original requester
+
+        search_result : Search result
+
+        added_from_history : Whether or not this was added from history
+
+        history_playlist_item_id : Delete playlist item from history playlist, pass in database id'
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        channel_id:
+          title: Channel Id
+          type: integer
+        requester_name:
+          title: Requester Name
+          type: string
+        requester_id:
+          title: Requester Id
+          type: integer
+        search_result:
+          $ref: '#/components/schemas/SearchResult'
+        added_from_history:
+          default: false
+          title: Added From History
+          type: boolean
+        history_playlist_item_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: History Playlist Item Id
+        download_file:
+          const: true
+          default: true
+          title: Download File
+          type: boolean
+        uuid:
+          title: Uuid
+          type: string
+        bundle_uuid:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Bundle Uuid
+        queue_order:
+          anyOf:
+          - type: number
+          - type: 'null'
+          default: null
+          title: Queue Order
+        span_context:
+          anyOf:
+          - additionalProperties: true
+            type: object
+          - type: 'null'
+          default: null
+          title: Span Context
+        lifecycle_stage:
+          $ref: '#/components/schemas/MediaRequestLifecycleStage'
+          default: searching
+        download_retry_information:
+          $ref: '#/components/schemas/RetryInformation'
+        youtube_music_retry_information:
+          $ref: '#/components/schemas/RetryInformation'
+        failure_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Failure Reason
+        rejected:
+          default: false
+          title: Rejected
+          type: boolean
+      required:
+      - guild_id
+      - channel_id
+      - requester_name
+      - requester_id
+      - search_result
+      title: MediaRequest
+      type: object
+    MediaRequestBody:
+      description: video_cache/get_webpage_url_item
+      properties:
+        media_request:
+          $ref: '#/components/schemas/MediaRequest'
+      required:
+      - media_request
+      title: MediaRequestBody
+      type: object
+    MediaRequestLifecycleStage:
+      description: Lifecycle of a media request through the system
+      enum:
+      - searching
+      - queued
+      - in_progress
+      - failed
+      - completed
+      - discarded
+      - backoff
+      - retry_download
+      - retry_search
+      title: MediaRequestLifecycleStage
+      type: string
+    Nothing:
+      description: A route that reads no field; the body is an empty object.
+      properties: {}
+      title: Nothing
+      type: object
+    PlaylistAddItemsResponse:
+      properties:
+        result:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/PlaylistItemAddOutcome'
+            type: array
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistAddItemsResponse
+      type: object
+    PlaylistBody:
+      description: A body naming a playlist.
+      properties:
+        playlist_id:
+          title: Playlist Id
+          type: integer
+      required:
+      - playlist_id
+      title: PlaylistBody
+      type: object
+    PlaylistCountPlaylistsResponse:
+      properties:
+        result:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistCountPlaylistsResponse
+      type: object
+    PlaylistCreatePlaylistResponse:
+      properties:
+        result:
+          anyOf:
+          - $ref: '#/components/schemas/PlaylistEntry'
+          - type: 'null'
+          default: null
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistCreatePlaylistResponse
+      type: object
+    PlaylistDeleteItemByIndexResponse:
+      properties:
+        result:
+          anyOf:
+          - $ref: '#/components/schemas/PlaylistItemEntry'
+          - type: 'null'
+          default: null
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistDeleteItemByIndexResponse
+      type: object
+    PlaylistDeleteItemResponse:
+      properties:
+        result:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistDeleteItemResponse
+      type: object
+    PlaylistDeletePlaylistResponse:
+      properties:
+        result:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistDeletePlaylistResponse
+      type: object
+    PlaylistEnsureHistoryPlaylistResponse:
+      properties:
+        result:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistEnsureHistoryPlaylistResponse
+      type: object
+    PlaylistEntry:
+      description: One playlist row, detached from any DB session.
+      properties:
+        id:
+          title: Id
+          type: integer
+        name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Name
+        server_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Server Id
+        last_queued:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          default: null
+          title: Last Queued
+        created_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          default: null
+          title: Created At
+        is_history:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Is History
+      required:
+      - id
+      title: PlaylistEntry
+      type: object
+    PlaylistGetHistoryPlaylistResponse:
+      properties:
+        result:
+          anyOf:
+          - $ref: '#/components/schemas/PlaylistEntry'
+          - type: 'null'
+          default: null
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistGetHistoryPlaylistResponse
+      type: object
+    PlaylistGetPlaylistByNameResponse:
+      properties:
+        result:
+          anyOf:
+          - $ref: '#/components/schemas/PlaylistEntry'
+          - type: 'null'
+          default: null
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistGetPlaylistByNameResponse
+      type: object
+    PlaylistGetPlaylistResponse:
+      properties:
+        result:
+          anyOf:
+          - $ref: '#/components/schemas/PlaylistEntry'
+          - type: 'null'
+          default: null
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistGetPlaylistResponse
+      type: object
+    PlaylistGetPlaylistSizeResponse:
+      properties:
+        result:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistGetPlaylistSizeResponse
+      type: object
+    PlaylistItemAddOutcome:
+      description: 'What happened to one item in an add batch.
+
+
+        `PLAYLIST_FULL` is terminal for the batch and is reported against the item
+
+        that hit the ceiling. Items after it were not attempted and get no outcome,
+
+        which matches what the loops did before: they stopped at the first
+
+        PlaylistMaxLength and said nothing about the rest.'
+      properties:
+        video_url:
+          title: Video Url
+          type: string
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        status:
+          $ref: '#/components/schemas/PlaylistItemAddStatus'
+        item_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Item Id
+      required:
+      - video_url
+      - status
+      title: PlaylistItemAddOutcome
+      type: object
+    PlaylistItemAddStatus:
+      description: Why one item did or did not land in a playlist.
+      enum:
+      - added
+      - duplicate
+      - playlist_full
+      title: PlaylistItemAddStatus
+      type: string
+    PlaylistItemEntry:
+      description: One playlist item row, detached from any DB session.
+      properties:
+        id:
+          title: Id
+          type: integer
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        video_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Video Url
+        uploader:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Uploader
+        playlist_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Playlist Id
+        created_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          default: null
+          title: Created At
+      required:
+      - id
+      title: PlaylistItemEntry
+      type: object
+    PlaylistItemWrite:
+      description: 'One item on its way into a playlist.
+
+
+        Deliberately not a PlaylistItemEntry: an item being written has no id and
+
+        no created_at yet, and a type with optional-everything would let a caller
+
+        pass a half-built row where a complete one is meant.'
+      properties:
+        video_url:
+          title: Video Url
+          type: string
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        uploader:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Uploader
+      required:
+      - video_url
+      title: PlaylistItemWrite
+      type: object
+    PlaylistListItemsResponse:
+      properties:
+        result:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/PlaylistItemEntry'
+            type: array
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistListItemsResponse
+      type: object
+    PlaylistListPlaylistsResponse:
+      properties:
+        result:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/PlaylistEntry'
+            type: array
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistListPlaylistsResponse
+      type: object
+    PlaylistMarkQueuedResponse:
+      properties:
+        result:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistMarkQueuedResponse
+      type: object
+    PlaylistRecordHistoryItemResponse:
+      properties:
+        result:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistRecordHistoryItemResponse
+      type: object
+    PlaylistRenamePlaylistResponse:
+      properties:
+        result:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: PlaylistRenamePlaylistResponse
+      type: object
+    PruneBody:
+      description: markov/prune_relations_before
+      properties:
+        cutoff:
+          format: date-time
+          title: Cutoff
+          type: string
+      required:
+      - cutoff
+      title: PruneBody
+      type: object
+    ReadyRemoveBody:
+      description: video_cache/ready_remove. `evict_all` flags every row rather than applying the policy.
+      properties:
+        evict_all:
+          default: false
+          title: Evict All
+          type: boolean
+      title: ReadyRemoveBody
+      type: object
+    RecordHistoryBody:
+      description: playlist/record_history_item
+      properties:
+        playlist_id:
+          title: Playlist Id
+          type: integer
+        item:
+          $ref: '#/components/schemas/PlaylistItemWrite'
+        max_size:
+          title: Max Size
+          type: integer
+      required:
+      - playlist_id
+      - item
+      - max_size
+      title: RecordHistoryBody
+      type: object
+    RecordPlayBody:
+      description: guild_analytics/record_play
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        duration_seconds:
+          title: Duration Seconds
+          type: integer
+        cache_hit:
+          title: Cache Hit
+          type: boolean
+      required:
+      - guild_id
+      - duration_seconds
+      - cache_hit
+      title: RecordPlayBody
+      type: object
+    RemoveCacheBody:
+      description: video_cache/remove_video_cache
+      properties:
+        video_cache_ids:
+          items:
+            type: integer
+          title: Video Cache Ids
+          type: array
+      required:
+      - video_cache_ids
+      title: RemoveCacheBody
+      type: object
+    RenameBody:
+      description: playlist/rename_playlist
+      properties:
+        playlist_id:
+          title: Playlist Id
+          type: integer
+        name:
+          title: Name
+          type: string
+      required:
+      - playlist_id
+      - name
+      title: RenameBody
+      type: object
+    RetryInformation:
+      description: Retry information for media requests
+      properties:
+        retry_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Retry Reason
+        retry_count:
+          default: 0
+          title: Retry Count
+          type: integer
+        retry_max:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Retry Max
+        retry_backoff_seconds:
+          default: 0
+          title: Retry Backoff Seconds
+          type: integer
+        retry_reason_sent:
+          default: false
+          title: Retry Reason Sent
+          type: boolean
+      title: RetryInformation
+      type: object
+    SaveMessagesBody:
+      description: markov/save_messages
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        channel_id:
+          title: Channel Id
+          type: integer
+        messages:
+          items:
+            $ref: '#/components/schemas/MarkovMessageWrite'
+          title: Messages
+          type: array
+      required:
+      - guild_id
+      - channel_id
+      - messages
+      title: SaveMessagesBody
+      type: object
+    SearchResult:
+      description: SearchClient search results
+      properties:
+        search_type:
+          $ref: '#/components/schemas/SearchType'
+        raw_search_string:
+          title: Raw Search String
+          type: string
+        proper_name:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Proper Name
+        youtube_music_search_string:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Youtube Music Search String
+      required:
+      - search_type
+      - raw_search_string
+      title: SearchResult
+      type: object
+    SearchType:
+      description: Search Types Supported
+      enum:
+      - youtube
+      - direct
+      - search
+      title: SearchType
+      type: string
+    VideoCacheEntry:
+      description: One cached download's catalog row, detached from any DB session.
+      properties:
+        id:
+          title: Id
+          type: integer
+        video_id:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Video Id
+        video_url:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Video Url
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Title
+        uploader:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Uploader
+        duration:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Duration
+        extractor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Extractor
+        last_iterated_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          default: null
+          title: Last Iterated At
+        created_at:
+          anyOf:
+          - format: date-time
+            type: string
+          - type: 'null'
+          default: null
+          title: Created At
+        count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Count
+        ready_for_deletion:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Ready For Deletion
+        file_size_bytes:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: File Size Bytes
+        base_path:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Base Path
+        storage_type:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: null
+          title: Storage Type
+      required:
+      - id
+      title: VideoCacheEntry
+      type: object
+    VideoCacheGetCacheCountResponse:
+      properties:
+        result:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: VideoCacheGetCacheCountResponse
+      type: object
+    VideoCacheGetDeletableEntriesResponse:
+      properties:
+        result:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/VideoCacheEntry'
+            type: array
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: VideoCacheGetDeletableEntriesResponse
+      type: object
+    VideoCacheGetWebpageUrlItemResponse:
+      properties:
+        result:
+          anyOf:
+          - $ref: '#/components/schemas/CachedDownload'
+          - type: 'null'
+          default: null
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: VideoCacheGetWebpageUrlItemResponse
+      type: object
+    VideoCacheIterateFileResponse:
+      properties:
+        result:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: VideoCacheIterateFileResponse
+      type: object
+    VideoCacheReadyRemoveResponse:
+      properties:
+        result:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: VideoCacheReadyRemoveResponse
+      type: object
+    VideoCacheRemoveVideoCacheResponse:
+      properties:
+        result:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          title: Result
+        error:
+          anyOf:
+          - $ref: '#/components/schemas/DatabaseErrorBody'
+          - type: 'null'
+          default: null
+      title: VideoCacheRemoveVideoCacheResponse
+      type: object

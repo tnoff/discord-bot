@@ -13,21 +13,25 @@ correct if a server ever stops registering something the registry declares, and
 that is exactly the drift both incidents were. Reading the weaker source because
 a test currently makes it equivalent would throw away the reason to prefer it.
 
-**No schemas, deliberately.** A Route is (method, template) and nothing else.
-The bodies are typed four different ways across the seams -- named models on the
-broker, `result: Any` on database, a dict discriminated by req_type on dispatch
--- so describing them here would mean inventing a mapping that exists nowhere
-else. That is the THIRD representation this project rejected when it rejected
-hand-written OpenAPI, and it would rot the moment a model changed. What these
-documents state is exactly what the seam contract actually guarantees: which
-routes exist, and what they are called.
+**Bodies come from the specs, and the specs are proved.** A Route is (method, template)
+and nothing else, and the bodies are typed differently across the seams, so the mapping from
+route to request and response models is written down once per surface in
+``tests/routes/specs/``. That is a hand-kept table, which is the rot the original generator
+avoided, so ``tests/routes/test_openapi_bodies.py`` makes it checkable: every reply a spec
+declares is produced by calling the real handler, and what comes back must match the declared
+model. A spec that drifts from its handler fails there, not in a reader's client.
 '''
+import http
 import re
 
 import yaml
+from pydantic.json_schema import models_json_schema
+
+from discord_core.routes.route import Route
 
 from tests.cli._image_deps import REPO_ROOT
 from tests.routes._seam_servers import SEAMS, served
+from tests.routes.specs import SURFACES
 
 OPENAPI_DIR = REPO_ROOT / 'docs' / 'openapi'
 
@@ -52,45 +56,93 @@ def document_name(surface: str) -> str:
     return surface.replace('/', '-').replace('_', '-')
 
 
-def _parameters(template: str) -> list:
-    '''Path parameters OpenAPI requires to be declared for a templated path.
+_JSON_TYPES = {str: 'string', int: 'integer', bool: 'boolean', float: 'number'}
 
-    Typed `string` because that is what a URL path segment is. The handlers coerce
-    some of them to int, but the wire carries text, and claiming otherwise would
-    be describing the handler rather than the route.
+_SCHEMAS = '#/components/schemas/{model}'
+
+
+def _parameters(template: str, operation) -> list:
+    '''Path and query parameters, as the spec declares their types.
+
+    A path parameter is a `string` unless the spec says otherwise: the wire carries text, and the
+    spec only narrows it to `integer` where the handler rejects anything else with a 422.
     '''
-    return [{'name': name, 'in': 'path', 'required': True,
-             'schema': {'type': 'string'}}
-            for name in _PLACEHOLDER.findall(template)]
+    declared = operation.path
+    parameters = [{'name': name, 'in': 'path', 'required': True,
+                   'schema': {'type': _JSON_TYPES[declared.get(name, str)]}}
+                  for name in _PLACEHOLDER.findall(template)]
+    for query in operation.query:
+        parameter = {'name': query.name, 'in': 'query', 'required': query.required,
+                     'schema': {'type': _JSON_TYPES[query.type]}}
+        if query.description:
+            parameter['description'] = query.description
+        parameters.append(parameter)
+    return parameters
 
 
-def build_document(surface: str, entries: set) -> dict:
-    '''One OpenAPI document for one served surface.'''
+def _models(operation) -> list:
+    '''The (model, mode) pairs one operation refers to: validation for what it takes,
+    serialization for what it answers.'''
+    pairs = [(operation.request, 'validation')] if operation.request else []
+    pairs += [(model, 'serialization') for reply in operation.replies for model in reply.models]
+    return pairs
+
+
+def _responses(operation, refs: dict) -> dict:
+    responses = {}
+    for reply in operation.replies:
+        entry = {'description': reply.description or http.HTTPStatus(reply.status).phrase}
+        if reply.models:
+            schemas = [dict(refs[(model, 'serialization')]) for model in reply.models]
+            entry['content'] = {'application/json': {
+                'schema': schemas[0] if len(schemas) == 1 else {'oneOf': schemas}}}
+        responses[str(reply.status)] = entry
+    return responses
+
+
+def build_document(surface: str, entries: set, operations: dict) -> dict:
+    '''One OpenAPI document for one served surface.
+
+    `operations` is the surface's spec table. A served route with no entry is an error, not a
+    placeholder: the coverage test names it, and this raises so a stale table cannot render.
+    '''
+    ordered = sorted(entries, key=lambda e: (e[1], e[0]))
+    missing = [entry for entry in ordered if Route(*entry) not in operations]
+    if missing:
+        raise KeyError(f'{surface}: no spec for {missing}')
+    pairs = [pair for entry in ordered for pair in _models(operations[Route(*entry)])]
+    refs, definitions = models_json_schema(pairs, ref_template=_SCHEMAS) if pairs else ({}, {})
     paths = {}
-    for method, template in sorted(entries, key=lambda e: (e[1], e[0])):
-        operation = {
+    for method, template in ordered:
+        operation = operations[Route(method, template)]
+        document = {
             'operationId': _operation_id(method, template),
-            'responses': {'default': {'description': 'See the handler; '
-                                                     'the seam contract covers the route, '
-                                                     'not the body.'}},
+            'summary': operation.summary,
         }
-        parameters = _parameters(template)
+        parameters = _parameters(template, operation)
         if parameters:
-            operation['parameters'] = parameters
-        paths.setdefault(template, {})[method.lower()] = operation
-    return {
+            document['parameters'] = parameters
+        if operation.request:
+            document['requestBody'] = {'required': True, 'content': {'application/json': {
+                'schema': dict(refs[(operation.request, 'validation')])}}}
+        document['responses'] = _responses(operation, refs)
+        paths.setdefault(template, {})[method.lower()] = document
+    result = {
         'openapi': OPENAPI_VERSION,
         'info': {
             'title': f'discord {surface}',
             'version': FROZEN_VERSION,
             'description': (
-                f'The {surface} seam, generated from the built aiohttp router by '
-                f'{GENERATED_BY}. Do not edit by hand. Routes only: the seam '
-                f'contract guarantees which routes exist, not the shape of their '
-                f'bodies -- see docs/projects/http-seam-contract.md.'),
+                f'The {surface} seam, generated from the built aiohttp router and the route '
+                f'specs in tests/routes/specs by {GENERATED_BY}. Do not edit by hand. Every '
+                f'request and response body here is exercised against the real handler by '
+                f'tests/routes/test_openapi_bodies.py.'),
         },
         'paths': paths,
     }
+    if definitions.get('$defs'):
+        result['components'] = {'schemas': definitions['$defs']}
+    return result
 
 
 def _operation_id(method: str, template: str) -> str:
@@ -101,7 +153,8 @@ def _operation_id(method: str, template: str) -> str:
 
 def measure_all() -> dict:
     '''Every served surface's document, keyed by document name.'''
-    return {document_name(surface): build_document(surface, served(factory().build_app()))
+    return {document_name(surface): build_document(surface, served(factory().build_app()),
+                                                   SURFACES[surface].operations)
             for surface, factory, _expected, _image in SEAMS}
 
 

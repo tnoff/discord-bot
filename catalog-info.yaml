@@ -218,11 +218,11 @@ spec:
 # lives in one place and a route addition shows up as a diff in docs/openapi/
 # rather than a re-indented wall inside this file.
 #
-# The documents carry routes and no body schemas, deliberately. See
-# docs/projects/http-seam-contract.md -- the seam contract guarantees which
-# routes exist; the bodies are typed four different ways across the seams and
-# describing them here would be a third representation with nothing to keep it
-# honest.
+# The documents carry request and response bodies as well as routes. The routes
+# come from the built router; the bodies come from the per-route specs in
+# tests/routes/specs/, and tests/routes/test_openapi_bodies.py calls every
+# route's handler to check that each declared status and body is what it really
+# answers, so the schemas cannot drift from the handlers.
 ---
 apiVersion: backstage.io/v1alpha1
 kind: API
