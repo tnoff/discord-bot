@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.16.2] - 2026-11-05
+
+### Changed
+
+- Slimmed the gateway's music config model to the keys the gateway reads (message_delete_after, the player limits, download_dir_path, storage and the broker url). The yt-dlp, retry, failure-tracking, cache and queue-priority keys belong to the other pods and are still accepted and ignored here. enable_cache_files without storage no longer stops the gateway at startup; the broker pod already warns about it.
+
 ## [3.16.1] - 2026-11-04
 
 ### Changed

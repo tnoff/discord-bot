@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.22.3] - 2026-11-05
+
+### Changed
+
+- Corrected a comment on RETRY_BACKOFF_SECONDS_MINIMUM that named the gateway's music config as its user.
+
 ## [3.22.2] - 2026-11-04
 
 ### Changed
