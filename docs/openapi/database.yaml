@@ -1690,12 +1690,19 @@ components:
       title: RecordPlayBody
       type: object
     RemoveCacheBody:
-      description: video_cache/remove_video_cache
+      description: video_cache/remove_video_cache. `base_paths` also drops the rows holding those object
+        keys.
       properties:
         video_cache_ids:
           items:
             type: integer
           title: Video Cache Ids
+          type: array
+        base_paths:
+          default: []
+          items:
+            type: string
+          title: Base Paths
           type: array
       required:
       - video_cache_ids

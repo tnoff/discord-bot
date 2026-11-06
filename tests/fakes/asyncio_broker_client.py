@@ -29,6 +29,7 @@ from discord_core.types.gateway_intents import GatewayIntent, IntentKind, Intent
 from discord_core.types.guild_queue import ClaimedDownload, GuildQueueSnapshot, PlayingSnapshot
 from discord_core.types.player_session import PlayerSession
 
+from discord_broker.workers.corrupt_object import evict_corrupt_object
 from discord_broker.interfaces.broker_protocols import (
     CheckoutResult,
     DownloadResultQueue,
@@ -153,6 +154,10 @@ class AsyncioBrokerClient: #pylint:disable=too-many-public-methods
     async def cache_cleanup(self) -> bool:
         '''Delegate to broker.cache_cleanup.'''
         return await self._broker.cache_cleanup()
+
+    async def report_corrupt_cache_object(self, media_request, key: str) -> bool:
+        '''Evict through the broker engine, as the broker's handler does.'''
+        return await evict_corrupt_object(self._broker, media_request, key)
 
     async def get_cache_count(self) -> int:
         '''Delegate to broker.get_cache_count.'''

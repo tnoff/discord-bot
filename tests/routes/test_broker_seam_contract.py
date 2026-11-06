@@ -23,11 +23,12 @@ from aiohttp import web
 from discord_core.routes import contract
 from discord_core.routes.route import Route, collect
 from discord_core.clients import (
-    http_broker_client, http_gateway_intents, http_guild_queue, http_player_session,
+    http_broker_client, http_cache_corrupt, http_gateway_intents, http_guild_queue, http_player_session,
 )
 from discord_core.clients.http_broker_client import HttpBrokerClient
 
 from discord_core.routes import broker as broker_routes
+from discord_core.routes import cache_corrupt as corrupt_routes
 from discord_core.routes import gateway_intents as intent_routes
 from discord_core.routes import guild_queue as guild_queue_routes
 
@@ -108,7 +109,8 @@ def test_a_route_dropped_server_side_is_caught():
                         broker_routes.NEXT_SEARCH_RESULT.template)}
 
 
-@pytest.mark.parametrize('module', [http_broker_client, http_gateway_intents, http_guild_queue, http_player_session])
+@pytest.mark.parametrize('module', [http_broker_client, http_cache_corrupt, http_gateway_intents, http_guild_queue,
+                                    http_player_session])
 def test_clients_build_no_urls_themselves(module):
     '''No client on this seam interpolates `_base_url` into a path.
 
@@ -161,7 +163,7 @@ def test_collect_finds_only_route_instances():
     '''ALL is derived, so a route that exists is a route these tests see.'''
     namespace = {'A': Route('GET', '/a'), 'NOT_A_ROUTE': 'GET /b', 'Route': Route}
     assert collect(namespace) == (namespace['A'],)
-    assert len(broker_routes.ALL) == 39
+    assert len(broker_routes.ALL) == 40
 
 
 def test_routes_called_matches_what_the_source_calls():
@@ -182,6 +184,7 @@ def test_routes_called_matches_what_the_source_calls():
     # and gateway-intent routes are defined in their own registry module and included in the seam's ALL.
     for module, alias, registry in ((http_broker_client, 'broker_routes', broker_routes),
                                     (http_player_session, 'broker_routes', broker_routes),
+                                    (http_cache_corrupt, 'corrupt_routes', corrupt_routes),
                                     (http_gateway_intents, 'intent_routes', intent_routes),
                                     (http_guild_queue, 'guild_queue_routes', guild_queue_routes)):
         tree = ast.parse(Path(inspect.getfile(module)).read_text(encoding='utf-8'))

@@ -193,6 +193,24 @@ async def test_remove(fake_engine):  #pylint:disable=redefined-outer-name
 
 
 @pytest.mark.asyncio
+async def test_remove_by_object_key(fake_engine):  #pylint:disable=redefined-outer-name
+    '''A caller that knows only a bad object's key drops that row and no other.'''
+    with TemporaryDirectory() as tmp_dir:
+        fake_context = generate_fake_context()
+        x = VideoCacheClient(1, partial(async_mock_session, fake_engine))
+        with fake_media_download(tmp_dir, fake_context=fake_context) as s:
+            with fake_media_download(tmp_dir, fake_context=fake_context) as t2:
+                await x.iterate_file(s)
+                await x.iterate_file(t2)
+
+                async with async_mock_session(fake_engine) as session:
+                    assert (await session.execute(select(sql_count()).select_from(VideoCache))).scalar() == 2
+                    assert await x.remove_video_cache([], base_paths=[str(s.file_path), 'cache/not-there.pcm']) is True
+                    remaining = (await session.execute(select(VideoCache))).scalars().all()
+                    assert [row.base_path for row in remaining] == [str(t2.file_path)]
+
+
+@pytest.mark.asyncio
 async def test_get_cache_count(fake_engine):  #pylint:disable=redefined-outer-name
     with TemporaryDirectory() as tmp_dir:
         fake_context = generate_fake_context()

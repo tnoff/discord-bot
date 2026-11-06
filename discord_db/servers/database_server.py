@@ -616,13 +616,15 @@ class DatabaseHttpServer(AiohttpServerBase):
         return await self._respond('video_cache.get_webpage_url_item', ctx, call)
 
     async def _handle_remove_video_cache(self, request: web.Request) -> web.Response:
-        '''POST /database/video_cache/remove_video_cache — drop rows by id.'''
+        '''POST /database/video_cache/remove_video_cache — drop rows by id and by object key.'''
         ctx, body = await self._read_body(request)
         (video_cache_ids,) = self._required(body, 'video_cache_ids')
+        base_paths = body.get('base_paths') or []
 
         async def call():
             return await self._video_cache_store.remove_video_cache(
-                [int(video_cache_id) for video_cache_id in video_cache_ids])
+                [int(video_cache_id) for video_cache_id in video_cache_ids],
+                base_paths=[str(base_path) for base_path in base_paths])
 
         return await self._respond('video_cache.remove_video_cache', ctx, call)
 

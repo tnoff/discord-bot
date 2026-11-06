@@ -69,6 +69,8 @@ class BrokerClient(PlayerSessionClient, GuildQueueClient, GatewayIntentClient, P
         '''Look up a cached MediaDownload by webpage URL; returns None on miss.'''
     async def cache_cleanup(self) -> bool:
         '''Evict stale cache entries.  Returns True if at least one was removed.'''
+    async def report_corrupt_cache_object(self, media_request, key: str) -> bool:
+        '''Tell the broker a cached object failed its digest; True if it evicted the object.'''
     async def get_cache_count(self) -> int:
         '''Return the current VideoCache entry count (0 if no cache configured).'''
     async def create_bundle(self, guild_id: int, channel_id: int,

@@ -85,8 +85,8 @@ class _RecordingStore(RecordingStoreBase):
         self._record('get_webpage_url_item', media_request)
         return None
 
-    async def remove_video_cache(self, video_cache_ids):
-        self._record('remove_video_cache', video_cache_ids)
+    async def remove_video_cache(self, video_cache_ids, base_paths=None):
+        self._record('remove_video_cache', video_cache_ids, base_paths)
         return True
 
     async def ready_remove(self, evict_all=False):
@@ -270,7 +270,18 @@ async def test_the_id_batch_crosses_in_one_call():
         client = HttpVideoCacheStore(str(tc.make_url('')), session=tc.session)
         await client.remove_video_cache([4, 5, 6])
 
-    assert store.calls == [('remove_video_cache', [4, 5, 6])]
+    assert store.calls == [('remove_video_cache', [4, 5, 6], [])]
+
+
+@pytest.mark.asyncio
+async def test_object_keys_cross_with_the_ids():
+    '''A caller that knows a bad object's key but not its row id sends base_paths.'''
+    store = _RecordingStore()
+    async with TestClient(TestServer(DatabaseHttpServer(video_cache_store=store).build_app())) as tc:
+        client = HttpVideoCacheStore(str(tc.make_url('')), session=tc.session)
+        await client.remove_video_cache([], base_paths=['cache/a.sha256-0123456789abcdef0123456789abcdef.pcm'])
+
+    assert store.calls == [('remove_video_cache', [], ['cache/a.sha256-0123456789abcdef0123456789abcdef.pcm'])]
 
 
 @pytest.mark.asyncio

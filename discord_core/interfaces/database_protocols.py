@@ -133,12 +133,15 @@ class VideoCacheStore(Protocol):
         media_request : The request whose resolved search string to look up
         '''
 
-    async def remove_video_cache(self, video_cache_ids: List[int]) -> bool:
+    async def remove_video_cache(self, video_cache_ids: List[int], base_paths: List[str] | None = None) -> bool:
         '''
-        Delete catalog rows by id.
+        Delete catalog rows by id, and by object key.
 
         The caller deletes the S3 objects first; this method never touches
         storage.
+
+        base_paths : Object keys whose rows to delete, for a caller that knows the key of a bad
+            object but not its row id
 
         video_cache_ids : Row ids to delete
         '''

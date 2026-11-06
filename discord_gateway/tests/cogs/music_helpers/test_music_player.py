@@ -12,6 +12,7 @@ from discord.errors import ClientException
 from discord_core.exceptions import ExitEarlyException
 from discord_core.types.checkout_result import CheckoutResult
 from discord_core.types.guild_queue import ClaimedDownload
+from discord_core.utils.integrations.s3 import ObjectDigestMismatch
 
 from discord_gateway.cogs.music_helpers import music_player as music_player_module
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer, cleanup_source
@@ -1195,3 +1196,65 @@ async def test_cleanup_leaves_the_brokers_queue_alone(fake_context): #pylint:dis
             player.current_media_download = media_download
             await player.cleanup()
             assert player.broker.mock_calls == []
+
+
+async def _play_a_corrupt_object(player, media_download, key, report=None):
+    """Claim a track whose object fails its digest on fetch, and run the loop once."""
+    player.cache_bucket_name = 'cache-bucket'
+    player.broker.report_corrupt_cache_object = report or AsyncMock(return_value=True)
+    player.broker.claim_next_track.return_value = claimed(media_download, s3_key=key, bucket_name='my-bucket')
+    with patch(GET_FILE, side_effect=ObjectDigestMismatch(f'Checksum mismatch downloading {key}')):
+        await player.player_loop()
+
+
+GET_FILE = 'discord_gateway.cogs.music_helpers.music_player.get_file'
+CORRUPT_KEY = 'cache/youtube.abc.sha256-0123456789abcdef0123456789abcdef.pcm'
+
+
+@pytest.mark.asyncio
+async def test_a_cached_object_that_fails_its_digest_is_reported_and_the_track_skipped(fake_context): #pylint:disable=redefined-outer-name
+    """The broker is told which object and which request, and the track is finished as skipped."""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with with_mock_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            await _play_a_corrupt_object(player, media_download, CORRUPT_KEY)
+            player.broker.report_corrupt_cache_object.assert_awaited_once_with(
+                media_download.media_request, CORRUPT_KEY)
+            player.broker.finish_track.assert_awaited_once()
+            assert player.broker.finish_track.await_args.args[2] is True
+
+
+@pytest.mark.asyncio
+async def test_a_queue_object_that_fails_its_digest_is_skipped_without_a_report(fake_context): #pylint:disable=redefined-outer-name
+    """A queue/ object was bad when uploaded; the queue bucket's expiry removes it, not the cache's eviction."""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with with_mock_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            await _play_a_corrupt_object(player, media_download, CORRUPT_KEY.replace('cache/', 'queue/'))
+            player.broker.report_corrupt_cache_object.assert_not_awaited()
+            player.broker.finish_track.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_report_the_broker_cannot_take_does_not_stop_the_skip(fake_context): #pylint:disable=redefined-outer-name
+    """A broker without the route yet (mid-deploy) is logged; the track is still skipped."""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with with_mock_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.logger = Mock()
+            await _play_a_corrupt_object(player, media_download, CORRUPT_KEY,
+                                         report=AsyncMock(side_effect=ConnectionError('404')))
+            assert any('Could not report' in str(call) for call in player.logger.warning.call_args_list)
+            player.broker.finish_track.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_report_the_broker_declines_is_logged(fake_context): #pylint:disable=redefined-outer-name
+    """The broker re-read the object and it was fine: it keeps it, and the gateway says so."""
+    fake_context['guild'].voice_client = FakeVoiceClient()
+    with with_mock_broker_player(fake_context) as player:
+        with fake_media_download(player.file_dir, fake_context=fake_context) as media_download:
+            player.logger = Mock()
+            await _play_a_corrupt_object(player, media_download, CORRUPT_KEY,
+                                         report=AsyncMock(return_value=False))
+            assert any('kept' in str(call) for call in player.logger.info.call_args_list)

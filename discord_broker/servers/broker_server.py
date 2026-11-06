@@ -19,6 +19,7 @@ from discord_core.utils.otel import (otel_span_wrapper, create_observable_gauge,
                                      MetricNaming, AttributeNaming)
 
 from discord_core.routes import broker as broker_routes
+from discord_core.routes.cache_corrupt import REPORT_CORRUPT_CACHE_OBJECT
 from discord_core.types import broker_responses
 from discord_core.types.player_session import PlayerSession
 
@@ -28,6 +29,7 @@ from discord_broker.workers.broker_metrics import BrokerMetricNaming
 from discord_broker.servers.gateway_intent_handlers import GatewayIntentHandlersMixin
 from discord_broker.servers.guild_queue_handlers import GuildQueueHandlersMixin
 from discord_broker.workers.gateway_intents import GatewayIntentRegistry
+from discord_broker.workers.corrupt_object import evict_corrupt_object
 from discord_broker.workers.guild_queue import GuildQueueBroker
 
 logger = logging.getLogger(__name__)
@@ -62,6 +64,7 @@ class BrokerHttpServer(GuildQueueHandlersMixin, GatewayIntentHandlersMixin, Aioh
         POST   /requests/{uuid}/discard   discard
         POST   /cache/check               check_cache
         POST   /cache/cleanup             cache_cleanup
+        POST   /cache/report-corrupt      evict_corrupt_object (workers/corrupt_object.py)
         GET    /cache/count               get_cache_count
         GET    /bundles?guild_id=N        list_bundles_for_guild
         POST   /bundles                   create_bundle
@@ -130,6 +133,7 @@ class BrokerHttpServer(GuildQueueHandlersMixin, GatewayIntentHandlersMixin, Aioh
             broker_routes.CHECK_CACHE: self._handle_check_cache,
             broker_routes.CACHE_CLEANUP: self._handle_cache_cleanup,
             broker_routes.CACHE_COUNT: self._handle_get_cache_count,
+            REPORT_CORRUPT_CACHE_OBJECT: self._handle_report_corrupt_cache_object,
             broker_routes.LIST_BUNDLES: self._handle_list_bundles_for_guild,
             broker_routes.CREATE_BUNDLE: self._handle_create_bundle,
             broker_routes.FINALIZE_BUNDLE: self._handle_finalize_bundle,
@@ -322,6 +326,17 @@ class BrokerHttpServer(GuildQueueHandlersMixin, GatewayIntentHandlersMixin, Aioh
                 ),
             ),
         ).model_dump())
+
+    async def _handle_report_corrupt_cache_object(self, request: web.Request) -> web.Response:
+        ctx, body = await self._read_body(request)
+        try:
+            key = str(body['key'])
+            media_request = parse_media_request(body['media_request'])
+        except Exception as exc:
+            raise web.HTTPUnprocessableEntity() from exc
+        with otel_span_wrapper('broker.report_corrupt_cache_object', context=ctx, kind=SpanKind.SERVER):
+            evicted = await evict_corrupt_object(self._broker, media_request, key)
+        return web.json_response(broker_responses.ReportCorruptCacheObjectResponse(evicted=bool(evicted)).model_dump())
 
     async def _handle_cache_cleanup(self, request: web.Request) -> web.Response:
         ctx = extract(request.headers)

@@ -108,17 +108,23 @@ class VideoCacheClient():
                     return None
                 return self.__generate_source_download(video_cache, media_request)
 
-    async def remove_video_cache(self, video_cache_ids: List[int]) -> bool:
+    async def remove_video_cache(self, video_cache_ids: List[int], base_paths: List[str] | None = None) -> bool:
         '''
-        Delete VideoCache DB records for the given IDs.
+        Delete VideoCache DB records for the given IDs, and for the given object keys.
 
         S3 object deletion must be performed by the caller (MediaBroker)
         before invoking this method.
+
+        video_cache_ids : Row ids to delete
+        base_paths : Object keys whose rows to delete, for a caller that knows the key of a
+            bad object but not its row id
         '''
         async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.remove_video', kind=SpanKind.INTERNAL):
             async with self.session_generator() as db_session:
                 for video_cache_id in video_cache_ids:
                     await async_retry_database_commands(db_session, lambda vid=video_cache_id: database_functions.delete_video_cache(db_session, vid))
+                for base_path in base_paths or []:
+                    await async_retry_database_commands(db_session, lambda path=base_path: database_functions.delete_video_cache_by_path(db_session, path))
             return True
 
     async def ready_remove(self, evict_all: bool = False) -> bool:

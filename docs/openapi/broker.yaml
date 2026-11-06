@@ -122,6 +122,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/GetCacheCountResponse'
+  /cache/report-corrupt:
+    post:
+      operationId: post-cache-report-corrupt
+      summary: Report a cached object whose bytes failed their digest; the broker re-reads it before evicting.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReportCorruptBody'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportCorruptCacheObjectResponse'
+        '422':
+          description: key or media_request missing, or not a media request.
   /downloads:
     post:
       operationId: post-downloads
@@ -1970,6 +1989,37 @@ components:
           title: Status
           type: string
       title: RemoveResponse
+      type: object
+    ReportCorruptBody:
+      description: POST /cache/report-corrupt
+      properties:
+        key:
+          title: Key
+          type: string
+        media_request:
+          discriminator:
+            mapping:
+              'false': '#/components/schemas/PlaylistAddRequest'
+              'true': '#/components/schemas/MediaRequest'
+            propertyName: download_file
+          oneOf:
+          - $ref: '#/components/schemas/MediaRequest'
+          - $ref: '#/components/schemas/PlaylistAddRequest'
+          title: Media Request
+      required:
+      - key
+      - media_request
+      title: ReportCorruptBody
+      type: object
+    ReportCorruptCacheObjectResponse:
+      description: Whether the broker evicted the reported object after reading it again.
+      properties:
+        evicted:
+          title: Evicted
+          type: boolean
+      required:
+      - evicted
+      title: ReportCorruptCacheObjectResponse
       type: object
     RetryInformation:
       description: Retry information for media requests

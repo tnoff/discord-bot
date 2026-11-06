@@ -6,10 +6,10 @@ evict anything itself: the catalog row and the cache bucket belong to the broker
 re-reads the object, and only evicts it if its own read fails the check too, so one read cut short
 in transit does not cost a healthy cached song.
 
-Defined in its own module, outside routes/broker.py, for the reason routes/guild_queue.py gives:
-the broker image pins a released discord_core, and the registry and the server must agree exactly.
-This release carries the contract and the client; the change that moves the pods' pins serves the
-route and folds this registry into routes/broker.py's ALL.
+It is part of the broker seam: routes/broker.py includes this module's ALL in its own, so the seam
+registry, the client's ROUTES_CALLED and the agreement tests all cover it. It is DEFINED here, as its
+own module, for the deploy-order reason routes/guild_queue.py gives: the broker image pins a released
+discord_core, and this module is where that release put the symbol the broker's handler imports.
 
 The answer is a 200 body either way (`evicted` says whether the object was removed), because
 the retry layer retries 5xx and "the object is fine" is not a failure.

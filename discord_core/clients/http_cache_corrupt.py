@@ -5,9 +5,8 @@ Same shape and reasoning as http_gateway_intents: a call the broker pod answers,
 so HttpBrokerClient does not grow further. Mixed into HttpBrokerClient, which supplies
 _call_route and _validate.
 
-Its route is declared in routes/cache_corrupt.py and is NOT yet in HttpBrokerClient.ROUTES_CALLED:
-a broker built against the release that predates the route does not serve it, so the peer route
-check would fail on it. The change that moves the pins folds it in.
+Its route is declared in routes/cache_corrupt.py and is part of the broker seam: it is in
+routes/broker.py's ALL, so in HttpBrokerClient.ROUTES_CALLED, and the peer route check covers it.
 '''
 from opentelemetry.trace import SpanKind
 

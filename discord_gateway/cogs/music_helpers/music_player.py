@@ -16,7 +16,7 @@ from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.otel import async_otel_span_wrapper, span_links_from_context
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.types.guild_queue import ClaimedDownload
-from discord_core.utils.integrations.s3 import ObjectStorageException, get_file
+from discord_core.utils.integrations.s3 import ObjectDigestMismatch, ObjectStorageException, get_file
 
 from discord_gateway.types.cleanup_reason import CleanupReason
 
@@ -286,6 +286,26 @@ class MusicPlayer:
                     self.guild.voice_client.stop()
                 return
 
+    async def _report_corrupt(self, media_download: MediaDownload, key: str):
+        '''
+        Tell the broker a cached object failed its digest, so it can verify and evict it.
+
+        Only a played song's object (cache/) is reported. A queue/ object that fails was bad when
+        it was uploaded, and the queue bucket's expiry removes it. A failed report is logged, not
+        raised: the track is being skipped either way, and the next play of the song reports again.
+        '''
+        if not (self.cache_bucket_name and key.startswith(CACHE_KEY_PREFIX)):
+            self.logger.warning(f'"{key}" does not match its digest; skipping "{media_download.webpage_url}"')
+            return
+        self.logger.warning(f'Cached object "{key}" does not match its digest; reporting it and '
+                            f'skipping "{media_download.webpage_url}" in guild {self.guild.id}')
+        try:
+            evicted = await self.broker.report_corrupt_cache_object(media_download.media_request, key)
+        except Exception as exc:
+            self.logger.warning(f'Could not report "{key}" as corrupt: {exc}')
+            return
+        self.logger.info(f'Broker {"evicted" if evicted else "kept"} "{key}" after the report')
+
     async def _finish_track(self, media_download: MediaDownload, skipped: bool):
         '''
         Tell the broker this track is done: it clears the now-playing record, records the play
@@ -363,8 +383,16 @@ class MusicPlayer:
             if checkout_result and checkout_result.s3_key and checkout_result.bucket_name:
                 s3_fetch_started = monotonic()
                 # Already on disk when the prefetch window got here first.
-                file_path = await self._ensure_staged(media_uuid, self._bucket_for_key(checkout_result.s3_key) or checkout_result.bucket_name,
-                                                      checkout_result.s3_key)
+                try:
+                    file_path = await self._ensure_staged(
+                        media_uuid, self._bucket_for_key(checkout_result.s3_key) or checkout_result.bucket_name,
+                        checkout_result.s3_key)
+                except ObjectDigestMismatch:
+                    # The bytes are not what the key says they should be, so this track cannot play
+                    # and neither can any later play of the song until the object is gone.
+                    await self._report_corrupt(media_download, str(checkout_result.s3_key))
+                    await self._finish_track(media_download, True)
+                    return None
                 s3_fetch_seconds = monotonic() - s3_fetch_started
             elif self.bucket_name and self._staged_path(media_uuid, media_download.file_path).exists():
                 # The prefetch window already staged the file.

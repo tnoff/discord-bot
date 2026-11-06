@@ -160,7 +160,7 @@ composite app.
 | `discord-broker` | `discord-db` | database | `/database/guild_analytics` | `HttpPlayAnalyticsStore` | 2 |
 | `discord-broker` | `discord-db` | database | `/database/video_cache` | `HttpVideoCacheStore` | 6 |
 | `discord-broker` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 12 |
-| `discord-commands` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
+| `discord-commands` | `discord-broker` | broker | — | `HttpBrokerClient` | 40 |
 | `discord-commands` | `discord-db` | database | `/database/guild_analytics` | `HttpGuildAnalyticsStore` | 2 |
 | `discord-commands` | `discord-db` | database | `/database/markov` | `HttpMarkovStore` | 9 |
 | `discord-commands` | `discord-db` | database | `/database/playlist` | `HttpPlaylistStore` | 16 |
@@ -169,17 +169,17 @@ composite app.
 | `discord-commands` | `discord-search` | media_search | — | `HttpMediaSearchClient` | 2 |
 | `discord-commands` | `discord-downloader` | queue_worker | `/downloads` | `HttpDownloadClient` | 4 |
 | `discord-commands` | `discord-search` | queue_worker | `/search/ytmusic` | `HttpYoutubeMusicSearchClient` | 4 |
-| `discord-downloader` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
-| `discord-gateway` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
+| `discord-downloader` | `discord-broker` | broker | — | `HttpBrokerClient` | 40 |
+| `discord-gateway` | `discord-broker` | broker | — | `HttpBrokerClient` | 40 |
 | `discord-gateway` | `discord-commands` | commands | — | `HttpCommandsClient` | 2 |
 | `discord-gateway` | `discord-dispatcher` | dispatch | — | `HttpDispatchClient` | 12 |
-| `discord-search` | `discord-broker` | broker | — | `HttpBrokerClient` | 39 |
+| `discord-search` | `discord-broker` | broker | — | `HttpBrokerClient` | 40 |
 
 #### Seams
 
 | seam | served by | called by | routes |
 |---|---|---|---|
-| broker | `discord-broker` | `discord-commands`, `discord-downloader`, `discord-gateway`, `discord-search` | 39 |
+| broker | `discord-broker` | `discord-commands`, `discord-downloader`, `discord-gateway`, `discord-search` | 40 |
 | commands | `discord-commands` | `discord-gateway` | 2 |
 | database | `discord-db` | `discord-broker`, `discord-commands` | 33 |
 | dispatch | `discord-dispatcher` | `discord-broker`, `discord-commands`, `discord-gateway` | 12 |
