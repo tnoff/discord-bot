@@ -39,6 +39,8 @@ def _catalog_holding(key: str | None) -> MagicMock:
 async def test_a_corrupt_object_is_evicted_when_the_broker_reads_it_wrong_too():
     """The row goes first, then the object, in the bucket the key lives in."""
     video_cache = _catalog_holding(BAD_KEY)
+    # The first lookup finds the row; once it is removed the second finds nothing.
+    video_cache.get_webpage_url_item.side_effect = [MagicMock(file_path=Path(BAD_KEY)), None]
     broker = _make_broker(video_cache=video_cache, bucket_name='queue-bucket', cache_bucket_name='cache-bucket')
     calls = []
     video_cache.remove_video_cache.side_effect = lambda *a, **k: calls.append(('row', a, k))
@@ -97,3 +99,15 @@ async def test_a_key_without_a_digest_cannot_be_reported_corrupt():
 @pytest.mark.asyncio
 async def test_a_report_without_a_catalog_is_ignored():
     assert await evict_corrupt_object(_make_broker(), direct_request(), BAD_KEY) is False
+
+
+@pytest.mark.asyncio
+async def test_the_object_is_kept_when_the_catalog_did_not_drop_the_row():
+    """A db pod that predates base_paths ignores it; deleting the object would strand a cache hit."""
+    video_cache = _catalog_holding(BAD_KEY)
+    broker = _make_broker(video_cache=video_cache, bucket_name='queue-bucket', cache_bucket_name='cache-bucket')
+    with patch(f'{CORRUPT}.get_file', side_effect=ObjectDigestMismatch('bad')), \
+            patch(f'{CORRUPT}.delete_file') as delete_file:
+        assert await evict_corrupt_object(broker, direct_request(), BAD_KEY) is False
+    video_cache.remove_video_cache.assert_awaited_once()
+    delete_file.assert_not_called()

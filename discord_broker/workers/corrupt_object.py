@@ -31,8 +31,9 @@ async def evict_corrupt_object(broker: MediaBrokerBase, media_request: MediaRequ
     request (already evicted, or replaced by another copy), or an object that cannot be read for any
     other reason, which proves nothing about its bytes.
 
-    The row goes before the object: a row left pointing at a missing object would serve cache hits
-    that cannot be played, where an object left without its row is only wasted space.
+    The row goes before the object, and the object only once the row is confirmed gone: a row left
+    pointing at a missing object would serve cache hits that cannot be played, where an object left
+    without its row is only wasted space.
 
     broker : The broker holding the catalog and the bucket names
     media_request : The request the player fetched the object for; names the catalog row
@@ -57,5 +58,11 @@ async def evict_corrupt_object(broker: MediaBrokerBase, media_request: MediaRequ
             return False
     logger.warning('Evicting %s: its bytes do not match the digest in its key', key)
     await broker.video_cache.remove_video_cache([], base_paths=[key])
+    # A db pod from before base_paths answers this call without removing anything. Deleting the
+    # object then would leave a cache hit that can never play, so confirm the row is gone first.
+    remaining = await broker.video_cache.get_webpage_url_item(media_request)
+    if remaining is not None and str(remaining.file_path) == key:
+        logger.error('The catalog still holds %s after asking it to drop the row, leaving the object', key)
+        return False
     await asyncio.to_thread(delete_file, bucket, key)
     return True
