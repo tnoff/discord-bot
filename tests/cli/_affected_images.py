@@ -35,7 +35,7 @@ import sys
 from pathlib import Path
 
 from tests.cli._git_diff import REPO_ROOT, base_head_parser, diff_paths, git_show, report_changed
-from tests.cli._roots import SHIPS_AHEAD_OF_CONSUMER, TESTS_DIR, root_of
+from tests.cli._roots import CORE_ROOT, TESTS_DIR, root_of
 
 CLOSURE_PATH = 'tests/cli/image-closure.json'
 
@@ -111,9 +111,9 @@ def images_for_pyproject(path: str, claims: dict) -> set:
     pyproject.toml lives inside one of the seven package roots and changes
     that root's real `dependencies`, so the answer is the same one a .py
     module change under that root already gets: whichever images' MEASURED
-    closure claims a module under it. A discord_core/pyproject.toml edit
-    reaches all six, the same as any other discord_core change; a pod's own
-    reaches only that pod's image.
+    closure claims a module under it. A discord_core edit, its pyproject.toml
+    included, never gets here: no image copies core (see `affected`). A pod's
+    own reaches only that pod's image.
     '''
     root = root_of(path)
     if root is None:
@@ -147,15 +147,17 @@ def affected(changed_files, deleted_files, head_closure, base_closure):
     deleted = set(deleted_files)
     images, orphans = set(), []
     for path in changed_files:
+        if root_of(path) == CORE_ROOT:
+            # No image copies discord_core: every pod installs it from the release tag its own
+            # pyproject.toml pins. A change to core source (or to core's own pyproject.toml) reaches an
+            # image only when a pod's pin moves, and that edit to the pod's pyproject.toml is what
+            # rebuilds the pod. Core is still released and tagged on its own VERSION.
+            continue
         module = module_for(path)
         if module is not None:
             owners = {image for image, mods in claims.items() if module in mods}
             if owners:
                 images |= owners
-            elif module in SHIPS_AHEAD_OF_CONSUMER:
-                # A core contract waiting for its consumer: no entrypoint reaches it yet, and it is
-                # core, so every image is affected. See _roots.SHIPS_AHEAD_OF_CONSUMER.
-                images |= every
             elif path in deleted:
                 # Deleted here: the images that carried it are the ones that changed.
                 # Falling back to every image when the base closure is unavailable
