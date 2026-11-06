@@ -4,7 +4,7 @@ Tests for BrokerHttpServer — the aiohttp HTTP server wrapping MediaBroker.
 import asyncio
 import json
 from tempfile import TemporaryDirectory
-from unittest.mock import AsyncMock, MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import aiohttp
 import pytest
@@ -497,6 +497,26 @@ class TestCacheEndpoints:
             resp = await client.post('/cache/cleanup')
             assert resp.status == 200
             assert (await resp.json()) == {'removed': True}
+
+    async def test_report_corrupt_returns_the_evicted_flag(self):
+        broker = _make_broker()
+        server = _make_server(broker)
+        _, mr = broker_and_request()
+        key = 'cache/a.sha256-0123456789abcdef0123456789abcdef.pcm'
+        with patch('discord_broker.servers.broker_server.evict_corrupt_object', AsyncMock(return_value=True)) as evict:
+            async with TestClient(TestServer(server.build_app())) as client:
+                resp = await client.post('/cache/report-corrupt',
+                                         json={'key': key, 'media_request': mr.model_dump(mode='json')})
+                assert resp.status == 200
+                assert (await resp.json()) == {'evicted': True}
+        assert evict.await_args.args[0] is broker
+        assert evict.await_args.args[2] == key
+
+    async def test_report_corrupt_without_a_key_returns_422(self):
+        server = _make_server(_make_broker())
+        async with TestClient(TestServer(server.build_app())) as client:
+            resp = await client.post('/cache/report-corrupt', json={'media_request': {}})
+            assert resp.status == 422
 
     async def test_get_cache_count_returns_int(self):
         broker = _make_broker()

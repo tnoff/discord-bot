@@ -133,8 +133,9 @@ class MediaRequestBody(BaseModel):
 
 
 class RemoveCacheBody(BaseModel):
-    '''video_cache/remove_video_cache'''
+    '''video_cache/remove_video_cache. `base_paths` also drops the rows holding those object keys.'''
     video_cache_ids: list[int]
+    base_paths: list[str] = []
 
 
 class ReadyRemoveBody(BaseModel):

@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock
 from pydantic import BaseModel, RootModel
 
 from discord_core.routes import broker as broker_routes
+from discord_core.routes import cache_corrupt as corrupt_routes
 from discord_core.routes import gateway_intents as intent_routes
 from discord_core.routes import guild_queue as queue_routes
 from discord_core.types import broker_responses as out
@@ -36,6 +37,12 @@ GATEWAY = 'gw-1'
 
 class MediaRequestBody(RootModel[AnyMediaRequest]):
     '''A media request, as the broker parses it: a plain request or a playlist-add one.'''
+
+
+class ReportCorruptBody(BaseModel):
+    '''POST /cache/report-corrupt'''
+    key: str
+    media_request: AnyMediaRequest
 
 
 class CheckoutBody(BaseModel):
@@ -308,6 +315,14 @@ OPERATIONS = {
         'Evict cache entries nothing is using.',
         replies=(reply(200, out.CacheCleanupResponse),),
         calls=(Call(200),)),
+    corrupt_routes.REPORT_CORRUPT_CACHE_OBJECT: Operation(
+        'Report a cached object whose bytes failed their digest; the broker re-reads it before evicting.',
+        request=ReportCorruptBody,
+        replies=(reply(200, out.ReportCorruptCacheObjectResponse),
+                 reply(422, doc='key or media_request missing, or not a media request.')),
+        calls=(Call(200, body={'key': 'cache/a.sha256-0123456789abcdef0123456789abcdef.pcm',
+                               'media_request': media_json()}),
+               Call(422, body=EMPTY_BODY))),
     broker_routes.CACHE_COUNT: Operation(
         'Count the cache entries.',
         replies=(reply(200, out.GetCacheCountResponse),),

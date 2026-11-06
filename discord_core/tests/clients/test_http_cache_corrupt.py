@@ -32,10 +32,10 @@ def _request() -> MediaRequest:
     )
 
 
-def test_the_registry_is_one_route_outside_the_broker_seam_for_now():
-    '''The route ships ahead of its server: the broker registry, and so the peer route check, leave it out.'''
+def test_the_registry_is_one_route_in_the_broker_seam():
+    '''The broker serves it, so the seam registry, and the peer route check with it, include it.'''
     assert corrupt_routes.ALL == (corrupt_routes.REPORT_CORRUPT_CACHE_OBJECT,)
-    assert corrupt_routes.REPORT_CORRUPT_CACHE_OBJECT not in broker_routes.ALL
+    assert corrupt_routes.REPORT_CORRUPT_CACHE_OBJECT in broker_routes.ALL
 
 
 @pytest.mark.asyncio

@@ -74,15 +74,15 @@ def test_every_served_route_reaches_the_document(surface, factory, _expected, _i
 def test_paths_may_carry_several_methods():
     '''A path with two verbs is one OpenAPI path, not two.
 
-    The broker serves 39 routes across 35 paths (GET and POST /guilds/{guild_id}/queue share one,
+    The broker serves 40 routes across 36 paths (GET and POST /guilds/{guild_id}/queue share one,
     and so do GET and POST /intents/{intent_id}/result). Asserting the totals differ
     pins the nesting: a generator that emitted one path per route would still
     look right route-by-route above, and would be wrong OpenAPI.
     '''
     broker = MEASURED['broker']
     routes = sum(len(operations) for operations in broker['paths'].values())
-    assert routes == 39
-    assert len(broker['paths']) == 35
+    assert routes == 40
+    assert len(broker["paths"]) == 36
 
 
 def test_templated_paths_declare_their_parameters():

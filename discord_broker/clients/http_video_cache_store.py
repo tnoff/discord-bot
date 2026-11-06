@@ -89,19 +89,23 @@ class HttpVideoCacheStore(HttpStoreBase):
                 return None
             return media_download_from_dict(result, media_request)
 
-    async def remove_video_cache(self, video_cache_ids: List[int]) -> bool:
+    async def remove_video_cache(self, video_cache_ids: List[int], base_paths: List[str] | None = None) -> bool:
         '''
-        Delete catalog rows by id.
+        Delete catalog rows by id, and by object key.
 
         The whole list is one request: the caller has already deleted the S3
         objects and is reconciling the catalog to match, so a per-id round trip
         would be one request per evicted file on a path that evicts in batches.
 
         video_cache_ids : Row ids to delete
+        base_paths : Object keys whose rows to delete (a bad object's key, without its row id)
         '''
-        async with self._span('remove_video_cache', {'video_cache.count': len(video_cache_ids)}):
-            return await self._call('remove_video_cache',
-                                    {'video_cache_ids': list(video_cache_ids)})
+        body = {'video_cache_ids': list(video_cache_ids)}
+        if base_paths:
+            body['base_paths'] = list(base_paths)
+        async with self._span('remove_video_cache',
+                              {'video_cache.count': len(video_cache_ids) + len(base_paths or [])}):
+            return await self._call('remove_video_cache', body)
 
     async def ready_remove(self, evict_all: bool = False) -> bool:
         '''

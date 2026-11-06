@@ -40,6 +40,15 @@ async def delete_video_cache(db_session: AsyncSession, video_cache_id: int):
     return True
 
 
+async def delete_video_cache_by_path(db_session: AsyncSession, base_path: str):
+    """Remove the video cache rows whose object key is base_path. Returns how many."""
+    items = (await db_session.execute(select(VideoCache).where(VideoCache.base_path == base_path))).scalars().all()
+    for item in items:
+        await db_session.delete(item)
+    await db_session.commit()
+    return len(items)
+
+
 async def count_video_cache(db_session: AsyncSession):
     """Get video cache count"""
     return (await db_session.execute(
