@@ -221,8 +221,11 @@ def test_get_file_rejects_bytes_that_do_not_match_the_key(mock_s3_client, tmp_pa
     mock_body.read.return_value = b'what was uploaded, cut sh'
     mock_s3_client.get_object.return_value = {'Body': mock_body}
 
-    with pytest.raises(ObjectStorageException, match='Checksum mismatch'):
+    # A distinct type, so a caller can tell a bad object from a failed request; still an
+    # ObjectStorageException for everything that catches the base.
+    with pytest.raises(s3.ObjectDigestMismatch, match='Checksum mismatch') as caught:
         get_file('my-bucket', key, tmp_path / 'out.pcm')
+    assert isinstance(caught.value, ObjectStorageException)
     assert not (tmp_path / 'out.pcm').exists()
 
 

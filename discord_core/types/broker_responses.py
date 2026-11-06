@@ -152,6 +152,11 @@ class CacheCleanupResponse(BaseModel):
     removed: bool
 
 
+class ReportCorruptCacheObjectResponse(BaseModel):
+    '''Whether the broker evicted the reported object after reading it again.'''
+    evicted: bool
+
+
 class GetCacheCountResponse(BaseModel):
     '''Number of entries in the video cache.'''
     count: int

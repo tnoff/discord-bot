@@ -21,6 +21,15 @@ class ObjectStorageException(Exception):
     Object Storage exceptions
     '''
 
+class ObjectDigestMismatch(ObjectStorageException):
+    '''
+    A fetched object's bytes do not match the digest in its key.
+
+    Its own type because a caller can act on it: a cached object that fails this check will fail it
+    on every later fetch, so it is worth reporting to whoever can evict it. A fetch can also be cut
+    short in transit, so whoever evicts should verify with a read of its own first.
+    '''
+
 def content_digest(data: bytes) -> str:
     '''
     The digest of some bytes, in the form key_with_digest embeds.
@@ -111,7 +120,7 @@ def get_file(bucket_name: str, object_name: str, file_path: Path) -> bool:
     # above, which only warns, a mismatch means these are not the bytes that were uploaded.
     expected = key_digest(object_name)
     if expected is not None and content_digest(data) != expected:
-        raise ObjectStorageException(f'Checksum mismatch downloading {object_name}')
+        raise ObjectDigestMismatch(f'Checksum mismatch downloading {object_name}')
 
     # Write to destination file
     file_path.parent.mkdir(parents=True, exist_ok=True)
