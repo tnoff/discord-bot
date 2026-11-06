@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.7] - 2026-11-06
+
+### Changed
+
+- Bumped the discord_core pin to core-v3.23.0, which carries the corrupt-cache-object report contract.
+
 ## [3.2.6] - 2026-11-05
 
 ### Changed

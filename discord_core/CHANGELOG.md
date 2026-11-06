@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.23.1] - 2026-11-06
+
+### Changed
+
+- The report-corrupt route joins the broker seam registry (and so `HttpBrokerClient.ROUTES_CALLED`, which the gateway's peer route check reads), `BrokerClient` declares `report_corrupt_cache_object`, and `VideoCacheStore.remove_video_cache` takes `base_paths`.
+
 ## [3.23.0] - 2026-11-06
 
 ### Changed

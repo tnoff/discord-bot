@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.0] - 2026-11-06
+
+### Changed
+
+- Bumped the discord_core pin to core-v3.23.0. `remove_video_cache` also drops catalog rows by object key (`base_paths`), for the broker evicting a cached object whose bytes fail their digest. Deploy this before the broker that sends it.
+
 ## [3.1.26] - 2026-11-05
 
 ### Changed
