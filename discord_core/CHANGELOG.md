@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.23.2] - 2026-11-09
+
+### Changed
+
+- Bumped pydantic to v2.14.3
+
 ## [3.23.1] - 2026-11-06
 
 ### Changed
