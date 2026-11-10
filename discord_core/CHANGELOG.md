@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.23.3] - 2026-11-10
+
+### Changed
+
+- Bumped click to v8.5.1
+
 ## [3.23.2] - 2026-11-09
 
 ### Changed
