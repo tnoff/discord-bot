@@ -26,7 +26,8 @@ import hmac
 import logging
 import os
 import re
-import xml.etree.ElementTree as ET  # nosec B405 - parses replies from our own object store
+# The only XML parsed is replies from our own object store.
+import xml.etree.ElementTree as ET  # nosec B405
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -238,7 +239,7 @@ def _child_text(element: ET.Element, name: str) -> str | None:
 
 def _error_code(response: requests.Response) -> str | None:
     try:
-        root = ET.fromstring(response.content)  # nosec B314 - reply from our own object store
+        root = ET.fromstring(response.content)  # nosec B314
     except ET.ParseError:
         return None
     return _child_text(root, 'Code')
@@ -358,7 +359,7 @@ def list_objects(bucket_name: str, prefix: str) -> list[dict]:
     try:
         while True:
             response = s3_request('GET', bucket_name, params=params)
-            root = ET.fromstring(response.content)  # nosec B314 - reply from our own object store
+            root = ET.fromstring(response.content)  # nosec B314
             for element in root:
                 if _local_name(element.tag) != 'Contents':
                     continue

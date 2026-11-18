@@ -4,7 +4,7 @@ The cog-facing BrokerClient Protocol, on its own.
 Split out of interfaces/broker_protocols.py so that annotating a broker handle
 does not import the broker ENGINE.  broker_protocols also defines
 MediaBrokerBase, whose class-level annotations pull VideoCacheClient
-(sqlalchemy), and the module itself pulls integrations.s3 (boto3) — so every
+(sqlalchemy), and the module itself pulls integrations.s3 — so every
 module that only wanted this Protocol was dragging the engine's dependencies
 into its process.  interfaces/download_protocols was doing exactly that, which
 is how sqlalchemy reached the downloader pod.

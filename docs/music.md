@@ -521,7 +521,16 @@ music:
       bucket_name: my-music-bucket
 ```
 
-The client assumes AWS credentials are available via environment variables or instance role — no credentials are configured in the bot config itself.
+No credentials go in the bot config. The S3 client (`discord_core/utils/integrations/s3.py`) reads them from the environment, under the same names the AWS SDKs use:
+
+| Variable | Meaning |
+|---|---|
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Static keys (required). On Oracle Object Storage, a Customer Secret Key. |
+| `AWS_SESSION_TOKEN` | Optional, for temporary credentials. |
+| `AWS_REGION` (or `AWS_DEFAULT_REGION`) | Signing region; defaults to `us-east-1`. On Oracle, the region identifier, e.g. `us-ashburn-1`. |
+| `AWS_ENDPOINT_URL_S3` (or `AWS_ENDPOINT_URL`) | Endpoint for an S3-compatible store, e.g. `https://<namespace>.compat.objectstorage.us-ashburn-1.oraclecloud.com`. Unset, AWS's regional endpoint. |
+
+Requests use path-style addressing (`<endpoint>/<bucket>/<key>`) and are signed with AWS Signature Version 4. There is no instance-role or `~/.aws` lookup: only these variables. Connection errors, throttling (429) and 5xx responses are retried a few times with backoff.
 
 You can also configure how many songs are pre-staged from S3 to local disk ahead of the player (the prefetch window). Prefetching runs as a background task during playback, so up to N upcoming songs are already on disk by the time each one starts — eliminating S3 download latency between tracks. Set to `0` to disable prefetching entirely.
 

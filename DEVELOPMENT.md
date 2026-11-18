@@ -44,7 +44,7 @@ Each package's own `pyproject.toml` documents what it depends on and why
 (e.g. `discord_search` pulls in spotipy/ytmusicapi, `discord_db` pulls in
 SQLAlchemy/asyncpg/alembic). `discord_core` is the one every pod installs
 alongside its own — it carries the shared set (aiohttp, redis, pydantic, the
-OTel stack, boto3, etc.).
+OTel stack, etc.).
 
 ### Per-package versions
 
