@@ -61,19 +61,21 @@ IMAGE_IMPORTS = {
     # bs4 left with urban's logic, which now runs in the commands pod (#1030); spotipy and
     # googleapiclient left with the media_search cutover, and the forbidden set derived from
     # VOCABULARY is what stops them coming back through an import chain.
+    #
+    # boto3 left every image with the SigV4 client in discord_core's integrations/s3, which signs
+    # its own requests; it stays in VOCABULARY so re-adding it meets a refusal.
     'discord_gateway.cli.bot': frozenset({
-        'discord', 'boto3',
+        'discord',
     }),
     # The strictest image. discord is here on its own merits, not by accident:
     # workers/message_dispatcher sends and edits real messages.
     'discord_dispatcher.cli.dispatcher': frozenset({'discord'}),
-    # The S3 checkout (boto3); dappertable renders bundles. sqlalchemy left with
-    # the MR 4a cutover: the video-cache CATALOG moved to the db pod and is
-    # reached over HTTP, while the OBJECTS stayed here, which is why boto3 did
-    # not follow it out.
-    'discord_broker.cli.broker': frozenset({'boto3', 'dappertable'}),
-    # Downloads (yt_dlp) and uploads finished media (boto3).
-    'discord_downloader.cli.downloader': frozenset({'yt_dlp', 'boto3'}),
+    # dappertable renders bundles. sqlalchemy left with the MR 4a cutover: the
+    # video-cache CATALOG moved to the db pod and is reached over HTTP, while the
+    # OBJECTS stayed here (S3 through discord_core's own client, no SDK).
+    'discord_broker.cli.broker': frozenset({'dappertable'}),
+    # Downloads (yt_dlp); uploads finished media through discord_core's S3 client.
+    'discord_downloader.cli.downloader': frozenset({'yt_dlp'}),
     # Thin HTTP clients, plus the two provider SDKs it now owns outright.
     'discord_search.cli.search': frozenset({'ytmusicapi', 'spotipy', 'googleapiclient'}),
     # Owns the schema and the engine. dappertable is not a leak and not a
