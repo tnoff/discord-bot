@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.23.5] - 2026-11-16
+
+### Changed
+
+- Bumped boto3 to v1.43.126
+
 ## [3.23.4] - 2026-11-10
 
 ### Changed
