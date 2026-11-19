@@ -6,7 +6,7 @@ from opentelemetry.instrumentation.logging.handler import LoggingHandler
 import pytest
 
 from discord_core.cli._lib.common import (
-    setup_logging, setup_observability, setup_profiling, require_discord_token,
+    parse_and_validate_config, setup_logging, setup_observability, setup_profiling, require_discord_token,
 )
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import GeneralConfig
@@ -137,3 +137,21 @@ def test_setup_profiling_skips_gc_census_when_absent():
     with patch('discord_core.cli._lib.common.GcCensusProfiler') as profiler_cls:
         setup_profiling(cfg, MagicMock())
     profiler_cls.assert_not_called()
+
+
+def test_parse_and_validate_config_returns_settings_and_general_config(tmp_path):
+    '''A valid file comes back raw alongside its validated general section.'''
+    config_file = tmp_path / 'config.yml'
+    config_file.write_text('general:\n  discord_token: abctoken\nmusic:\n  enabled: true\n')
+    settings, general_config = parse_and_validate_config(str(config_file))
+    assert settings['music'] == {'enabled': True}
+    assert general_config.discord_token == 'abctoken'
+
+
+def test_parse_and_validate_config_rejects_invalid_general_section(tmp_path, capsys):
+    '''A general section that fails the schema raises DiscordBotException and says why on stderr.'''
+    config_file = tmp_path / 'config.yml'
+    config_file.write_text('general:\n  intents: not-a-list\n')
+    with pytest.raises(DiscordBotException, match='Invalid general config'):
+        parse_and_validate_config(str(config_file))
+    assert 'general section does not match schema' in capsys.readouterr().err

@@ -165,6 +165,22 @@ async def test_cog_unload_cancels_the_peer_wait(mocker, fake_context):  #pylint:
 
     wait_task.cancel.assert_called_once()
 
+
+@pytest.mark.asyncio()
+async def test_cog_unload_cancels_the_init_task(mocker, fake_context):  #pylint:disable=redefined-outer-name
+    """cog_unload cancels the startup init task if it is still running."""
+    cog = Music(fake_context['bot'], BASE_MUSIC_CONFIG, fake_context['dispatcher'])
+    cog._cleanup_task = None  # pylint: disable=protected-access
+    init_task = mocker.Mock()
+    cog._init_task = init_task  # pylint: disable=protected-access
+
+    mocker.patch('pathlib.Path.exists', return_value=False)
+    mocker.patch('discord_gateway.cogs.music.rm_tree')
+
+    await cog.cog_unload()
+
+    init_task.cancel.assert_called_once()
+
 def test_music_init_music_not_enabled(fake_context):  #pylint:disable=redefined-outer-name
     """Test Music initialization fails when music is not enabled"""
     config = music_config({

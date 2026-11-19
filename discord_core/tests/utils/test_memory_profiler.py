@@ -141,3 +141,48 @@ class TestMemoryProfiler:
         calls = mock_logger.info.call_args_list
         snapshot_logged = any('Memory snapshot' in str(call) or 'Memory Snapshot' in str(call) for call in calls)
         assert snapshot_logged, "Memory snapshot should be logged"
+
+    def test_get_top_allocations_defaults_to_top_n_lines(self):
+        """Without n, the configured top_n_lines caps the result"""
+        tracker = MemoryProfiler(top_n_lines=3)
+        tracker.start()
+        try:
+            _data = [list(range(1000)) for _ in range(10)]
+            assert len(tracker.get_top_allocations()) <= 3
+        finally:
+            tracker.stop()
+
+    def test_not_tracing_returns_empty_results(self):
+        """Every reader degrades gracefully when tracemalloc is off"""
+        tracker = MemoryProfiler()
+        with patch('discord_core.utils.memory_profiler.tracemalloc.is_tracing', return_value=False):
+            assert not tracker.get_top_allocations()
+            assert not tracker.get_allocation_diff()
+            assert tracker.get_snapshot_summary() == "Tracemalloc not running"
+
+    def test_get_snapshot_summary_without_allocations(self):
+        """An empty allocation list says so instead of printing an empty header"""
+        tracker = MemoryProfiler()
+        with patch('discord_core.utils.memory_profiler.tracemalloc.is_tracing', return_value=True), \
+                patch.object(tracker, 'get_top_allocations', return_value=[]), \
+                patch.object(tracker, 'get_allocation_diff', return_value=[]):
+            summary = tracker.get_snapshot_summary()
+        assert "No allocation data available" in summary
+        assert "allocation changes" not in summary
+
+    def test_profiling_loop_survives_summary_error(self):
+        """An error building a snapshot is logged and the loop keeps going"""
+        tracker = MemoryProfiler(interval_seconds=0)
+        tracker._running = True
+        mock_logger = Mock()
+
+        def stop_after_sleep(_seconds):
+            tracker._running = False
+
+        with patch('discord_core.utils.memory_profiler.logger', mock_logger), \
+                patch.object(tracker, 'get_snapshot_summary', side_effect=RuntimeError('boom')), \
+                patch('discord_core.utils.memory_profiler.time.sleep', side_effect=stop_after_sleep):
+            tracker._profiling_loop()
+
+        mock_logger.warning.assert_called_once()
+        assert 'boom' in mock_logger.warning.call_args[0][0]
