@@ -3,7 +3,7 @@ Result of a broker checkout.
 
 Lives in types/ rather than interfaces/broker_protocols.py because it is a plain
 dataclass that both broker clients need, while that module imports the broker
-ENGINE's dependencies (VideoCacheClient -> sqlalchemy, integrations.s3 -> boto3).
+ENGINE's dependencies (VideoCacheClient -> sqlalchemy).
 Keeping it here is what lets clients/http_broker_client.py stay importable in the
 slim search image — same split, and same reason, as interfaces/result_queue.py.
 It is re-exported from broker_protocols so existing imports keep working.

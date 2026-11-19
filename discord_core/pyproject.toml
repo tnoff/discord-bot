@@ -15,7 +15,7 @@ requires-python = ">=3.13"
 # one any more. Two kinds of package end up here for two different reasons:
 #
 # 1. Genuinely imported by discord_core's own code at runtime: aiohttp, redis,
-#    pydantic, pyaml-env, psutil, requests, boto3, the OTel stack. Verified by
+#    pydantic, pyaml-env, psutil, requests, the OTel stack. Verified by
 #    an AST scan of every file in this package with TYPE_CHECKING blocks
 #    excluded (the same rule test_the_core_does_not_import_a_seam always used).
 #
@@ -35,13 +35,12 @@ requires-python = ">=3.13"
 # broker, downloader, db and search never import cli._lib.gateway and would
 # gain a dependency they cannot reach.
 #
-# boto3 is the one new, accepted exception to precision: utils/integrations/s3.py
-# is a real, unconditional import site inside discord_core, so every pod that
-# installs discord_core now installs boto3 too, including the three (search,
-# dispatcher, db) that could not reach it before this split. That is the
-# measured cost of the criterion 8 seam-fold reversal's two-tier model, DECIDED
-# and accepted in per-image-code-split.md -- not something this list tries to
-# avoid.
+# boto3 is gone, not moved: utils/integrations/s3.py signs its own requests
+# (SigV4 over requests, already in this list). It used to be the one accepted
+# exception to precision -- every pod installed it, four of them without ever
+# importing it -- and its near-daily releases made every bump a core release
+# plus a pin bump in each pod. Don't add it back for S3; see that module's
+# docstring for why.
 #
 # pydantic-yaml and pytz were in the old monorepo base set and are dropped
 # here: a repo-wide search (production code, tests, docs) found zero import
@@ -62,7 +61,6 @@ dependencies = [
     "pyaml-env==1.2.2",
     "psutil==7.2.2",
     "requests==2.34.2",
-    "boto3==1.43.126",
 ]
 
 [tool.setuptools.dynamic]
