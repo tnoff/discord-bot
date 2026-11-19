@@ -13,6 +13,9 @@ Configured from the same environment variables boto3 read, so a deployment needs
     AWS_SESSION_TOKEN                           optional, for temporary credentials
     AWS_REGION / AWS_DEFAULT_REGION             the signing region (Oracle: e.g. us-ashburn-1)
     AWS_ENDPOINT_URL_S3 / AWS_ENDPOINT_URL      the endpoint; AWS's regional one when unset
+    AWS_MAX_ATTEMPTS                            optional; attempts per request, the first included
+    S3_CONNECT_TIMEOUT / S3_READ_TIMEOUT        optional; seconds
+    S3_RETRY_BACKOFF                            optional; seconds before the first retry
 
 Requests always use path-style addressing (`<endpoint>/<bucket>/<key>`), which Oracle requires
 and AWS still serves. Unlike boto3 there is no instance-role or ~/.aws lookup: only the variables
@@ -47,12 +50,17 @@ DIGEST_CHUNK_BYTES = 1024 * 1024
 _KEY_DIGEST = re.compile(rf'\.sha256-(?P<digest>[0-9a-f]{{{DIGEST_LENGTH}}})(?:\.[^./]*)?$')
 
 DEFAULT_REGION = 'us-east-1'
-# (connect, read) seconds. Objects are whole songs held in memory, so the read timeout is generous.
-REQUEST_TIMEOUT = (10, 300)
-# Retries on connection errors, throttling and 5xx, as boto3's default retry mode did. The signature
-# stays valid across them: S3 allows 15 minutes of clock skew.
-RETRY_TOTAL = 4
-RETRY_BACKOFF = 0.5
+# Defaults for the tunables below; each can be overridden from the environment (see config_from_env).
+# Seconds. Objects are whole songs held in memory, so the read timeout is generous.
+DEFAULT_CONNECT_TIMEOUT = 10.0
+DEFAULT_READ_TIMEOUT = 300.0
+# Attempts per request, the first included, as AWS_MAX_ATTEMPTS counts them: 5 is boto3's default.
+# Retries cover connection errors, throttling and 5xx. The signature stays valid across them: S3
+# allows 15 minutes of clock skew.
+DEFAULT_MAX_ATTEMPTS = 5
+# Seconds; urllib3 doubles it each retry.
+DEFAULT_RETRY_BACKOFF = 0.5
+# Not configurable: these are the statuses S3 documents as worth retrying.
 RETRY_STATUSES = (429, 500, 502, 503, 504)
 
 SIGNING_ALGORITHM = 'AWS4-HMAC-SHA256'
@@ -129,17 +137,39 @@ def key_digest(key: str) -> str | None:
 @dataclass(frozen=True)
 class S3Config:
     '''
-    Where requests go and what they are signed with.
+    Where requests go, what they are signed with, and how long and how often they are tried.
     '''
     endpoint: str
     region: str
     access_key_id: str
     secret_access_key: str
     session_token: str | None = None
+    connect_timeout: float = DEFAULT_CONNECT_TIMEOUT
+    read_timeout: float = DEFAULT_READ_TIMEOUT
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS
+    retry_backoff: float = DEFAULT_RETRY_BACKOFF
+
+def _env_number(env, name: str, default, cast, minimum):
+    raw = env.get(name)
+    if raw is None or raw == '':
+        return default
+    try:
+        value = cast(raw)
+    except ValueError as e:
+        raise ObjectStorageException(f'{name} must be a number, got {raw!r}') from e
+    if value < minimum:
+        raise ObjectStorageException(f'{name} must be at least {minimum}, got {raw!r}')
+    return value
 
 def config_from_env(environ: dict | None = None) -> S3Config:
     '''
     Read the S3 configuration from the environment, under the variable names boto3 used.
+
+    The tunables are optional, each falling back to its DEFAULT_* constant:
+
+        S3_CONNECT_TIMEOUT / S3_READ_TIMEOUT   seconds
+        AWS_MAX_ATTEMPTS                       attempts per request, the first included (1 = no retries)
+        S3_RETRY_BACKOFF                       seconds before the first retry, doubling after
     '''
     env = os.environ if environ is None else environ
     access_key_id = env.get('AWS_ACCESS_KEY_ID')
@@ -155,6 +185,10 @@ def config_from_env(environ: dict | None = None) -> S3Config:
         access_key_id=access_key_id,
         secret_access_key=secret_access_key,
         session_token=env.get('AWS_SESSION_TOKEN') or None,
+        connect_timeout=_env_number(env, 'S3_CONNECT_TIMEOUT', DEFAULT_CONNECT_TIMEOUT, float, 0.001),
+        read_timeout=_env_number(env, 'S3_READ_TIMEOUT', DEFAULT_READ_TIMEOUT, float, 0.001),
+        max_attempts=_env_number(env, 'AWS_MAX_ATTEMPTS', DEFAULT_MAX_ATTEMPTS, int, 1),
+        retry_backoff=_env_number(env, 'S3_RETRY_BACKOFF', DEFAULT_RETRY_BACKOFF, float, 0),
     )
 
 def _uri_encode(value: str, safe: str = '') -> str:
@@ -244,11 +278,11 @@ def _error_code(response: requests.Response) -> str | None:
         return None
     return _child_text(root, 'Code')
 
-def _session() -> requests.Session:
+def _session(config: S3Config) -> requests.Session:
     session = requests.Session()
     retry = Retry(
-        total=RETRY_TOTAL,
-        backoff_factor=RETRY_BACKOFF,
+        total=config.max_attempts - 1,
+        backoff_factor=config.retry_backoff,
         status_forcelist=RETRY_STATUSES,
         allowed_methods=frozenset({'GET', 'PUT', 'DELETE', 'HEAD'}),
         raise_on_status=False,
@@ -279,9 +313,9 @@ def s3_request(method: str, bucket: str, key: str = '', *, #pylint:disable=too-m
     # and unreserved characters alone, and the encoding above produces nothing else.
     url = f'{endpoint.scheme}://{endpoint.netloc}{canonical_uri}' + (f'?{query}' if query else '')
     try:
-        with _session() as session:
+        with _session(config) as session:
             response = session.request(method, url, data=body or None, headers=signed,
-                                       timeout=REQUEST_TIMEOUT)
+                                       timeout=(config.connect_timeout, config.read_timeout))
     except requests.RequestException as e:
         raise S3RequestError(f'{method} {bucket}/{key} failed: {e}') from e
     if response.status_code >= 300:

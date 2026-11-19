@@ -38,7 +38,8 @@ class FakeStore:
         self.responses = []
         self.error = None
 
-    def __call__(self):
+    def __call__(self, config):
+        self.config = config  # pylint: disable=attribute-defined-outside-init
         return self
 
     def __enter__(self):
@@ -56,7 +57,8 @@ class FakeStore:
 
 @pytest.fixture
 def store(monkeypatch):
-    for name in ('AWS_ENDPOINT_URL', 'AWS_SESSION_TOKEN', 'AWS_DEFAULT_REGION'):
+    for name in ('AWS_ENDPOINT_URL', 'AWS_SESSION_TOKEN', 'AWS_DEFAULT_REGION', 'AWS_MAX_ATTEMPTS',
+                 'S3_CONNECT_TIMEOUT', 'S3_READ_TIMEOUT', 'S3_RETRY_BACKOFF'):
         monkeypatch.delenv(name, raising=False)
     for name, value in ENV.items():
         monkeypatch.setenv(name, value)
@@ -156,6 +158,39 @@ def test_config_from_env_uses_the_generic_endpoint_and_strips_the_slash():
     assert config.endpoint == 'http://localhost:9000'
 
 
+def test_config_from_env_defaults_the_tunables():
+    config = config_from_env(ENV)
+    assert (config.connect_timeout, config.read_timeout) == (s3.DEFAULT_CONNECT_TIMEOUT, s3.DEFAULT_READ_TIMEOUT)
+    assert config.max_attempts == s3.DEFAULT_MAX_ATTEMPTS
+    assert config.retry_backoff == s3.DEFAULT_RETRY_BACKOFF
+
+
+def test_config_from_env_overrides_the_tunables():
+    config = config_from_env({**ENV, 'S3_CONNECT_TIMEOUT': '3', 'S3_READ_TIMEOUT': '45.5',
+                              'AWS_MAX_ATTEMPTS': '1', 'S3_RETRY_BACKOFF': '0', 'AWS_REGION': ''})
+    assert (config.connect_timeout, config.read_timeout) == (3.0, 45.5)
+    assert config.max_attempts == 1
+    assert config.retry_backoff == 0.0
+    # One attempt means no retries at all.
+    assert s3._session(config).get_adapter('https://example.com').max_retries.total == 0  # pylint: disable=protected-access
+
+
+def test_config_from_env_treats_an_empty_tunable_as_unset():
+    assert config_from_env({**ENV, 'S3_READ_TIMEOUT': ''}).read_timeout == s3.DEFAULT_READ_TIMEOUT
+
+
+@pytest.mark.parametrize('name, value, message', [
+    ('S3_READ_TIMEOUT', 'soon', 'must be a number'),
+    ('AWS_MAX_ATTEMPTS', '2.5', 'must be a number'),
+    ('AWS_MAX_ATTEMPTS', '0', 'must be at least 1'),
+    ('S3_CONNECT_TIMEOUT', '0', 'must be at least'),
+    ('S3_RETRY_BACKOFF', '-1', 'must be at least 0'),
+])
+def test_config_from_env_rejects_bad_tunables(name, value, message):
+    with pytest.raises(ObjectStorageException, match=f'{name} {message}'):
+        config_from_env({**ENV, name: value})
+
+
 def test_config_from_env_requires_keys():
     with pytest.raises(ObjectStorageException, match='AWS_ACCESS_KEY_ID'):
         config_from_env({'AWS_ACCESS_KEY_ID': 'k'})
@@ -174,7 +209,7 @@ def test_s3_request_uses_path_style_and_encodes_the_key(store):  # pylint: disab
     assert 'Credential=test-key/' in call['headers']['authorization']
     assert '/us-ashburn-1/s3/aws4_request' in call['headers']['authorization']
     assert call['data'] is None
-    assert call['timeout'] == s3.REQUEST_TIMEOUT
+    assert call['timeout'] == (s3.DEFAULT_CONNECT_TIMEOUT, s3.DEFAULT_READ_TIMEOUT)
 
 
 def test_s3_request_keeps_an_endpoint_path_and_port(store, monkeypatch):  # pylint: disable=redefined-outer-name
@@ -209,9 +244,17 @@ def test_s3_request_wraps_connection_errors(store):  # pylint: disable=redefined
         s3_request('GET', 'b', 'k')
 
 
+def test_s3_request_uses_the_configured_timeouts(store, monkeypatch):  # pylint: disable=redefined-outer-name
+    monkeypatch.setenv('S3_CONNECT_TIMEOUT', '2.5')
+    monkeypatch.setenv('S3_READ_TIMEOUT', '60')
+    s3_request('GET', 'b', 'k')
+    assert store.calls[0]['timeout'] == (2.5, 60.0)
+
+
 def test_session_retries_transient_failures():
-    retry = s3._session().get_adapter('https://example.com').max_retries  # pylint: disable=protected-access
-    assert retry.total == s3.RETRY_TOTAL
+    retry = s3._session(config_from_env(ENV)).get_adapter('https://example.com').max_retries  # pylint: disable=protected-access
+    assert retry.total == s3.DEFAULT_MAX_ATTEMPTS - 1
+    assert retry.backoff_factor == s3.DEFAULT_RETRY_BACKOFF
     assert 503 in retry.status_forcelist
     assert 'PUT' in retry.allowed_methods
 
