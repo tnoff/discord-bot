@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.1.20] - 2026-11-20
+
+### Changed
+
+- Added a test for YouTube playlist pagination across pages
+
 ## [3.1.19] - 2026-11-10
 
 ### Changed

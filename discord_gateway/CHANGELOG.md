@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.17.2] - 2026-11-20
+
+### Changed
+
+- Added a test for cog unload cancelling the music init task
+
 ## [3.17.1] - 2026-11-10
 
 ### Changed

@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.4] - 2026-11-20
+
+### Changed
+
+- Added a test for a fixed-mode YouTube pop that finds only a stale guild entry
+
 ## [3.5.3] - 2026-11-10
 
 ### Changed

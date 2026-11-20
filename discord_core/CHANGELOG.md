@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.23.6] - 2026-11-20
+
+### Changed
+
+- Added tests for FailureQueue, MemoryProfiler's not-tracing and error paths, config validation failures, and broker checkout's legacy miss shape
+
 ## [3.23.5] - 2026-11-16
 
 ### Changed

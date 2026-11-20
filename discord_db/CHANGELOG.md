@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.2.3] - 2026-11-20
+
+### Changed
+
+- Added tests for setup_db with no DSN and both dispose_db_engine branches
+
 ## [3.2.2] - 2026-11-10
 
 ### Changed
