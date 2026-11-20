@@ -104,6 +104,12 @@ filterwarnings = [
 # `relative_files` does NOT fix this. It makes the <source> entries relative and
 # leaves the filenames stripped, which was measured before choosing this.
 source = ["."]
+# SQLAlchemy's asyncio layer runs DBAPI-level code (connect events, cursor
+# calls) inside greenlets. Without greenlet tracing, coverage misses every line
+# executed there -- e.g. the SQLite PRAGMA listener in discord_db/cli/_lib/db.py
+# reads as uncovered even though test_sqlite_support asserts its effects.
+# "thread" is coverage's default and must be listed explicitly once this is set.
+concurrency = ["greenlet", "thread"]
 omit = [
     "tests/*",
     # Criterion 8 step 5 nested each package's own test tree at

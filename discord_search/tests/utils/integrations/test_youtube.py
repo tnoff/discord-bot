@@ -93,3 +93,43 @@ def test_youtube_playlist_get_with_page_token(mocker):
     assert '1234ABC' in result.items[0].search_string
     assert result.items[0].title == 'Episode 0'
     assert result.collection_name == 'Example Playlist'
+
+class MockPagedPlaylistItems():
+    '''Serves two pages, recording the pageToken each request asked for.'''
+    def __init__(self):
+        self.page_tokens = []
+
+    def list(self, **kwargs):
+        self.page_tokens.append(kwargs['pageToken'])
+        last_page = kwargs['pageToken'] is not None
+        return MockPagedRequest(video_id='second' if last_page else 'first',
+                                next_token=None if last_page else 'page-2')
+
+class MockPagedRequest():
+    def __init__(self, video_id, next_token):
+        self.video_id = video_id
+        self.next_token = next_token
+
+    def execute(self):
+        return {
+            'items': [{'snippet': {'title': self.video_id, 'resourceId': {'videoId': self.video_id}}}],
+            'nextPageToken': self.next_token,
+        }
+
+class MockPagedYoutube():
+    def __init__(self):
+        self.items = MockPagedPlaylistItems()
+
+    def playlistItems(self): #pylint: disable=invalid-name
+        return self.items
+
+    def playlists(self):
+        return MockYoutubePlaylist()
+
+def test_youtube_playlist_get_follows_next_page_token(mocker):
+    youtube = MockPagedYoutube()
+    mocker.patch('discord_search.utils.integrations.youtube.build', return_value=youtube)
+    result = YoutubeClient('foo').playlist_get('1234')
+    assert youtube.items.page_tokens == [None, 'page-2']
+    assert [item.title for item in result.items] == ['first', 'second']
+    assert result.collection_name == 'Example Playlist'

@@ -379,7 +379,7 @@ def test_the_tox_gates_cover_every_root_on_disk():
     --cov=discord_bot`, all three keyed on the root by name. The moment a
     package is hoisted out of `discord_bot/`, all three go on passing while
     covering strictly less -- and the coverage one is the worst of them, because
-    `--cov-fail-under=99` stays green against a shrinking denominator. A gate
+    `--cov-fail-under=100` stays green against a shrinking denominator. A gate
     that quietly stops measuring the thing it guards is the failure this project
     has logged five times under other names.
 

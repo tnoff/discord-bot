@@ -325,6 +325,16 @@ async def test_round_robin_pop_skips_empty_guild_entry():
     assert await w._manager.client.zrange(GUILDS_DIRECT_KEY, 0, -1) == []
 
 
+@pytest.mark.asyncio
+async def test_youtube_pop_with_stale_guild_entry_returns_none_and_claims_no_window():
+    w = _worker()
+    w._now_seconds = lambda: 1000.0
+    # The pool's ZSET is non-empty, so the lock-free check passes, but the guild has no request.
+    await w._manager.client.zadd(GUILDS_YOUTUBE_KEY, {'7': 1.0})
+    assert await w._atomic_pop_youtube() is None
+    assert await w._manager.client.get(w._youtube_wait_until_key) is None
+
+
 # --------------------------------------------------------------------------- #
 # backoff_wait
 # --------------------------------------------------------------------------- #

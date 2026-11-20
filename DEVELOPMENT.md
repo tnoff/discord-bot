@@ -114,7 +114,7 @@ venv/bin/pytest discord_gateway/tests/cogs/test_music.py -q   # single file
 venv/bin/pytest --cov --cov-report=html               # coverage, no path arg either
 ```
 
-Coverage threshold is 99% (`--cov-fail-under=99` in `tox.ini`), measured
+Coverage threshold is 100% (`--cov-fail-under=100` in `tox.ini`), measured
 against `source = ["."]` in `pyproject.toml`'s `[tool.coverage.run]` — repo-rooted,
 not a single package. All async tests must be marked `@pytest.mark.asyncio`
 (mode is `strict`); see `[tool.pytest.ini_options]` in `pyproject.toml`.
