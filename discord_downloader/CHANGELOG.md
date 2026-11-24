@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.5] - 2026-11-24
+
+### Changed
+
+- Bumped yt-dlp to v2026.11.23
+
 ## [3.5.4] - 2026-11-20
 
 ### Changed
