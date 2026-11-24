@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.1.21] - 2026-11-24
+
+### Changed
+
+- Bumped ytmusicapi to v1.12.4
+
 ## [3.1.20] - 2026-11-20
 
 ### Changed
