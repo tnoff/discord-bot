@@ -1233,6 +1233,10 @@ components:
           - type: 'null'
           default: null
           title: Error Detail
+        understood:
+          default: false
+          title: Understood
+          type: boolean
       required:
       - success
       title: DownloadStatus
@@ -1490,6 +1494,10 @@ components:
           - type: 'null'
           default: null
           title: Max Retries
+        notify:
+          default: true
+          title: Notify
+          type: boolean
       required:
       - event
       title: LifecycleStatusUpdate
