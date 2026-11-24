@@ -490,12 +490,16 @@ def test_broker_protocols_does_not_import_sqlalchemy():
     VideoCacheClient is what removed sqlalchemy from the chain; measuring it
     here is what stops a future annotation putting it back by hand.
 
-    boto3 is deliberately not asserted absent: delete_file keeps it, and this
-    test would then be asserting a fix that has not happened.
+    boto3 is asserted absent too: delete_file reaches discord_core's own S3 client,
+    which signs its requests with `requests`.
     '''
     packages = set(measure('discord_broker.interfaces.broker_protocols')['packages'])
     assert 'sqlalchemy' not in packages, (
         'broker_protocols pulled sqlalchemy back into its import chain. Something '
         'in it now names a module under discord_bot.database or a client that does '
         '-- annotate against the Protocol in interfaces/database_protocols instead.'
+    )
+    assert 'boto3' not in packages, (
+        'broker_protocols pulled boto3 back into its import chain. discord_core signs its own '
+        'S3 requests; do not add boto3 back for it.'
     )

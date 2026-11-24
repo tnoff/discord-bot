@@ -1,5 +1,6 @@
 '''Tests for RedisBroker — Redis-backed media broker implementation.'''
 import asyncio
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -696,6 +697,23 @@ async def test_evict_cache_evict_all_flags_every_row_and_counts():
     video_cache.ready_remove.assert_awaited_once_with(evict_all=True)
     assert [call.args for call in mock_delete.call_args_list] == [('my-bucket', 'cache/a.pcm'), ('my-bucket', 'cache/b.pcm')]
     video_cache.remove_video_cache.assert_awaited_once_with([1, 2])
+
+
+@pytest.mark.asyncio
+async def test_evict_cache_deletes_objects_off_the_event_loop():
+    '''delete_file is a blocking HTTP call, so it must not run on the loop's own thread.'''
+    video_cache = MagicMock()
+    deletable = [VideoCacheEntry(id=1, video_url='https://example.com/a', base_path='cache/a.pcm')]
+    video_cache.ready_remove = AsyncMock()
+    video_cache.get_deletable_entries = AsyncMock(return_value=deletable)
+    video_cache.remove_video_cache = AsyncMock()
+    broker = _make_broker(video_cache=video_cache, bucket_name='my-bucket')
+    threads = []
+    with patch('discord_broker.interfaces.broker_protocols.delete_file',
+               side_effect=lambda *_: threads.append(threading.get_ident())):
+        await broker.evict_cache()
+    assert len(threads) == 1
+    assert threads[0] != threading.get_ident()
 
 
 @pytest.mark.asyncio

@@ -2,8 +2,8 @@ FROM python:3.15-slim-bookworm
 
 # Standalone downloader pod — yt-dlp + ffmpeg + deno + S3 upload.
 # Runs the redis-backed download queue consumer + DownloadHttpServer; no gateway
-# connection.  Installs the full [bot] extra: the download pipeline needs boto3
-# for S3 upload and yt-dlp/ffmpeg/deno for the actual downloads.  No git needed —
+# connection.  Installs the full [bot] extra: the download pipeline needs
+# yt-dlp/ffmpeg/deno for the actual downloads (S3 upload is discord_core's own client).  No git needed —
 # the only VCS dep (dappertable) is pinned to a GitLab release tarball URL.
 
 # Setup venv
