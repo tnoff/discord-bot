@@ -143,6 +143,18 @@ def test_state_machine_mark_retry_download(fake_context):  #pylint:disable=redef
     assert req.download_retry_information.retry_reason == 'ytdlp error'
     assert req.download_retry_information.retry_backoff_seconds == 30
 
+def test_state_machine_mark_retry_download_notify_false_pre_marks_sent(fake_context):  #pylint:disable=redefined-outer-name
+    """notify=False still enters the retry stage but marks the reason as already
+    sent, so no 'Retrying ...' note is ever rendered for it."""
+    req = fake_source_dict(fake_context)
+    req.state_machine.mark_retry_download('timed out', retry_count=1, notify=False)
+    assert req.lifecycle_stage == MediaRequestLifecycleStage.RETRY_DOWNLOAD
+    assert req.download_retry_information.retry_reason == 'timed out'
+    assert req.download_retry_information.retry_reason_sent is True
+    # A later notifying retry re-arms the note.
+    req.state_machine.mark_retry_download('unknown', retry_count=2)
+    assert req.download_retry_information.retry_reason_sent is False
+
 def test_state_machine_mark_retry_download_no_backoff(fake_context):  #pylint:disable=redefined-outer-name
     """mark_retry_download coerces a None backoff to 0, keeping retry_backoff_seconds
     a valid int — a None would break BundleState re-validation in the broker (pool

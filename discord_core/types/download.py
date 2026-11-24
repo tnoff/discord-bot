@@ -50,6 +50,10 @@ class LifecycleStatusUpdate(BaseModel):
     # ("attempt 4/3" in prod on 2026-08-13, downloader at 5 vs broker default 3).
     # Carrying it with the count keeps one owner for both halves of the ratio.
     max_retries: int | None = None
+    # False for a RETRY the downloader fully understands (bot flag, known
+    # transient network error): the request still moves to the retry stage, but
+    # no "Retrying ..." note is shown. Only the terminal failure is surfaced.
+    notify: bool = True
 
 
 class DownloadErrorType(str, Enum):
@@ -147,6 +151,10 @@ KNOWN_TRANSIENT_ERROR_MARKERS = frozenset({
     # yt-dlp fails the whole download instead of leaving a gap in the audio:
     #   "fragment 12 not found, unable to continue"
     'not found, unable to continue',
+    # googlevideo answered 200 but the body held no media blocks; yt-dlp reports
+    #   "ERROR: Did not get any data blocks"
+    # and a re-fetch (usually via another exit) succeeds.
+    'Did not get any data blocks',
 })
 
 
@@ -175,6 +183,10 @@ class DownloadStatus(BaseModel):
     error_type: DownloadErrorType | None = None
     user_message: str | None = None
     error_detail: str | None = None
+    # True on a retryable failure the downloader recognises (bot flag, known
+    # transient network error). Such retries are not announced in the UI; an
+    # unrecognised failure stays False so its retry note is still shown.
+    understood: bool = False
 
 
 # The only keys any consumer reads out of yt-dlp's info dict. MediaDownload
