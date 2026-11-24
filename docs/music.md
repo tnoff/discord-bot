@@ -521,7 +521,20 @@ music:
       bucket_name: my-music-bucket
 ```
 
-The client assumes AWS credentials are available via environment variables or instance role — no credentials are configured in the bot config itself.
+No credentials go in the bot config. The S3 client (`discord_core/utils/integrations/s3.py`) reads them from the environment, under the same names the AWS SDKs use:
+
+| Variable | Meaning |
+|---|---|
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Static keys (required). On Oracle Object Storage, a Customer Secret Key. |
+| `AWS_SHARED_CREDENTIALS_FILE`, `AWS_PROFILE` | Optional. Where to read the keys when the two variables above are unset: that file (default `~/.aws/credentials`), section `AWS_PROFILE` (default `default`), keys `aws_access_key_id`, `aws_secret_access_key` and optionally `aws_session_token`. The pods use this with a mounted file. |
+| `AWS_SESSION_TOKEN` | Optional, for temporary credentials. |
+| `AWS_REGION` (or `AWS_DEFAULT_REGION`) | Signing region; defaults to `us-east-1`. On Oracle, the region identifier, e.g. `us-ashburn-1`. |
+| `AWS_ENDPOINT_URL_S3` (or `AWS_ENDPOINT_URL`) | Endpoint for an S3-compatible store, e.g. `https://<namespace>.compat.objectstorage.us-ashburn-1.oraclecloud.com`. Unset, AWS's regional endpoint. |
+| `AWS_MAX_ATTEMPTS` | Optional. Attempts per request, the first included; default `5`, and `1` turns retries off. |
+| `S3_CONNECT_TIMEOUT`, `S3_READ_TIMEOUT` | Optional. Seconds; default `10` and `300`. |
+| `S3_RETRY_BACKOFF` | Optional. Seconds before the first retry, doubling after; default `0.5`. |
+
+Requests use path-style addressing (`<endpoint>/<bucket>/<key>`) and are signed with AWS Signature Version 4. There is no instance-role lookup, and `~/.aws/config` is not read: region and endpoint come from the variables above. The keys come from the environment first, then the credentials file. Connection errors, throttling (429) and 5xx responses are retried with backoff. A tunable that is not a number, or is below its minimum, fails the call with an `ObjectStorageException` naming the variable.
 
 You can also configure how many songs are pre-staged from S3 to local disk ahead of the player (the prefetch window). Prefetching runs as a background task during playback, so up to N upcoming songs are already on disk by the time each one starts — eliminating S3 download latency between tracks. Set to `0` to disable prefetching entirely.
 
