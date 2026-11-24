@@ -79,7 +79,7 @@ class AsyncioBroker(BundleAttachMixin, MediaBrokerBase):
         elif update.event == LifecycleEvent.RETRY:
             entry.request.state_machine.mark_retry_download(
                 update.error_detail, update.backoff_seconds, update.retry_count,
-                update.max_retries)
+                update.max_retries, update.notify)
         elif update.event == LifecycleEvent.RETRY_SEARCH:
             entry.request.state_machine.mark_retry_search(
                 update.error_detail, update.backoff_seconds, update.retry_count,

@@ -478,9 +478,13 @@ search pod on the same terms.
 When a retryable error occurs:
 1. The retry count for the media request is incremented
 2. If retries remain (retry_count < max_download_retries), the request is re-queued
-3. The bundle status shows "Failed, will retry: <track name>"
+3. The channel shows `Retrying "<track name>" (attempt N/M)` with the error, unless the
+   downloader recognises the error (bot flag, or a known transient such as a timeout,
+   `EOFError` or `Did not get any data blocks`). Recognised retries are silent; an
+   unrecognised error is still shown, since it may be a matcher gone stale
 4. The request is processed again from the download queue
-5. If all retries are exhausted, the request is marked as permanently failed
+5. If all retries are exhausted, the request is marked as permanently failed and the failure
+   summary reports `Download failed after N attempts: <last error>`
 
 Step 2 holds the request off the queue before it becomes eligible again, doubling
 per attempt (30s, 60s, 120s, …, capped at 300s):

@@ -136,7 +136,7 @@ class RedisBroker(MediaBrokerBase):
         elif update.event == LifecycleEvent.RETRY:
             media_request.state_machine.mark_retry_download(
                 update.error_detail, update.backoff_seconds, update.retry_count,
-                update.max_retries
+                update.max_retries, update.notify
             )
         elif update.event == LifecycleEvent.RETRY_SEARCH:
             media_request.state_machine.mark_retry_search(
