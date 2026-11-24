@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.23.9] - 2026-11-24
+
+### Changed
+
+- Bumped redis to v8.2.0
+
 ## [3.23.8] - 2026-11-24
 
 ### Changed
