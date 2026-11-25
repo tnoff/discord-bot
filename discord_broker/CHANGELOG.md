@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.8.6] - 2026-11-25
+
+### Changed
+
+- Retry lifecycle updates with `notify=False` no longer render a "Retrying..." note.
+
 ## [3.8.5] - 2026-11-25
 
 ### Changed

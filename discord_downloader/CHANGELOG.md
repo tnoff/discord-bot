@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.10] - 2026-11-25
+
+### Changed
+
+- Bot-flag and known-transient download retries no longer post a "Retrying..." note (unrecognised errors still do), and an exhausted retry budget now reports the last error as the failure reason.
+
 ## [3.5.9] - 2026-11-25
 
 ### Changed
