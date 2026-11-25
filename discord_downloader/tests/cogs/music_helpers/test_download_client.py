@@ -1613,6 +1613,52 @@ async def test_run_retryable_requeues_and_increments_retry_count():
 
 
 @pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.parametrize('error,quiet', [
+    ('Read timed out.', True),
+    ('ERROR: Did not get any data blocks', True),
+    ("Sign in to confirm you're not a bot", True),
+    ('Some random unknown error', False),
+])
+async def test_run_retry_is_quiet_only_for_understood_errors(error, quiet):
+    '''Understood failures retry without a UI note; unrecognised ones stay visible,
+    since they may be a matcher gone stale against reworded upstream text.'''
+    fake_context = generate_fake_context()
+    mock_broker = AsyncMock()
+    client = make_download_client(yield_dlp_error(error), broker=mock_broker, max_retries=5)
+    mr = fake_source_dict(fake_context)
+    await client.submit(mr.guild_id, mr)
+    await client.run(asyncio.Event())
+    retry_update = next(call.args[1] for call in mock_broker.update_request_status.call_args_list
+                        if call.args[1].event == LifecycleEvent.RETRY)
+    assert retry_update.notify is (not quiet)
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retry_limit_exceeded_carries_last_error_for_the_user():
+    '''Quiet retries mean the terminal failure is the first time the user sees the
+    reason, so it must carry one (a None user_message renders no failure summary).'''
+    fake_context = generate_fake_context()
+    x = make_download_client(yield_dlp_error('ERROR: Did not get any data blocks'))
+    y = fake_source_dict(fake_context)
+    y.download_retry_information.retry_count = 2
+    result = await x.create_source(y, 3)
+    assert result.status.error_type == DownloadErrorType.RETRY_LIMIT_EXCEEDED
+    assert 'after 3 attempts' in result.status.user_message
+    assert 'Did not get any data blocks' in result.status.user_message
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_retry_limit_exceeded_on_bot_flagged_carries_user_message():
+    '''The bot-flag branch gives the same terminal message.'''
+    fake_context = generate_fake_context()
+    x = make_download_client(yield_dlp_error("Sign in to confirm you're not a bot"))
+    y = fake_source_dict(fake_context)
+    y.download_retry_information.retry_count = 2
+    result = await x.create_source(y, 3)
+    assert 'not a bot' in result.status.user_message
+
+
+@pytest.mark.asyncio(loop_scope="session")
 async def test_run_no_exit_available_requeues_without_retry(mocker):
     '''run() re-queues a NO_EXIT_AVAILABLE (pure contention) item without touching
     retry_count or emitting a RETRY — the item was never actually attempted.'''

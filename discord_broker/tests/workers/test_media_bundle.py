@@ -242,6 +242,20 @@ def test_get_retry_summary_includes_attempt_count(fake_context):  # pylint: disa
     assert renderer.get_retry_summary(3, 3) is None
 
 
+def test_get_retry_summary_skips_quiet_retry(fake_context):  # pylint: disable=redefined-outer-name
+    '''A retry recorded with notify=False renders no note.'''
+    renderer = BundleRenderer.new(
+        fake_context['guild'].id, fake_context['channel'].id,
+    )
+    mr = fake_source_dict(fake_context)
+    mr.state_machine.mark_queued()
+    renderer.add_media_request(mr)
+    renderer.all_requests_added()
+
+    mr.state_machine.mark_retry_download('timed out', retry_count=1, max_retries=5, notify=False)
+    assert renderer.get_retry_summary(download_max_retries=5, search_max_retries=5) is None
+
+
 def test_get_retry_summary_prefers_worker_reported_max(fake_context):  # pylint: disable=redefined-outer-name
     '''The M in "attempt N/M" comes from the worker that owns the N.
 

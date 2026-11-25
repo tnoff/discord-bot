@@ -669,6 +669,9 @@ class DownloadWorkerBase(ABC):
                     backoff_seconds=retry_delay or self.backoff_seconds_remaining,
                     retry_count=media_request.download_retry_information.retry_count,
                     max_retries=self._max_retries,
+                    # Understood failures retry silently; only the terminal
+                    # failure (or an unrecognised error) is shown to users.
+                    notify=not result.status.understood,
                 ))
             await self._requeue_after_retry(media_request, retry_delay)
             return
@@ -682,16 +685,27 @@ class DownloadWorkerBase(ABC):
             await self._broker.register_download_result(result)
 
     @staticmethod
+    def _retry_limit_message(max_retries: int, error_str: str) -> str:
+        '''User-facing failure for an exhausted retry budget.
+
+        Retries are shown only when unrecognised, so for a known-transient error this
+        is the first time the user sees the underlying reason.
+        '''
+        return f'Download failed after {max_retries} attempts: {error_str[:300]}'
+
+    @staticmethod
     def _make_error_result(
         error_type: DownloadErrorType,
         media_request: MediaRequest,
         span_context: dict | None,
         error_detail: str,
         user_message: str | None = None,
+        understood: bool = False,
     ) -> DownloadResult:
         '''Build a failed DownloadResult with no file data.'''
         return DownloadResult(
-            status=DownloadStatus(success=False, error_type=error_type, user_message=user_message, error_detail=error_detail),
+            status=DownloadStatus(success=False, error_type=error_type, user_message=user_message,
+                                  error_detail=error_detail, understood=understood),
             media_request=media_request,
             ytdlp_data=None,
             file_name=None,
@@ -779,9 +793,12 @@ class DownloadWorkerBase(ABC):
                     span.record_exception(error)
                     if media_request.download_retry_information.retry_count + 1 >= max_retries:
                         span.set_status(StatusCode.ERROR)
-                        return self._make_error_result(DownloadErrorType.RETRY_LIMIT_EXCEEDED, media_request, span_context, error_str)
+                        return self._make_error_result(
+                            DownloadErrorType.RETRY_LIMIT_EXCEEDED, media_request, span_context, error_str,
+                            user_message=self._retry_limit_message(max_retries, error_str))
                     span.set_status(StatusCode.OK)
-                    return self._make_error_result(DownloadErrorType.BOT_FLAGGED, media_request, span_context, error_str)
+                    return self._make_error_result(
+                        DownloadErrorType.BOT_FLAGGED, media_request, span_context, error_str, understood=True)
                 # Fallback: no branch above matched. Retrying is the right answer
                 # either way, so behaviour is identical -- but the two reasons we get
                 # here are not. A socks timeout or a yt-dlp EOFError is understood and
@@ -793,14 +810,17 @@ class DownloadWorkerBase(ABC):
                 # error_classified separates them, so a Tempo query for false returns
                 # matchers to re-check rather than the EOFError burst that would
                 # otherwise dominate it and train everyone to ignore the signal.
-                span.set_attribute(AttributeNaming.DOWNLOAD_ERROR_CLASSIFIED.value,
-                                   is_known_transient(match_str))
+                understood = is_known_transient(match_str)
+                span.set_attribute(AttributeNaming.DOWNLOAD_ERROR_CLASSIFIED.value, understood)
                 span.record_exception(error)
                 if media_request.download_retry_information.retry_count + 1 >= max_retries:
                     span.set_status(StatusCode.ERROR)
-                    return self._make_error_result(DownloadErrorType.RETRY_LIMIT_EXCEEDED, media_request, span_context, error_str)
+                    return self._make_error_result(
+                        DownloadErrorType.RETRY_LIMIT_EXCEEDED, media_request, span_context, error_str,
+                        user_message=self._retry_limit_message(max_retries, error_str))
                 span.set_status(StatusCode.OK)
-                return self._make_error_result(DownloadErrorType.RETRYABLE, media_request, span_context, error_str)
+                return self._make_error_result(
+                    DownloadErrorType.RETRYABLE, media_request, span_context, error_str, understood=understood)
             # Make sure we get the first media_request here
             # Since we don't pass "url" directly anymore
             try:
