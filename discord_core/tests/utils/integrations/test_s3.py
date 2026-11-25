@@ -3,14 +3,19 @@ import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
+import aiohttp
 import pytest
+import pytest_asyncio
 import requests
+from aiohttp import web
+from aiohttp.test_utils import TestServer
 
 from discord_core.utils.integrations import s3
 from discord_core.utils.integrations.s3 import (
-    upload_file, get_file, delete_file, ObjectStorageException, S3Config, S3RequestError,
+    upload_file, get_file, delete_file, ObjectDigestMismatch, ObjectStorageException, S3Config, S3RequestError,
     canonical_query, config_from_env, content_digest, file_digest, key_digest, key_with_digest,
     s3_request, sign_headers, EMPTY_PAYLOAD_HASH,
+    delete_file_async, get_file_async, list_objects_async, s3_request_async, upload_file_async,
 )
 
 ENV = {
@@ -497,3 +502,277 @@ def test_upload_file_checks_the_file_against_the_digest_in_its_key(store, tmp_pa
     with pytest.raises(ObjectStorageException, match='does not match the digest'):
         upload_file('my-bucket', file_path, good_key)
     assert len(store.calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# The asyncio calls, against a real HTTP server on localhost
+# ---------------------------------------------------------------------------
+
+class FakeServer:
+    '''
+    An S3 stand-in: records every request it gets and answers from a queue of (status, body, headers).
+    Each request is also checked as a store would check it: its signature is recomputed from what
+    actually arrived on the wire, which catches a URL that was signed one way and sent another.
+    '''
+    def __init__(self):
+        self.calls = []
+        self.answers = []
+        self.bad_signatures = []
+
+    async def handle(self, request: web.Request) -> web.Response:
+        body = await request.read()
+        self.calls.append({'method': request.method, 'path': request.raw_path, 'headers': dict(request.headers), 'body': body})
+        self._check_signature(request, body)
+        status, content, headers = self.answers.pop(0) if self.answers else (200, b'', {})
+        return web.Response(status=status, body=content, headers=headers)
+
+    def _check_signature(self, request: web.Request, body: bytes):
+        auth = request.headers['Authorization']
+        signed_names = auth.split('SignedHeaders=', 1)[1].split(',', 1)[0].split(';')
+        extra = {name: request.headers[name] for name in signed_names
+                 if name not in ('host', 'x-amz-date', 'x-amz-content-sha256', 'x-amz-security-token')}
+        path, _, query = request.raw_path.partition('?')
+        expected = sign_headers(
+            CONFIG_FOR_SERVER['config'], request.method, request.host, path, query, extra,
+            request.headers['x-amz-content-sha256'],
+            datetime.strptime(request.headers['x-amz-date'], '%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc))
+        if expected['authorization'] != auth or request.headers['x-amz-content-sha256'] != hashlib.sha256(body).hexdigest():
+            self.bad_signatures.append(request.raw_path)
+
+
+CONFIG_FOR_SERVER = {}
+
+
+@pytest_asyncio.fixture(name='server')
+async def server_fixture(monkeypatch):
+    for name in ('AWS_ENDPOINT_URL', 'AWS_SESSION_TOKEN', 'AWS_DEFAULT_REGION', 'AWS_MAX_ATTEMPTS',
+                 'S3_CONNECT_TIMEOUT', 'S3_READ_TIMEOUT'):
+        monkeypatch.delenv(name, raising=False)
+    fake = FakeServer()
+    app = web.Application()
+    app.router.add_route('*', '/{tail:.*}', fake.handle)
+    async with TestServer(app) as test_server:
+        for name, value in ENV.items():
+            monkeypatch.setenv(name, value)
+        monkeypatch.setenv('AWS_ENDPOINT_URL_S3', f'http://{test_server.host}:{test_server.port}')
+        monkeypatch.setenv('S3_RETRY_BACKOFF', '0')
+        CONFIG_FOR_SERVER['config'] = config_from_env()
+        yield fake
+    CONFIG_FOR_SERVER.clear()
+
+
+@pytest.mark.asyncio
+async def test_async_request_is_sent_and_signed_as_the_sync_one_is(server):  # pylint: disable=redefined-outer-name
+    server.answers.append((200, b'hello', {'ETag': '"abc"'}))
+    response = await s3_request_async('GET', 'bucket', 'songs/a b+c%.mp3')
+    assert (response.status, response.content, response.headers['ETag']) == (200, b'hello', '"abc"')
+    # The key reaches the server exactly as it was signed: space, plus and percent all escaped.
+    assert server.calls[0]['path'] == '/bucket/songs/a%20b%2Bc%25.mp3'
+    assert not server.bad_signatures
+
+
+@pytest.mark.asyncio
+async def test_async_request_sends_the_query_and_body_as_signed(server):  # pylint: disable=redefined-outer-name
+    await s3_request_async('PUT', 'bucket', 'key', params=[('prefix', 'a b/c')], body=b'payload',
+                           headers={'Content-MD5': 'x'})
+    assert server.calls[0]['path'] == '/bucket/key?prefix=a%20b%2Fc'
+    assert server.calls[0]['body'] == b'payload'
+    assert not server.bad_signatures
+
+
+@pytest.mark.asyncio
+async def test_async_request_raises_with_the_error_code(server):  # pylint: disable=redefined-outer-name
+    server.answers.append((404, b'<Error><Code>NoSuchKey</Code></Error>', {}))
+    with pytest.raises(S3RequestError) as exc:
+        await s3_request_async('GET', 'bucket', 'missing')
+    assert (exc.value.status, exc.value.code) == (404, 'NoSuchKey')
+    assert len(server.calls) == 1  # a 404 is final, not retried
+
+
+@pytest.mark.asyncio
+async def test_async_request_retries_throttling_and_server_errors(server):  # pylint: disable=redefined-outer-name
+    server.answers.extend([(503, b'', {}), (429, b'', {}), (200, b'done', {})])
+    response = await s3_request_async('GET', 'bucket', 'key')
+    assert response.content == b'done'
+    assert len(server.calls) == 3
+    assert not server.bad_signatures
+
+
+@pytest.mark.asyncio
+async def test_async_request_gives_up_after_max_attempts(server, monkeypatch):  # pylint: disable=redefined-outer-name
+    monkeypatch.setenv('AWS_MAX_ATTEMPTS', '3')
+    server.answers.extend([(500, b'<Error><Code>InternalError</Code></Error>', {})] * 5)
+    with pytest.raises(S3RequestError) as exc:
+        await s3_request_async('GET', 'bucket', 'key')
+    assert (exc.value.status, exc.value.code) == (500, 'InternalError')
+    assert len(server.calls) == 3
+
+
+@pytest.mark.asyncio
+async def test_async_request_backs_off_by_doubling(server, monkeypatch, mocker):  # pylint: disable=redefined-outer-name
+    monkeypatch.setenv('S3_RETRY_BACKOFF', '0.5')
+    sleep = mocker.patch.object(s3.asyncio, 'sleep', mocker.AsyncMock())
+    server.answers.extend([(500, b'', {})] * 3 + [(200, b'', {})])
+    await s3_request_async('GET', 'bucket', 'key')
+    assert [call.args[0] for call in sleep.await_args_list] == [0.5, 1.0, 2.0]
+
+
+@pytest.mark.asyncio
+async def test_async_request_wraps_connection_errors(server, monkeypatch):  # pylint: disable=redefined-outer-name
+    monkeypatch.setenv('AWS_MAX_ATTEMPTS', '2')
+    monkeypatch.setenv('AWS_ENDPOINT_URL_S3', 'http://127.0.0.1:1')  # nothing listens on port 1
+    with pytest.raises(S3RequestError, match='GET bucket/key failed') as exc:
+        await s3_request_async('GET', 'bucket', 'key')
+    assert isinstance(exc.value.__cause__, aiohttp.ClientError)
+    assert not server.calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures('server')
+async def test_async_request_retries_a_timeout(monkeypatch, mocker):
+    monkeypatch.setenv('AWS_MAX_ATTEMPTS', '2')
+    real_request = aiohttp.ClientSession.request
+    attempts = []
+
+    def flaky(self, *args, **kwargs):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise TimeoutError()
+        return real_request(self, *args, **kwargs)
+
+    mocker.patch.object(aiohttp.ClientSession, 'request', flaky)
+    assert (await s3_request_async('GET', 'bucket', 'key')).status == 200
+    assert len(attempts) == 2
+
+
+@pytest.mark.asyncio
+async def test_async_request_uses_the_configured_timeouts(server, monkeypatch, mocker):  # pylint: disable=redefined-outer-name
+    monkeypatch.setenv('S3_CONNECT_TIMEOUT', '3')
+    monkeypatch.setenv('S3_READ_TIMEOUT', '7')
+    spy = mocker.spy(aiohttp, 'ClientSession')
+    await s3_request_async('GET', 'bucket', 'key')
+    timeout = spy.call_args.kwargs['timeout']
+    assert (timeout.sock_connect, timeout.sock_read, timeout.total) == (3, 7, None)
+    assert server.calls
+
+
+@pytest.mark.asyncio
+async def test_upload_file_async_sends_the_file_with_its_md5(server, tmp_path):  # pylint: disable=redefined-outer-name
+    path = tmp_path / 'song.mp3'
+    path.write_bytes(b'audio bytes')
+    assert await upload_file_async('bucket', path, 'cache/song.mp3') is True
+    call = server.calls[0]
+    assert (call['method'], call['path'], call['body']) == ('PUT', '/bucket/cache/song.mp3', b'audio bytes')
+    assert call['headers']['Content-MD5'] == base64.b64encode(hashlib.md5(b'audio bytes').digest()).decode()
+    assert not server.bad_signatures
+
+
+@pytest.mark.asyncio
+async def test_upload_file_async_defaults_the_key_to_the_path(server, tmp_path):  # pylint: disable=redefined-outer-name
+    path = tmp_path / 'song.mp3'
+    path.write_bytes(b'x')
+    await upload_file_async('bucket', str(path))
+    assert server.calls[0]['path'] == '/bucket/' + str(path)
+
+
+@pytest.mark.asyncio
+async def test_upload_file_async_rejects_a_missing_file(server, tmp_path):  # pylint: disable=redefined-outer-name
+    with pytest.raises(ObjectStorageException, match='Invalid file path'):
+        await upload_file_async('bucket', tmp_path / 'nope.mp3')
+    assert not server.calls
+
+
+@pytest.mark.asyncio
+async def test_upload_file_async_checks_the_digest_in_the_key(server, tmp_path):  # pylint: disable=redefined-outer-name
+    path = tmp_path / 'song.mp3'
+    path.write_bytes(b'audio')
+    with pytest.raises(ObjectStorageException, match='does not match the digest'):
+        await upload_file_async('bucket', path, key_with_digest('song.mp3', content_digest(b'other')))
+    assert not server.calls
+
+
+@pytest.mark.asyncio
+async def test_upload_file_async_failure(server, tmp_path):  # pylint: disable=redefined-outer-name
+    path = tmp_path / 'song.mp3'
+    path.write_bytes(b'x')
+    server.answers.append((403, b'<Error><Code>AccessDenied</Code></Error>', {}))
+    with pytest.raises(ObjectStorageException, match='Error uploading file.*AccessDenied'):
+        await upload_file_async('bucket', path, 'key')
+
+
+@pytest.mark.asyncio
+async def test_get_file_async_writes_the_object(server, tmp_path):  # pylint: disable=redefined-outer-name
+    server.answers.append((200, b'audio', {'ETag': f'"{hashlib.md5(b"audio").hexdigest()}"'}))
+    target = tmp_path / 'nested' / 'song.mp3'
+    assert await get_file_async('bucket', 'cache/song.mp3', target) is True
+    assert target.read_bytes() == b'audio'
+
+
+@pytest.mark.asyncio
+async def test_get_file_async_warns_on_an_etag_mismatch(server, tmp_path, caplog):  # pylint: disable=redefined-outer-name
+    server.answers.append((200, b'audio', {'ETag': '"deadbeef"'}))
+    with caplog.at_level('WARNING'):
+        await get_file_async('bucket', 'key', tmp_path / 'song.mp3')
+    assert 'S3 checksum mismatch' in caplog.text
+    assert (tmp_path / 'song.mp3').read_bytes() == b'audio'
+
+
+@pytest.mark.asyncio
+async def test_get_file_async_rejects_bytes_that_do_not_match_the_key(server, tmp_path):  # pylint: disable=redefined-outer-name
+    server.answers.append((200, b'truncated', {}))
+    target = tmp_path / 'song.mp3'
+    with pytest.raises(ObjectDigestMismatch):
+        await get_file_async('bucket', key_with_digest('song.mp3', content_digest(b'whole object')), target)
+    assert not target.exists()
+
+
+@pytest.mark.asyncio
+async def test_get_file_async_failure(server, tmp_path):  # pylint: disable=redefined-outer-name
+    server.answers.append((404, b'<Error><Code>NoSuchKey</Code></Error>', {}))
+    with pytest.raises(ObjectStorageException, match='Error downloading file.*NoSuchKey'):
+        await get_file_async('bucket', 'missing', tmp_path / 'song.mp3')
+    assert not (tmp_path / 'song.mp3').exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_file_async(server):  # pylint: disable=redefined-outer-name
+    assert await delete_file_async('bucket', 'cache/song.mp3') is True
+    assert (server.calls[0]['method'], server.calls[0]['path']) == ('DELETE', '/bucket/cache/song.mp3')
+
+
+@pytest.mark.asyncio
+async def test_delete_file_async_failure(server):  # pylint: disable=redefined-outer-name
+    server.answers.append((403, b'', {}))
+    with pytest.raises(ObjectStorageException, match='Error deleting file'):
+        await delete_file_async('bucket', 'key')
+
+
+LISTING_PAGE_ONE = b'''<?xml version="1.0"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><IsTruncated>true</IsTruncated>
+<NextContinuationToken>tok/1+2</NextContinuationToken>
+<Contents><Key>a</Key><LastModified>2025-01-01T00:00:00.000Z</LastModified></Contents></ListBucketResult>'''
+LISTING_PAGE_TWO = b'''<?xml version="1.0"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><IsTruncated>false</IsTruncated>
+<Contents><Key>b</Key><LastModified>2025-02-01T00:00:00.000Z</LastModified></Contents></ListBucketResult>'''
+
+
+@pytest.mark.asyncio
+async def test_list_objects_async_follows_pages_and_sorts_newest_first(server):  # pylint: disable=redefined-outer-name
+    server.answers.extend([(200, LISTING_PAGE_ONE, {}), (200, LISTING_PAGE_TWO, {})])
+    objects = await list_objects_async('bucket', 'cache/')
+    assert [o['key'] for o in objects] == ['b', 'a']
+    assert server.calls[0]['path'] == '/bucket?list-type=2&prefix=cache%2F'
+    assert server.calls[1]['path'] == '/bucket?continuation-token=tok%2F1%2B2&list-type=2&prefix=cache%2F'
+    assert not server.bad_signatures
+
+
+@pytest.mark.asyncio
+async def test_list_objects_async_empty_and_failures(server):  # pylint: disable=redefined-outer-name
+    server.answers.append((200, b'<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>', {}))
+    assert await list_objects_async('bucket', 'none/') == []
+    server.answers.append((200, b'not xml', {}))
+    with pytest.raises(ObjectStorageException, match='Error listing objects'):
+        await list_objects_async('bucket', 'x')
+    server.answers.append((403, b'', {}))
+    with pytest.raises(ObjectStorageException, match='Error listing objects'):
+        await list_objects_async('bucket', 'x')
