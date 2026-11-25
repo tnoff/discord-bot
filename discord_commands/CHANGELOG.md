@@ -1,4 +1,10 @@
 # Changelog
+## [0.12.2] - 2026-11-25
+
+### Changed
+
+- Tests only: the S3 patches in the commands tests follow the broker's switch to discord_core's asyncio S3 calls (needs discord_core 3.25.0).
+
 ## [0.12.1] - 2026-11-25
 
 ### Changed

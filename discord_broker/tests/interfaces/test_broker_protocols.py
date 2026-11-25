@@ -490,8 +490,8 @@ def test_broker_protocols_does_not_import_sqlalchemy():
     VideoCacheClient is what removed sqlalchemy from the chain; measuring it
     here is what stops a future annotation putting it back by hand.
 
-    boto3 is asserted absent too: delete_file reaches discord_core's own S3 client,
-    which signs its requests with `requests`.
+    boto3 is asserted absent too: delete_file_async reaches discord_core's own S3 client,
+    which signs its requests itself and sends them with aiohttp (or `requests`).
     '''
     packages = set(measure('discord_broker.interfaces.broker_protocols')['packages'])
     assert 'sqlalchemy' not in packages, (

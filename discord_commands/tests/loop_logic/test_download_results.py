@@ -62,7 +62,7 @@ async def test_download_result_reaches_the_players_queue(fake_context, fake_stor
 async def test_download_result_hits_cache(fake_context, fake_stores, mocker):  #pylint:disable=redefined-outer-name
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
-            mocker.patch('tests.fakes.asyncio_broker.get_file', return_value=True)
+            mocker.patch('tests.fakes.asyncio_broker.get_file_async', return_value=True)
             pod = ResultsPod(fake_context, fake_stores, music=CACHE_MUSIC,
                              download_worker_cls=yield_fake_download_worker(sd))
             guild_id = fake_context['guild'].id

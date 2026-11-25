@@ -16,7 +16,7 @@ from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.otel import async_otel_span_wrapper, span_links_from_context
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.types.guild_queue import ClaimedDownload
-from discord_core.utils.integrations.s3 import ObjectDigestMismatch, ObjectStorageException, get_file
+from discord_core.utils.integrations.s3 import ObjectDigestMismatch, ObjectStorageException, get_file_async
 
 from discord_gateway.types.cleanup_reason import CleanupReason
 
@@ -609,7 +609,7 @@ class MusicPlayer:
         self.file_dir.mkdir(exist_ok=True, parents=True)
         part_path = local_path.with_name(f'{local_path.name}.part')
         try:
-            await asyncio.to_thread(get_file, bucket_name, s3_key, part_path)
+            await get_file_async(bucket_name, s3_key, part_path)
             part_path.replace(local_path)
         finally:
             part_path.unlink(missing_ok=True)

@@ -2,7 +2,6 @@ import asyncio
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import time
 from unittest.mock import Mock, patch, AsyncMock
 
 import pytest
@@ -1028,12 +1027,11 @@ async def test_the_heartbeat_does_not_wait_for_staging(fake_context): #pylint:di
                 player.broker.claim_next_track.return_value = claimed(
                     media_download, s3_key='track.mp3', bucket_name='my-bucket')
 
-                def _slow_get_file(_bucket, _key, dest):
-                    # Runs in a worker thread, so a real sleep here does not block the loop
-                    time.sleep(0.2)
+                async def _slow_get_file(_bucket, _key, dest):
+                    await asyncio.sleep(0.2)
                     Path(dest).write_bytes(b'audio')
 
-                with patch('discord_gateway.cogs.music_helpers.music_player.get_file', side_effect=_slow_get_file):
+                with patch('discord_gateway.cogs.music_helpers.music_player.get_file_async', side_effect=_slow_get_file):
                     await player.player_loop()
                 assert player.broker.playing_heartbeat.await_count >= 3
 
@@ -1101,7 +1099,7 @@ async def test_player_loop_claim_with_s3_key_downloads(fake_context): #pylint:di
             def _fake_get_file(_bucket, _key, dest):
                 Path(dest).write_bytes(b'audio')
 
-            with patch('discord_gateway.cogs.music_helpers.music_player.get_file',
+            with patch('discord_gateway.cogs.music_helpers.music_player.get_file_async',
                        side_effect=_fake_get_file) as mock_get:
                 await player.player_loop()
                 mock_get.assert_called_once_with('my-bucket', 'track.mp3', mock_get.call_args[0][2])
@@ -1133,7 +1131,7 @@ async def test_player_loop_real_broker_claim_with_a_bucket_stages_from_s3(fake_c
             def _fake_get_file(_bucket, _key, dest):
                 Path(dest).write_bytes(b'audio')
 
-            with patch('discord_gateway.cogs.music_helpers.music_player.get_file',
+            with patch('discord_gateway.cogs.music_helpers.music_player.get_file_async',
                        side_effect=_fake_get_file) as mock_get:
                 await player.player_loop()
             assert mock_get.call_args[0][0] == 'my-bucket'
@@ -1156,7 +1154,7 @@ async def test_player_loop_slow_staging_logs_warning(fake_context): #pylint:disa
                 Path(dest).write_bytes(b'audio')
 
             # monotonic: the idle deadline, then the start and end of the S3 fetch
-            with patch('discord_gateway.cogs.music_helpers.music_player.get_file', side_effect=_fake_get_file), \
+            with patch('discord_gateway.cogs.music_helpers.music_player.get_file_async', side_effect=_fake_get_file), \
                  patch('discord_gateway.cogs.music_helpers.music_player.monotonic', side_effect=[0.0, 0.0, 7.0]):
                 await player.player_loop()
             staging = [c for c in player.logger.warning.call_args_list if 'Play staging' in c.args[0]]
@@ -1177,7 +1175,7 @@ async def test_player_loop_fast_staging_logs_debug_not_warning(fake_context): #p
             def _fake_get_file(_bucket, _key, dest):
                 Path(dest).write_bytes(b'audio')
 
-            with patch('discord_gateway.cogs.music_helpers.music_player.get_file', side_effect=_fake_get_file), \
+            with patch('discord_gateway.cogs.music_helpers.music_player.get_file_async', side_effect=_fake_get_file), \
                  patch('discord_gateway.cogs.music_helpers.music_player.monotonic', side_effect=[0.0, 0.1, 0.3]):
                 await player.player_loop()
             assert not [c for c in player.logger.warning.call_args_list if 'Play staging' in c.args[0]]
@@ -1207,7 +1205,7 @@ async def _play_a_corrupt_object(player, media_download, key, report=None):
         await player.player_loop()
 
 
-GET_FILE = 'discord_gateway.cogs.music_helpers.music_player.get_file'
+GET_FILE = 'discord_gateway.cogs.music_helpers.music_player.get_file_async'
 CORRUPT_KEY = 'cache/youtube.abc.sha256-0123456789abcdef0123456789abcdef.pcm'
 
 

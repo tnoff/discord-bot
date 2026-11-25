@@ -44,8 +44,8 @@ async def test_a_corrupt_object_is_evicted_when_the_broker_reads_it_wrong_too():
     broker = _make_broker(video_cache=video_cache, bucket_name='queue-bucket', cache_bucket_name='cache-bucket')
     calls = []
     video_cache.remove_video_cache.side_effect = lambda *a, **k: calls.append(('row', a, k))
-    with patch(f'{CORRUPT}.get_file', side_effect=ObjectDigestMismatch('bad')) as get_file, \
-            patch(f'{CORRUPT}.delete_file', side_effect=lambda b, k: calls.append(('object', b, k))):
+    with patch(f'{CORRUPT}.get_file_async', side_effect=ObjectDigestMismatch('bad')) as get_file, \
+            patch(f'{CORRUPT}.delete_file_async', side_effect=lambda b, k: calls.append(('object', b, k))):
         assert await evict_corrupt_object(broker, direct_request(), BAD_KEY) is True
     assert get_file.call_args.args[:2] == ('cache-bucket', BAD_KEY)
     assert calls == [('row', ([],), {'base_paths': [BAD_KEY]}), ('object', 'cache-bucket', BAD_KEY)]
@@ -56,8 +56,8 @@ async def test_a_healthy_object_is_kept_when_the_broker_reads_it_fine():
     """One read cut short in transit must not cost a good song."""
     video_cache = _catalog_holding(BAD_KEY)
     broker = _make_broker(video_cache=video_cache, bucket_name='queue-bucket', cache_bucket_name='cache-bucket')
-    with patch(f'{CORRUPT}.get_file', return_value=True), \
-            patch(f'{CORRUPT}.delete_file') as delete_file:
+    with patch(f'{CORRUPT}.get_file_async', return_value=True), \
+            patch(f'{CORRUPT}.delete_file_async') as delete_file:
         assert await evict_corrupt_object(broker, direct_request(), BAD_KEY) is False
     delete_file.assert_not_called()
     video_cache.remove_video_cache.assert_not_awaited()
@@ -68,8 +68,8 @@ async def test_an_object_the_broker_cannot_read_is_left_alone():
     """A failed read says nothing about the bytes, so it is not grounds to delete."""
     video_cache = _catalog_holding(BAD_KEY)
     broker = _make_broker(video_cache=video_cache, bucket_name='queue-bucket', cache_bucket_name='cache-bucket')
-    with patch(f'{CORRUPT}.get_file', side_effect=ObjectStorageException('timeout')), \
-            patch(f'{CORRUPT}.delete_file') as delete_file:
+    with patch(f'{CORRUPT}.get_file_async', side_effect=ObjectStorageException('timeout')), \
+            patch(f'{CORRUPT}.delete_file_async') as delete_file:
         assert await evict_corrupt_object(broker, direct_request(), BAD_KEY) is False
     delete_file.assert_not_called()
     video_cache.remove_video_cache.assert_not_awaited()
@@ -81,7 +81,7 @@ async def test_a_report_for_an_object_the_catalog_does_not_hold_is_ignored(held)
     """Already evicted, or replaced by another copy of the video: nothing to do, and no read."""
     video_cache = _catalog_holding(held)
     broker = _make_broker(video_cache=video_cache, bucket_name='queue-bucket', cache_bucket_name='cache-bucket')
-    with patch(f'{CORRUPT}.get_file') as get_file, patch(f'{CORRUPT}.delete_file') as delete_file:
+    with patch(f'{CORRUPT}.get_file_async') as get_file, patch(f'{CORRUPT}.delete_file_async') as delete_file:
         assert await evict_corrupt_object(broker, direct_request(), BAD_KEY) is False
     get_file.assert_not_called()
     delete_file.assert_not_called()
@@ -106,8 +106,8 @@ async def test_the_object_is_kept_when_the_catalog_did_not_drop_the_row():
     """A db pod that predates base_paths ignores it; deleting the object would strand a cache hit."""
     video_cache = _catalog_holding(BAD_KEY)
     broker = _make_broker(video_cache=video_cache, bucket_name='queue-bucket', cache_bucket_name='cache-bucket')
-    with patch(f'{CORRUPT}.get_file', side_effect=ObjectDigestMismatch('bad')), \
-            patch(f'{CORRUPT}.delete_file') as delete_file:
+    with patch(f'{CORRUPT}.get_file_async', side_effect=ObjectDigestMismatch('bad')), \
+            patch(f'{CORRUPT}.delete_file_async') as delete_file:
         assert await evict_corrupt_object(broker, direct_request(), BAD_KEY) is False
     video_cache.remove_video_cache.assert_awaited_once()
     delete_file.assert_not_called()

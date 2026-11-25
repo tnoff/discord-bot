@@ -188,7 +188,7 @@ async def test_register_download_s3_mode():
 @pytest.mark.asyncio
 async def test_checkout_s3_mode(mocker):
     '''checkout in S3 mode calls get_file with the S3 key'''
-    get_mock = mocker.patch('tests.fakes.asyncio_broker.get_file', return_value=True)
+    get_mock = mocker.patch('tests.fakes.asyncio_broker.get_file_async', return_value=True)
     fake_context = generate_fake_context()
     md = _make_s3_media_download(fake_context)
     with TemporaryDirectory() as guild_dir:
@@ -204,7 +204,7 @@ async def test_checkout_s3_mode(mocker):
 @pytest.mark.asyncio
 async def test_discard_s3_mode_no_cache_deletes_s3_object(mocker):
     '''discard in S3 mode (no video_cache) calls delete_file on the S3 key'''
-    delete_mock = mocker.patch('tests.fakes.asyncio_broker.delete_file', return_value=True)
+    delete_mock = mocker.patch('tests.fakes.asyncio_broker.delete_file_async', return_value=True)
     fake_context = generate_fake_context()
     md = _make_s3_media_download(fake_context)
     s3_key = str(md.file_path)
@@ -217,7 +217,7 @@ async def test_discard_s3_mode_no_cache_deletes_s3_object(mocker):
 @pytest.mark.asyncio
 async def test_cache_cleanup_s3_mode(mocker, fake_engine):  #pylint:disable=redefined-outer-name
     '''cache_cleanup in S3 mode deletes S3 objects and removes DB records'''
-    delete_mock = mocker.patch('discord_broker.interfaces.broker_protocols.delete_file', return_value=True)
+    delete_mock = mocker.patch('discord_broker.interfaces.broker_protocols.delete_file_async', return_value=True)
     fake_context = generate_fake_context()
     vc = VideoCacheClient(1, partial(async_mock_session, fake_engine))
     broker = AsyncioBroker(video_cache=vc, bucket_name='my-bucket')
@@ -276,7 +276,7 @@ async def test_get_checked_out_by():
 @pytest.mark.asyncio
 async def test_checkout_skips_restage_if_already_checked_out(mocker):
     '''checkout returns existing guild_file_path without calling get_file again if already staged'''
-    get_mock = mocker.patch('tests.fakes.asyncio_broker.get_file', return_value=True)
+    get_mock = mocker.patch('tests.fakes.asyncio_broker.get_file_async', return_value=True)
     fake_context = generate_fake_context()
     md = _make_s3_media_download(fake_context)
     with TemporaryDirectory() as guild_dir:

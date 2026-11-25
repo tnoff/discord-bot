@@ -21,7 +21,7 @@ from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
 from tests.fakes.asyncio_queues import make_guild_queue_for
 from tests.helpers import fake_context, fake_media_download, FakeVoiceClient #pylint:disable=unused-import
 
-GET_FILE = 'discord_gateway.cogs.music_helpers.music_player.get_file'
+GET_FILE = 'discord_gateway.cogs.music_helpers.music_player.get_file_async'
 
 
 def _player(fake_context, tmp_dir, bucket_name='my-bucket', prefetch_limit=2, cache_bucket_name=None): #pylint:disable=redefined-outer-name
@@ -148,11 +148,10 @@ async def test_playback_joins_a_download_already_in_flight(fake_context): #pylin
         player = _player(fake_context, tmp_dir)
         gate = asyncio.Event()
         started = asyncio.Event()
-        loop = asyncio.get_running_loop()
 
-        def _slow_get(bucket, key, dest):
-            loop.call_soon_threadsafe(started.set)
-            asyncio.run_coroutine_threadsafe(gate.wait(), loop).result()
+        async def _slow_get(bucket, key, dest):
+            started.set()
+            await gate.wait()
             _writes_audio(bucket, key, dest)
 
         with patch(GET_FILE, side_effect=_slow_get) as mock_get:
@@ -255,15 +254,14 @@ async def test_prefetch_with_nothing_staged_yet(fake_context): #pylint:disable=r
 
 
 class _BlockedDownload:
-    '''A get_file stand-in that blocks until released, so a test can act while a download is in flight.'''
+    '''A get_file_async stand-in that waits until released, so a test can act while a download is in flight.'''
     def __init__(self):
-        self.loop = asyncio.get_running_loop()
         self.started = asyncio.Event()
         self.gate = asyncio.Event()
 
-    def __call__(self, bucket, key, dest):
-        self.loop.call_soon_threadsafe(self.started.set)
-        asyncio.run_coroutine_threadsafe(self.gate.wait(), self.loop).result()
+    async def download(self, bucket, key, dest):
+        self.started.set()
+        await self.gate.wait()
         _writes_audio(bucket, key, dest)
 
     def release(self):
@@ -279,7 +277,7 @@ async def test_a_new_trigger_supersedes_the_running_prefetch(fake_context): #pyl
         blocked = _BlockedDownload()
         with fake_media_download(tmp_dir, fake_context=fake_context) as md:
             await _enqueue(player, md)
-            with patch(GET_FILE, side_effect=blocked) as mock_get:
+            with patch(GET_FILE, side_effect=blocked.download) as mock_get:
                 player.trigger_prefetch()
                 first = player._prefetch_task #pylint:disable=protected-access
                 await blocked.started.wait()
@@ -299,7 +297,7 @@ async def test_discarding_a_track_cancels_its_download(fake_context): #pylint:di
         player = _player(fake_context, tmp_dir)
         blocked = _BlockedDownload()
         with fake_media_download(tmp_dir, fake_context=fake_context) as md:
-            with patch(GET_FILE, side_effect=blocked):
+            with patch(GET_FILE, side_effect=blocked.download):
                 waiter = asyncio.create_task(
                     player._ensure_staged(str(md.media_request.uuid), 'my-bucket', md.file_path)) #pylint:disable=protected-access
                 await blocked.started.wait()
@@ -316,7 +314,7 @@ async def test_cleanup_cancels_downloads_in_flight(fake_context): #pylint:disabl
     with TemporaryDirectory() as tmp_dir:
         player = _player(fake_context, tmp_dir)
         blocked = _BlockedDownload()
-        with patch(GET_FILE, side_effect=blocked):
+        with patch(GET_FILE, side_effect=blocked.download):
             waiter = asyncio.create_task(player._ensure_staged('abc', 'my-bucket', 'cache/x.mp3')) #pylint:disable=protected-access
             await blocked.started.wait()
             await player.cleanup()
