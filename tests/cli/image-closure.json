@@ -479,6 +479,7 @@
         "discord_downloader.servers.download_server",
         "discord_downloader.utils",
         "discord_downloader.utils.audio",
+        "discord_downloader.utils.fragments",
         "discord_downloader.utils.integrations",
         "discord_downloader.utils.integrations.egress_pool",
         "discord_downloader.utils.integrations.egress_probe",
