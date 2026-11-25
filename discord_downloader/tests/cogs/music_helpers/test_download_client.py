@@ -9,6 +9,7 @@ from tempfile import NamedTemporaryFile, TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from opentelemetry.trace import SpanKind
 from yt_dlp.utils import DownloadError
 
 from discord_core.cogs.music_helpers.common import SearchType
@@ -724,6 +725,28 @@ def _create_source_span(exporter):
     spans = [sp for sp in exporter.get_finished_spans() if sp.name.endswith('.create_source')]
     assert len(spans) == 1
     return spans[0]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_create_source_span_name_and_kind_are_the_alerting_contract(mocker):
+    '''The span is named `downloader.create_source` and is a CLIENT span.
+
+    This is a contract with monitoring, not an implementation detail: the Discord
+    Health dashboard's Download Client Errors and Create Source Durations panels, and
+    the Download Client Errors alert, select it with span_name="downloader.create_source"
+    (monitoring/grafana in tnoff/docker-apps). `_create_source_span` above matches only
+    the suffix, so renaming the prefix again would pass every other test here while the
+    panels went blank and the alert stopped being able to fire.
+
+    It is not a SERVER or CONSUMER span, which is also why trace-error-rate-consumer
+    never sees a download failure on this pod -- see Download Client Errors for that.
+    '''
+    exporter = record_spans(mocker)
+    x = make_download_client(yield_dlp_error('Some entirely new failure mode nobody has seen'))
+    await x.create_source(fake_source_dict(generate_fake_context()), 3)
+    span = _create_source_span(exporter)
+    assert span.name == 'downloader.create_source'
+    assert span.kind == SpanKind.CLIENT
 
 
 @pytest.mark.asyncio(loop_scope="session")

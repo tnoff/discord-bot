@@ -8,6 +8,7 @@ import pytest
 from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage, SearchType
 from discord_core.types.queue import PutsBlocked
 from discord_core.types.search import SearchResult
+from discord_core.utils import otel
 from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
 from tests.fakes.pipeline_fakes import fake_envelope
@@ -16,6 +17,7 @@ from tests.fakes.search_pipeline_fakes import (BrokerBundleProxy, create_test_me
 from tests.helpers import fake_media_download, fake_source_dict
 from tests.helpers import fake_engine, fake_context, fake_stores  #pylint:disable=unused-import
 from tests.results_pod import ResultsPod, music_settings
+from tests.tracing_support import record_spans
 
 
 def search_queue(pod):
@@ -121,6 +123,36 @@ async def test_mixed_search_types_routing(mocker, fake_context, fake_stores):  #
     assert direct_request in download_queue_items
     assert youtube_request in download_queue_items
     assert youtube_playlist_request in download_queue_items
+
+
+@pytest.mark.asyncio()
+async def test_each_enqueued_item_is_its_own_trace_linked_to_the_command(mocker, fake_context, fake_stores):  #pylint:disable=redefined-outer-name
+    """A playlist's per-item broker and queue calls do not pile into the command's trace.
+
+    Under one parent, a 48-song /play made a single 279-span trace across five pods. Each item
+    now roots its own trace and carries a link back to the command span, so the trace stays small
+    and the command is still one click away.
+    """
+    exporter = record_spans(mocker)
+    pod = ResultsPod(fake_context, fake_stores, with_search=True)
+    bundle_uuid = await open_bundle(pod, fake_context)
+    entries = [create_test_media_request(fake_context, f'search term {i}') for i in range(3)]
+    mocker.patch.object(pod.broker_client, 'check_cache', new=AsyncMock(return_value=None))
+
+    with otel.TRACER.start_as_current_span('commands.run') as command_span:
+        assert await pod.enqueuer.enqueue_media_requests(fake_envelope(fake_context), entries, bundle_uuid) is True
+
+    command = command_span.get_span_context()
+    spans = exporter.get_finished_spans()
+    items = [span for span in spans if span.name == 'commands.enqueue_media_request']
+    assert len(items) == 3
+    assert len({span.context.trace_id for span in items}) == 3
+    for item in items:
+        assert item.parent is None
+        assert item.context.trace_id != command.trace_id
+        assert [(link.context.trace_id, link.context.span_id) for link in item.links] == [
+            (command.trace_id, command.span_id)]
+    assert [span.name for span in spans if span.context.trace_id == command.trace_id] == ['commands.run']
 
 
 @pytest.mark.asyncio()

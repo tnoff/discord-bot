@@ -1,7 +1,9 @@
 from asyncio import QueueFull
+from enum import Enum
 from logging import Logger
 from typing import Awaitable, Callable
 
+from opentelemetry.context import Context
 from opentelemetry.trace import SpanKind
 
 from discord_core.interfaces.broker_client_protocol import BrokerClient
@@ -12,7 +14,7 @@ from discord_core.clients.dispatch_client_base import DispatchClientBase
 from discord_core.cogs.music_helpers.common import SearchType
 from discord_core.types.download import LifecycleEvent, LifecycleStatusUpdate
 from discord_core.types.media_download import MediaDownload, media_download_attributes
-from discord_core.types.media_request import MediaRequest
+from discord_core.types.media_request import MediaRequest, media_request_attributes
 from discord_core.types.playlist import PlaylistItemAddStatus, PlaylistItemWrite
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.queue import PutsBlocked
@@ -30,7 +32,16 @@ ENQUEUE_FULL = 'full'
 ENQUEUE_CLOSED = 'closed'
 ENQUEUE_DUPLICATE = 'duplicate'
 
-OTEL_SPAN_PREFIX = 'music'
+OTEL_SPAN_PREFIX = 'commands'
+
+
+class EnqueueOutcome(Enum):
+    '''What enqueue_media_requests does after one item: carry on, stop adding, or give up.'''
+    NEXT = 'next'
+    # The queue is full: this item is discarded and the rest are not attempted.
+    STOP = 'stop'
+    # Puts are blocked (shutdown): the bundle is deleted and the whole call reports failure.
+    ABORT = 'abort'
 
 
 class TrackQueuer:
@@ -212,41 +223,64 @@ class MediaEnqueuer:
             if media_request.span_context is None:
                 media_request.span_context = ctx_span_context
             media_request.bundle_uuid = bundle_uuid
-            await self.broker_client.register_request(media_request)
-            self.logger.debug(f'Running enqueue for media request "{str(media_request)}, uuid: {media_request.uuid}, bundle: {bundle_uuid}')
-            # Unless a direct or youtube url, pass into the search queue
-            if media_request.search_result.search_type not in [SearchType.DIRECT, SearchType.YOUTUBE]:
-                try:
-                    await self.youtube_music_search_client.submit(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
-                except PutsBlocked:
-                    self.logger.info(f'Puts to search queue in guild {env.guild_id} are currently blocked, assuming shutdown')
-                    await self.broker_client.delete_bundle(bundle_uuid)
-                    return False
-                except QueueFull:
-                    self.logger.info(f'Search Queue full in guild {env.guild_id}, cannot add more media requests')
-                    await self.push_state(media_request, LifecycleEvent.DISCARDED)
-                    break
-                continue
-            # Else directly add to download queue
-            if await self.enqueue_from_cache(media_request):
-                # Cache hit: mark the current request completed (broker bundle counts it)
-                await self.push_state(media_request, LifecycleEvent.COMPLETED)
-                continue
-            try:
-                await self.download_client.submit(media_request.guild_id, media_request)
-                await self.push_state(media_request, LifecycleEvent.QUEUED)
-            except PutsBlocked:
-                await self.broker_client.delete_bundle(bundle_uuid)
-                self.logger.info(f'Puts to download queue in guild {env.guild_id} are currently blocked, assuming shutdown')
+            # Each item is a trace of its own, linked back to this command. Left under the
+            # command's span, the broker, search and download calls for every item land in
+            # ONE trace, so a 48-song playlist made a 279-span trace spanning five pods.
+            # `context=Context()` starts a new root instead of a child; the link keeps the
+            # click-through to the command, the same way the download and search spans
+            # already reach it through media_request.span_context.
+            async with async_otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.enqueue_media_request',
+                                               kind=SpanKind.INTERNAL, context=Context(),
+                                               attributes=media_request_attributes(media_request),
+                                               links=span_links_from_context(ctx_span_context)):
+                outcome = await self._enqueue_one(env, media_request, bundle_uuid)
+            if outcome is EnqueueOutcome.ABORT:
                 return False
-            except QueueFull:
-                self.logger.info(f'Download Queue full in guild {env.guild_id}, cannot add more media requests')
-                await self.push_state(media_request, LifecycleEvent.DISCARDED)
+            if outcome is EnqueueOutcome.STOP:
                 break
 
         # Lock pagination on the bundle and trigger a final render.
         await self.broker_client.finalize_bundle(bundle_uuid)
         return True
+
+    async def _enqueue_one(self, env: CommandEnvelope, media_request: MediaRequest,
+                           bundle_uuid: str) -> EnqueueOutcome:
+        '''
+        Register one media request with the broker and route it: the search queue, the player on
+        a cache hit, or the download queue. Says what the caller's loop should do next.
+        '''
+        await self.broker_client.register_request(media_request)
+        self.logger.debug(f'Running enqueue for media request "{str(media_request)}, uuid: {media_request.uuid}, bundle: {bundle_uuid}')
+        # Unless a direct or youtube url, pass into the search queue
+        if media_request.search_result.search_type not in [SearchType.DIRECT, SearchType.YOUTUBE]:
+            try:
+                await self.youtube_music_search_client.submit(media_request.guild_id, media_request, priority=self.server_queue_priority.get(media_request.guild_id, None))
+            except PutsBlocked:
+                self.logger.info(f'Puts to search queue in guild {env.guild_id} are currently blocked, assuming shutdown')
+                await self.broker_client.delete_bundle(bundle_uuid)
+                return EnqueueOutcome.ABORT
+            except QueueFull:
+                self.logger.info(f'Search Queue full in guild {env.guild_id}, cannot add more media requests')
+                await self.push_state(media_request, LifecycleEvent.DISCARDED)
+                return EnqueueOutcome.STOP
+            return EnqueueOutcome.NEXT
+        # Else directly add to download queue
+        if await self.enqueue_from_cache(media_request):
+            # Cache hit: mark the current request completed (broker bundle counts it)
+            await self.push_state(media_request, LifecycleEvent.COMPLETED)
+            return EnqueueOutcome.NEXT
+        try:
+            await self.download_client.submit(media_request.guild_id, media_request)
+            await self.push_state(media_request, LifecycleEvent.QUEUED)
+        except PutsBlocked:
+            await self.broker_client.delete_bundle(bundle_uuid)
+            self.logger.info(f'Puts to download queue in guild {env.guild_id} are currently blocked, assuming shutdown')
+            return EnqueueOutcome.ABORT
+        except QueueFull:
+            self.logger.info(f'Download Queue full in guild {env.guild_id}, cannot add more media requests')
+            await self.push_state(media_request, LifecycleEvent.DISCARDED)
+            return EnqueueOutcome.STOP
+        return EnqueueOutcome.NEXT
 
     async def generate_media_requests_from_search(self, env: CommandEnvelope, search: str,
                                                   add_to_playlist: int = None) -> None:
