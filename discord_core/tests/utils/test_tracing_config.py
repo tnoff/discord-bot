@@ -26,6 +26,7 @@ SHIPPED_DEFAULTS = {
     'suppress_egress_probe_auto_instrumentation': True,
     'suppress_download_readiness_auto_instrumentation': True,
     'trace_queue_worker_status_poll': False,
+    'trace_playback_loops': False,
 }
 
 

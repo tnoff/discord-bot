@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from discord_core.clients.seam_contract import SeamContractCheck
 from discord_core.exceptions import SeamResponseInvalid
 from discord_core.routes.route import Route
-from discord_core.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming
+from discord_core.utils.otel import AttributeNaming, METER_PROVIDER, MetricNaming, unsampled_context
 from discord_core.utils.retry import async_retry_broker_command
 
 logger = logging.getLogger(__name__)
@@ -244,10 +244,13 @@ class HttpClientMixin:
                          'only. %s', seam, prefix, model.__name__, error)
             raise SeamResponseInvalid(seam, prefix, model, error) from error
 
-    def _trace_headers(self) -> dict[str, str]:
-        '''Return headers dict with W3C traceparent injected from the active span, if any.'''
+    def _trace_headers(self, traced: bool = True) -> dict[str, str]:
+        '''Return headers dict with W3C traceparent injected from the active span, if any.
+
+        traced=False injects an unsampled traceparent instead, so the peer records nothing for
+        the call either; see unsampled_context.'''
         headers: dict[str, str] = {}
-        inject(headers)
+        inject(headers, context=None if traced else unsampled_context())
         return headers
 
     def _route_url(self, route: Route, **params: object) -> str:
@@ -287,7 +290,7 @@ class HttpClientMixin:
         async def _call():
             async with session.request(
                 method, url,
-                headers=self._trace_headers(),
+                headers=self._trace_headers(traced),
                 json=body,
             ) as resp:
                 resp.raise_for_status()

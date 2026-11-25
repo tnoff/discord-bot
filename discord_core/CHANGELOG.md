@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.26.0] - 2026-11-25
+
+### Changed
+
+- Added `monitoring.tracing.trace_playback_loops` (default `false`). The per-track heartbeat and queue-watch poll run every few seconds for as long as a track plays, inside the long-lived gateway-intent span, so one listening session put ~3500 heartbeat spans into a single trace and pushed it past Tempo's `max_bytes_per_trace` (the "Tempo Discarding Spans" alert, `reason=trace_too_large`). `HttpBrokerClient` now takes `trace_playback_loops` and, while it is off, starts no client or retry span for those two calls and sends an unsampled `traceparent`, so the broker drops its server-side span as well. Set it to `true` to get the per-beat record back while debugging. `_trace_headers` takes a `traced` argument for the same purpose, which also means a `traced=False` call no longer lets the peer join the caller's trace. New helper `unsampled_context` in `utils/otel.py`.
+
 ## [3.25.0] - 2026-11-25
 
 ### Changed

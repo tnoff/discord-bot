@@ -68,8 +68,11 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin, HttpGuildQueueMi
 
     def __init__(self, base_url: str, bucket_name: str | None = None,
                  session: aiohttp.ClientSession | None = None,
-                 seam_contract=None):
+                 seam_contract=None, trace_playback_loops: bool = False):
         '''
+        trace_playback_loops : True restores the spans of the per-track heartbeat and queue-watch
+                        poll. Default False; see HttpGuildQueueMixin._trace_playback_loops and
+                        monitoring.tracing.trace_playback_loops.
         seam_contract : a SeamContractConfig enabling the peer route check.
                         Omitted in tests and anywhere the check is not wanted,
                         which makes start_seam_check a no-op rather than
@@ -79,6 +82,7 @@ class HttpBrokerClient(HttpClientMixin, HttpPlayerSessionMixin, HttpGuildQueueMi
         self._bucket_name = bucket_name
         self._session = session
         self._seam_contract_config = seam_contract
+        self._trace_playback_loops = trace_playback_loops
 
 
     async def register_request(self, media_request: MediaRequest) -> None:

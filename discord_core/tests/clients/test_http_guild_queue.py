@@ -14,6 +14,9 @@ import aiohttp
 import pytest
 from aiohttp import web
 from aiohttp.test_utils import TestServer
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from discord_core.clients import http_guild_queue
 from discord_core.clients.http_broker_client import HttpBrokerClient
@@ -39,8 +42,8 @@ class StubBroker(StubBrokerBase):
     routes = GUILD_ROUTES
 
 
-def _connected(stub: StubBroker):
-    return connected(stub, bucket_name=BUCKET)
+def _connected(stub: StubBroker, **client_kwargs):
+    return connected(stub, bucket_name=BUCKET, **client_kwargs)
 
 
 def _request(search: str = 'https://example.com/a') -> MediaRequest:
@@ -324,15 +327,84 @@ async def test_poll_of_an_unchanged_queue_is_none_and_mints_no_span():
 
 
 @pytest.mark.asyncio
-async def test_poll_with_news_opens_a_span():
-    '''Once there is a body to parse, the span is worth having.'''
+async def test_poll_with_news_opens_a_span_when_playback_loops_are_traced():
+    '''Once there is a body to parse, the span is worth having -- if the loops are traced at all.'''
     stub = StubBroker()
     stub.answer(guild_queue_routes.POLL_GUILD_QUEUE, {'version': 6})
-    async with _connected(stub) as client:
+    async with _connected(stub, trace_playback_loops=True) as client:
         with patch.object(http_guild_queue, 'async_otel_span_wrapper',
                           wraps=http_guild_queue.async_otel_span_wrapper) as span:
             await client.poll_guild_queue(GUILD, since=5)
     assert span.call_args.args[0] == 'broker.poll_guild_queue'
+
+
+@pytest.mark.asyncio
+async def test_poll_with_news_is_untraced_by_default():
+    '''The queue watch runs for as long as a track plays, so it is untraced unless asked.'''
+    stub = StubBroker()
+    stub.answer(guild_queue_routes.POLL_GUILD_QUEUE, {'version': 6})
+    async with _connected(stub) as client:
+        with patch.object(http_guild_queue, 'async_otel_span_wrapper') as span:
+            assert await client.poll_guild_queue(GUILD, since=5) == (6, None)
+    span.assert_not_called()
+
+
+def _sampled(traceparent: str) -> bool:
+    '''The sampled bit of a W3C traceparent header.'''
+    return bool(int(traceparent.split('-')[3], 16) & 1)
+
+
+async def _beat_under_a_live_span(trace_playback_loops: bool):
+    '''One heartbeat made under a recording parent span; returns (stub, finished span names).'''
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracer = provider.get_tracer('test')
+    stub = StubBroker()
+    stub.answer(guild_queue_routes.PLAYING_HEARTBEAT, {'alive': True})
+    async with _connected(stub, trace_playback_loops=trace_playback_loops) as client:
+        with patch('discord_core.utils.otel.TRACER', tracer):
+            with tracer.start_as_current_span('music.gateway_intent'):
+                assert await client.playing_heartbeat(GUILD, 'u1') is True
+    return stub, [span.name for span in exporter.get_finished_spans()]
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_is_untraced_end_to_end_by_default():
+    '''No client span, no retry span, and an unsampled traceparent so the broker drops its own.
+
+    This is the regression behind the "Tempo Discarding Spans" alert: ~3500 heartbeat spans in
+    the one trace of a long listening session. The header assertion is the half that matters --
+    skipping only the client span would still let the broker's server span join that trace.
+    '''
+    stub, names = await _beat_under_a_live_span(trace_playback_loops=False)
+    assert names == ['music.gateway_intent']
+    assert not _sampled(stub.last(guild_queue_routes.PLAYING_HEARTBEAT)['traceparent'])
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_is_traced_when_playback_loops_are_traced():
+    '''The toggle puts the spans back, and the traceparent returns to sampled.'''
+    stub, names = await _beat_under_a_live_span(trace_playback_loops=True)
+    assert sorted(names) == ['broker.playing_heartbeat', 'music.gateway_intent',
+                             'utils.retry_broker_command']
+    assert _sampled(stub.last(guild_queue_routes.PLAYING_HEARTBEAT)['traceparent'])
+
+
+@pytest.mark.asyncio
+async def test_poll_is_untraced_end_to_end_by_default():
+    '''The unchanged-queue poll also stops propagating a sampled parent.'''
+    stub = StubBroker()
+    stub.answer(guild_queue_routes.POLL_GUILD_QUEUE, None, status=204)
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracer = provider.get_tracer('test')
+    async with _connected(stub) as client:
+        with tracer.start_as_current_span('music.gateway_intent'):
+            await client.poll_guild_queue(GUILD, since=1)
+    # The stub records the header only for handled requests; a 204 still goes through it.
+    assert not _sampled(stub.last(guild_queue_routes.POLL_GUILD_QUEUE)['traceparent'])
 
 
 @pytest.mark.asyncio

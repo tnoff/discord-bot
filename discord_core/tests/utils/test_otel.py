@@ -2,11 +2,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from opentelemetry import trace
+from opentelemetry.propagate import inject
 from opentelemetry.trace.status import StatusCode
 
 from discord_core.utils.otel import (
     async_otel_span_wrapper, async_untraced_span, capture_span_context,
-    otel_span_wrapper, span_links_from_context,
+    otel_span_wrapper, span_links_from_context, unsampled_context,
 )
 
 
@@ -188,3 +189,23 @@ async def test_async_untraced_span_does_not_swallow_exceptions():
     with pytest.raises(ValueError):
         async with async_untraced_span():
             raise ValueError('propagates')
+
+
+def test_unsampled_context_keeps_the_active_trace_id_and_clears_the_sampled_flag(recording_tracer):
+    '''A peer that extracts this traceparent sees a parent that says "do not record".'''
+    tracer, _ = recording_tracer
+    with tracer.start_as_current_span('parent') as parent:
+        headers = {}
+        inject(headers, context=unsampled_context())
+    version, trace_id, span_id, flags = headers['traceparent'].split('-')
+    assert (version, flags) == ('00', '00')
+    assert int(trace_id, 16) == parent.get_span_context().trace_id
+    assert int(span_id, 16) != parent.get_span_context().span_id
+
+
+def test_unsampled_context_mints_ids_when_there_is_no_active_span():
+    '''An invalid context injects nothing, so with no parent it must still carry real ids.'''
+    headers = {}
+    inject(headers, context=unsampled_context())
+    assert headers['traceparent'].split('-')[3] == '00'
+    assert int(headers['traceparent'].split('-')[1], 16) != 0
