@@ -124,16 +124,23 @@ def test_worker_applies_extra_ytdlp_options_and_filter():
     assert isinstance(x._egress, HttpProxyEgress)
 
 
-def test_worker_aborts_on_unavailable_fragments_by_default():
-    '''yt-dlp is told to fail, not skip, a fragment it cannot fetch.'''
+def test_worker_lets_yt_dlp_skip_unavailable_fragments_by_default():
+    '''yt-dlp may skip a fragment; _reject_lost_fragments then rejects every skip that is not
+    the empty final fragment.'''
     x = make_download_client()
+    assert x._egress._client.params['skip_unavailable_fragments'] is True
+
+
+def test_worker_extra_ytdlp_options_can_make_fragment_loss_fatal():
+    '''extra_ytdlp_options is applied after the default, so config can make yt-dlp fail instead.'''
+    x = make_download_client(extra_ytdlp_options={'skip_unavailable_fragments': False})
     assert x._egress._client.params['skip_unavailable_fragments'] is False
 
 
-def test_worker_extra_ytdlp_options_can_restore_fragment_skipping():
-    '''extra_ytdlp_options is applied after the default, so config can turn skipping back on.'''
-    x = make_download_client(extra_ytdlp_options={'skip_unavailable_fragments': True})
-    assert x._egress._client.params['skip_unavailable_fragments'] is True
+def test_worker_gives_yt_dlp_the_fragment_tracking_logger():
+    '''The logger yt-dlp narrates its fragment skips to is the one the worker reads them back from.'''
+    x = make_download_client()
+    assert x._egress._client.params['logger'] is x._fragment_log
 
 
 def test_worker_pool_mode_requires_exits():
@@ -359,6 +366,87 @@ async def test_prepare_source_single_video_no_entries():
         assert result.status.success
         assert result.ytdlp_data['webpage_url'] == 'https://example.single.com'
         assert result.file_name == pcm_path
+
+def yield_hls_download(worker, narration, fake_file_path):
+    '''A mock yt-dlp client that narrates `narration` to the worker's ytdlp logger, as a
+    fragmented download does, then returns a finished download of `fake_file_path`.'''
+    class MockYTDLPHls(MockYTDLP):
+        '''Mock yt-dlp client that logs fragment skips like yt-dlp's HLS downloader.'''
+        def extract_info(self, _search_string, download=True):
+            for level, message in narration:
+                getattr(worker._fragment_log, level)(message)
+            return super().extract_info(_search_string, download=download)
+    return MockYTDLPHls(fake_file_path=fake_file_path)
+
+
+EMPTY_LAST_FRAGMENT = [
+    ('debug', '[hlsnative] Total fragments: 47'),
+    ('error', 'ERROR: Did not get any data blocks'),
+    ('debug', '[download] fragment not found; Skipping fragment 47 ...'),
+]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_accepts_empty_final_hls_fragment():
+    '''YouTube's HLS manifests can end with a 0-byte segment; yt-dlp skipping just that one
+    loses nothing, so the download succeeds (yt-dlp#14997).'''
+    with NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
+        download_path = Path(tmp_file.name)
+    x = make_download_client()
+    x._egress = HttpProxyEgress(yield_hls_download(x, EMPTY_LAST_FRAGMENT, download_path))
+    pcm_path = make_pcm(download_path)
+    with patch('discord_downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+        result = await x.create_source(fake_source_dict(generate_fake_context()), 3)
+    assert result.status.success
+    assert result.file_name == pcm_path
+
+
+@pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.parametrize('narration', [
+    # A fragment mid-stream is real audio, even when its body was empty.
+    [('debug', '[hlsnative] Total fragments: 47'),
+     ('error', 'ERROR: Did not get any data blocks'),
+     ('debug', '[download] fragment not found; Skipping fragment 12 ...')],
+    # The final fragment lost to anything but an empty body (403, timeout) is missing audio.
+    [('debug', '[hlsnative] Total fragments: 47'),
+     ('error', 'ERROR: unable to download video data: HTTP Error 403: Forbidden'),
+     ('debug', '[download] fragment not found; Skipping fragment 47 ...')],
+])
+async def test_prepare_source_rejects_a_download_that_lost_a_fragment(narration):
+    '''A skipped fragment that is not the empty final one fails the download as a known
+    transient (retried on another exit) and removes the file so the retry downloads afresh.'''
+    with NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
+        download_path = Path(tmp_file.name)
+    x = make_download_client()
+    x._egress = HttpProxyEgress(yield_hls_download(x, narration, download_path))
+    with patch('discord_downloader.interfaces.download_protocols.edit_audio_file') as edit_audio_file:
+        result = await x.create_source(fake_source_dict(generate_fake_context()), 3)
+    assert not result.status.success
+    assert result.status.error_type == DownloadErrorType.RETRYABLE
+    assert result.status.understood is True
+    assert 'not found, unable to continue' in result.status.error_detail
+    assert not download_path.exists()
+    edit_audio_file.assert_not_called()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_prepare_source_fragment_record_does_not_leak_between_downloads():
+    '''A lost fragment on one download must not fail the next one on the same worker.'''
+    with NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
+        download_path = Path(tmp_file.name)
+    x = make_download_client()
+    mid_stream = [('debug', '[hlsnative] Total fragments: 5'), ('debug', '[download] Skipping fragment 2 ...')]
+    x._egress = HttpProxyEgress(yield_hls_download(x, mid_stream, download_path))
+    with patch('discord_downloader.interfaces.download_protocols.edit_audio_file'):
+        first = await x.create_source(fake_source_dict(generate_fake_context()), 3)
+    assert 'not found, unable to continue' in first.status.error_detail
+    download_path.write_bytes(b'again')
+    x._egress = HttpProxyEgress(MockYTDLP(fake_file_path=download_path))
+    pcm_path = make_pcm(download_path)
+    with patch('discord_downloader.interfaces.download_protocols.edit_audio_file', return_value=pcm_path):
+        second = await x.create_source(fake_source_dict(generate_fake_context()), 3)
+    assert second.status.success
+
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_prepare_source_s3_mode():

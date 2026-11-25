@@ -56,6 +56,7 @@ from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.utils.integrations.s3 import file_digest, key_with_digest, upload_file
 
 from discord_downloader.utils.audio import edit_audio_file, AudioProcessingError
+from discord_downloader.utils.fragments import FragmentSkipLogger
 from discord_downloader.utils.integrations.egress_pool import (
     EGRESS_MODE_HTTP_PROXY, build_exit_resolver, DownloadEgress, Egress,
     ExitClients, ExitPool, HttpProxyEgress, PoolEgress,
@@ -273,6 +274,9 @@ class DownloadWorkerBase(ABC):
         base-class default wins, silently and with the config looking applied. They are
         asserted at the cli entrypoint for that reason, not just here.
         '''
+        # Wraps the ytdlp logger so a skipped HLS/DASH fragment can be told apart from
+        # YouTube's empty final fragment (see skip_unavailable_fragments below).
+        self._fragment_log = FragmentSkipLogger(get_logger('ytdlp', logging_config))
         ytdlopts = {
             'format': 'bestaudio/best',
             'restrictfilenames': True,
@@ -280,7 +284,7 @@ class DownloadWorkerBase(ABC):
             'nocheckcertificate': True,
             'ignoreerrors': False,
             'logtostderr': False,
-            'logger': get_logger('ytdlp', logging_config),
+            'logger': self._fragment_log,
             'default_search': 'auto',
             'source_address': YTDLP_SOURCE_ADDRESS,
             # Relative output template + a home path, so a concurrent (pool-mode)
@@ -289,12 +293,14 @@ class DownloadWorkerBase(ABC):
             # client. The filename stays per-video, so the S3 cache key is unchanged.
             'outtmpl': YTDLP_OUTPUT_TEMPLATE,
             'paths': {'home': str(download_dir)},
-            # yt-dlp's default is to skip a fragment it cannot fetch and report the
-            # download as complete, which hands back audio with a hole in it (seen in
-            # prod: the last HLS fragment dropped after "Did not get any data blocks").
-            # Fail instead so the request retries on another exit. Set before the
-            # extras below so extra_ytdlp_options can turn it back on.
-            'skip_unavailable_fragments': False,
+            # Let yt-dlp skip a fragment it cannot fetch (its default). That alone hands
+            # back audio with a hole in it, so _reject_lost_fragments fails the download
+            # for any skip except the empty final fragment YouTube's HLS manifests can
+            # end with (yt-dlp#14997: "Did not get any data blocks" on the last fragment
+            # only, nothing missing). Setting this False instead made every such
+            # download fail, and a retry gets the same manifest. Set before the extras
+            # below so extra_ytdlp_options can still change it.
+            'skip_unavailable_fragments': True,
         }
         if extra_ytdlp_options:
             for key, value in extra_ytdlp_options.items():
@@ -728,6 +734,25 @@ class DownloadWorkerBase(ABC):
             span_context=span_context,
         )
 
+    def _reject_lost_fragments(self, data: dict) -> None:
+        '''
+        Fail a download that yt-dlp finished only by skipping a fragment that may hold
+        audio. Must run on the thread that called extract_info (the fragment record is
+        per thread).
+
+        Raises the same wording yt-dlp uses when it refuses to skip, so the usual
+        classification applies: a known transient, retried on another exit. The file is
+        removed first, otherwise the retry finds it and reports the download as done.
+        '''
+        lost = self._fragment_log.lost_fragments()
+        if not lost:
+            return
+        for entry in (data, *(data.get('entries') or [])):
+            for requested in entry.get('requested_downloads') or []:
+                Path(requested['filepath']).unlink(missing_ok=True)
+        self.logger.warning('yt-dlp skipped fragment(s) %s and finished anyway; discarding the download', lost)
+        raise DownloadError(f'fragment {lost[0]} not found, unable to continue')
+
     def __prepare_data_source(self, media_request: MediaRequest, max_retries: int, egress: DownloadEgress):
         '''
         Prepare source from youtube url
@@ -755,7 +780,9 @@ class DownloadWorkerBase(ABC):
         with otel_span_wrapper(f'{OTEL_SPAN_PREFIX}.create_source', kind=SpanKind.CLIENT, attributes=span_attributes, links=span_links_from_context(media_request.span_context)) as span:
             span_context = capture_span_context()
             try:
+                self._fragment_log.reset()
                 data = egress.client.extract_info(media_request.search_result.resolved_search_string, download=media_request.download_file)
+                self._reject_lost_fragments(data)
             except MetadataCheckFailedException as error:
                 span.record_exception(error)
                 span.set_status(StatusCode.OK)
