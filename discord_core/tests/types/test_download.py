@@ -145,6 +145,7 @@ def test_known_transient_markers_match_production_shapes():
     assert is_known_transient(eof) is True
     assert is_known_transient(socks) is True
     assert is_known_transient(fragment) is True
+    assert is_known_transient(normalize_ytdlp_error('ERROR: Did not get any data blocks')) is True
 
 
 def test_unrecognised_message_is_not_known_transient():
