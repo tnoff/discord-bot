@@ -14,7 +14,7 @@ from discord_db.cogs.music_helpers import database_functions
 from discord_db.database import VideoCache
 from discord_db.utils.sql_retry import async_retry_database_commands
 
-OTEL_SPAN_PREFIX = 'music.video_cache'
+OTEL_SPAN_PREFIX = 'db.video_cache'
 
 
 class VideoCacheClient():

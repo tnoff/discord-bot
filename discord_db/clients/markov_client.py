@@ -36,7 +36,7 @@ from discord_db.clients.session_store import SessionStoreBase
 from discord_db.database import MarkovChannel, MarkovRelation
 from discord_db.utils.sql_retry import async_retry_database_commands
 
-OTEL_SPAN_PREFIX = 'markov.store'
+OTEL_SPAN_PREFIX = 'db.markov_store'
 
 
 def _guild_relations(guild_id: int):

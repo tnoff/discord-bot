@@ -48,7 +48,7 @@ from discord_db.clients.session_store import SessionStoreBase
 from discord_db.database import Playlist, PlaylistItem, utcnow
 from discord_db.utils.sql_retry import async_retry_database_commands
 
-OTEL_SPAN_PREFIX = 'music.playlist_store'
+OTEL_SPAN_PREFIX = 'db.playlist_store'
 
 # Both columns are varchar(256); a longer value is truncated rather than
 # rejected, which is what the cog did before this moved.

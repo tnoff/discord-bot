@@ -32,7 +32,7 @@ __all__ = [
     'check_youtube_video',
 ]
 
-OTEL_SPAN_PREFIX = 'music.search_client'
+OTEL_SPAN_PREFIX = 'commands.search_client'
 
 def check_youtube_video(search: str) -> bool:
     '''

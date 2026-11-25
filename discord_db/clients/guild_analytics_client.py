@@ -42,7 +42,7 @@ from discord_db.clients.session_store import SessionStoreBase
 from discord_db.database import Guild, GuildVideoAnalytics
 from discord_db.utils.sql_retry import async_retry_database_commands
 
-OTEL_SPAN_PREFIX = 'music.guild_analytics_store'
+OTEL_SPAN_PREFIX = 'db.guild_analytics_store'
 
 # 1 day, in seconds. Durations are carried into `total_duration_days` rather
 # than left to overflow a 32-bit seconds column.
