@@ -24,8 +24,13 @@ Requests always use path-style addressing (`<endpoint>/<bucket>/<key>`), which O
 and AWS still serves. Unlike boto3 there is no instance-role lookup, and only the credentials file
 is read, not ~/.aws/config: region and endpoint come from the variables above.
 
-The functions stay synchronous, as they were with boto3; async callers run them in a thread.
+Each call comes twice: the synchronous one (`upload_file`), which the downloader's worker thread and
+the tests use, and an asyncio one (`upload_file_async`), sent with aiohttp, for code on the event
+loop. Both share the signing, the digest checks and the parsing; only the transport differs. The
+async calls buffer a whole object in memory, as the synchronous ones do, and read and write local
+files in a worker thread.
 '''
+import asyncio
 import base64
 import configparser
 import hashlib
@@ -38,11 +43,14 @@ import xml.etree.ElementTree as ET  # nosec B405
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Mapping
 from urllib.parse import quote, urlsplit
 
+import aiohttp
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from yarl import URL
 
 logger = logging.getLogger(__name__)
 
@@ -303,9 +311,9 @@ def _child_text(element: ET.Element, name: str) -> str | None:
             return child.text
     return None
 
-def _error_code(response: requests.Response) -> str | None:
+def _error_code(content: bytes) -> str | None:
     try:
-        root = ET.fromstring(response.content)  # nosec B314
+        root = ET.fromstring(content)  # nosec B314
     except ET.ParseError:
         return None
     return _child_text(root, 'Code')
@@ -324,6 +332,31 @@ def _session(config: S3Config) -> requests.Session:
     session.mount('http://', adapter)
     return session
 
+def _prepare_request(config: S3Config, method: str, bucket: str, key: str,
+                     params: list[tuple[str, str]] | None, payload_hash: str,
+                     headers: dict[str, str] | None) -> tuple[str, dict[str, str]]: #pylint:disable=too-many-arguments,too-many-positional-arguments
+    '''
+    The URL and the signed headers for one request. Signed afresh on every call, so a retry carries a
+    current timestamp.
+    '''
+    endpoint = urlsplit(config.endpoint)
+    canonical_uri = endpoint.path.rstrip('/') + '/' + _uri_encode(bucket)
+    if key:
+        canonical_uri += '/' + _uri_encode(key, safe='/')
+    query = canonical_query(params or [])
+    signed = sign_headers(config, method, endpoint.netloc, canonical_uri, query,
+                          headers or {}, payload_hash, datetime.now(timezone.utc))
+    # The URL goes out already encoded, so it is sent exactly as signed: requests leaves %XX escapes
+    # and unreserved characters alone, and the encoding above produces nothing else.
+    return f'{endpoint.scheme}://{endpoint.netloc}{canonical_uri}' + (f'?{query}' if query else ''), signed
+
+def _payload_hash(body: bytes) -> str:
+    return hashlib.sha256(body).hexdigest() if body else EMPTY_PAYLOAD_HASH
+
+def _status_error(method: str, bucket: str, key: str, status: int, content: bytes) -> S3RequestError:
+    code = _error_code(content)
+    return S3RequestError(f'{method} {bucket}/{key} returned {status} {code or ""}'.rstrip(), status=status, code=code)
+
 def s3_request(method: str, bucket: str, key: str = '', *, #pylint:disable=too-many-arguments
                params: list[tuple[str, str]] | None = None, body: bytes = b'',
                headers: dict[str, str] | None = None, config: S3Config | None = None) -> requests.Response:
@@ -333,17 +366,7 @@ def s3_request(method: str, bucket: str, key: str = '', *, #pylint:disable=too-m
     Raises S3RequestError when the store cannot be reached or answers with an error status.
     '''
     config = config or config_from_env()
-    endpoint = urlsplit(config.endpoint)
-    canonical_uri = endpoint.path.rstrip('/') + '/' + _uri_encode(bucket)
-    if key:
-        canonical_uri += '/' + _uri_encode(key, safe='/')
-    query = canonical_query(params or [])
-    payload_hash = hashlib.sha256(body).hexdigest() if body else EMPTY_PAYLOAD_HASH
-    signed = sign_headers(config, method, endpoint.netloc, canonical_uri, query,
-                          headers or {}, payload_hash, datetime.now(timezone.utc))
-    # The URL goes out already encoded, so it is sent exactly as signed: requests leaves %XX escapes
-    # and unreserved characters alone, and the encoding above produces nothing else.
-    url = f'{endpoint.scheme}://{endpoint.netloc}{canonical_uri}' + (f'?{query}' if query else '')
+    url, signed = _prepare_request(config, method, bucket, key, params, _payload_hash(body), headers)
     try:
         with _session(config) as session:
             response = session.request(method, url, data=body or None, headers=signed,
@@ -351,14 +374,72 @@ def s3_request(method: str, bucket: str, key: str = '', *, #pylint:disable=too-m
     except requests.RequestException as e:
         raise S3RequestError(f'{method} {bucket}/{key} failed: {e}') from e
     if response.status_code >= 300:
-        code = _error_code(response)
-        raise S3RequestError(f'{method} {bucket}/{key} returned {response.status_code} {code or ""}'.rstrip(),
-                             status=response.status_code, code=code)
+        raise _status_error(method, bucket, key, response.status_code, response.content)
     return response
 
+@dataclass(frozen=True)
+class S3Response:
+    '''
+    What `s3_request_async` returns: the answer, read to the end.
+    '''
+    status: int
+    headers: Mapping[str, str]
+    content: bytes
+
+async def s3_request_async(method: str, bucket: str, key: str = '', *, #pylint:disable=too-many-arguments
+                           params: list[tuple[str, str]] | None = None, body: bytes = b'',
+                           headers: dict[str, str] | None = None, config: S3Config | None = None) -> S3Response:
+    '''
+    `s3_request` for the event loop: the same signed request, sent with aiohttp.
+
+    Retries as the synchronous one does (connection errors, timeouts and the RETRY_STATUSES, up to
+    `max_attempts` tries, waiting `retry_backoff` before the first retry and doubling after).
+    Raises S3RequestError when the store cannot be reached or answers with an error status.
+    Cancelling the task abandons the request at once.
+    '''
+    config = config or config_from_env()
+    payload_hash = _payload_hash(body)
+    # No overall limit, only per-read ones: a song takes as long as it takes, as with requests.
+    timeout = aiohttp.ClientTimeout(total=None, sock_connect=config.connect_timeout, sock_read=config.read_timeout)
+    failure = None
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+        for attempt in range(config.max_attempts):
+            if attempt:
+                await asyncio.sleep(config.retry_backoff * 2 ** (attempt - 1))
+            url, signed = _prepare_request(config, method, bucket, key, params, payload_hash, headers)
+            try:
+                # encoded=True: yarl must send the URL as signed, not normalise it.
+                async with session.request(method, URL(url, encoded=True), data=body or None, headers=signed) as response:
+                    result = S3Response(response.status, response.headers, await response.read())
+            except (aiohttp.ClientError, TimeoutError) as e:
+                failure = S3RequestError(f'{method} {bucket}/{key} failed: {e}')
+                failure.__cause__ = e
+                continue
+            if result.status < 300:
+                return result
+            failure = _status_error(method, bucket, key, result.status, result.content)
+            if result.status not in RETRY_STATUSES:
+                break
+    raise failure
+
 # ---------------------------------------------------------------------------
-# The four calls
+# The four calls, each in a synchronous and an asyncio form
 # ---------------------------------------------------------------------------
+
+def _read_for_upload(file_path: Path, object_name: str) -> tuple[bytes, dict[str, str]]:
+    '''
+    The file's bytes and the Content-MD5 header to send them with, after checking the file is there
+    and matches the digest in its key. Reads and hashes the file: blocking.
+    '''
+    if not file_path.exists() or not file_path.is_file():
+        raise ObjectStorageException(f'Invalid file path {str(file_path)}')
+    data = file_path.read_bytes()
+    expected = key_digest(object_name)
+    if expected is not None and content_digest(data) != expected:
+        raise ObjectStorageException(f'{file_path} does not match the digest in its key {object_name}')
+    # bandit B324: MD5 is mandated by the S3 Content-MD5 protocol header, not used for security
+    md5_digest = hashlib.md5(data, usedforsecurity=False).digest()
+    return data, {'Content-MD5': base64.b64encode(md5_digest).decode('utf-8')}
 
 def upload_file(bucket_name: str, file_path: Path, object_name: str = None) -> bool:
     '''
@@ -366,35 +447,33 @@ def upload_file(bucket_name: str, file_path: Path, object_name: str = None) -> b
     '''
     file_path = Path(file_path) # Double check its a path
     object_name = object_name or str(file_path)
-    if not file_path.exists() or not file_path.is_file():
-        raise ObjectStorageException(f'Invalid file path {str(file_path)}')
-
-    data = file_path.read_bytes()
-    expected = key_digest(object_name)
-    if expected is not None and content_digest(data) != expected:
-        raise ObjectStorageException(f'{file_path} does not match the digest in its key {object_name}')
-    # bandit B324: MD5 is mandated by the S3 Content-MD5 protocol header, not used for security
-    md5_digest = hashlib.md5(data, usedforsecurity=False).digest()
-    md5_base64 = base64.b64encode(md5_digest).decode('utf-8')
+    data, headers = _read_for_upload(file_path, object_name)
     try:
-        s3_request('PUT', bucket_name, object_name, body=data, headers={'Content-MD5': md5_base64})
+        s3_request('PUT', bucket_name, object_name, body=data, headers=headers)
         return True
     except S3RequestError as e:
         raise ObjectStorageException(f'Error uploading file: {e}') from e
 
-def get_file(bucket_name: str, object_name: str, file_path: Path) -> bool:
+async def upload_file_async(bucket_name: str, file_path: Path, object_name: str = None) -> bool:
     '''
-    Download client to path
+    `upload_file` for the event loop.
     '''
     file_path = Path(file_path) # Double check its a path
+    object_name = object_name or str(file_path)
+    data, headers = await asyncio.to_thread(_read_for_upload, file_path, object_name)
     try:
-        response = s3_request('GET', bucket_name, object_name)
+        await s3_request_async('PUT', bucket_name, object_name, body=data, headers=headers)
+        return True
     except S3RequestError as e:
-        raise ObjectStorageException(f'Error downloading file: {e}') from e
-    data = response.content
+        raise ObjectStorageException(f'Error uploading file: {e}') from e
+
+def _verify_and_write(data: bytes, etag: str, object_name: str, file_path: Path) -> bool:
+    '''
+    Check a fetched object, then write it to file_path. Hashes and writes: blocking.
+    '''
     # bandit B324: comparing against S3 ETag (MD5 is dictated by S3 protocol), not used for security
     computed_md5 = hashlib.md5(data, usedforsecurity=False).hexdigest()
-    etag = response.headers.get('ETag', '').strip('"')
+    etag = etag.strip('"')
     # ETag from multi-part upload has '-N' suffix — skip check if so
     if etag and '-' not in etag and etag != computed_md5:
         logger.warning('S3 checksum mismatch: etag=%s computed=%s key=%s', etag, computed_md5, object_name)
@@ -411,9 +490,56 @@ def get_file(bucket_name: str, object_name: str, file_path: Path) -> bool:
 
     return True
 
+def get_file(bucket_name: str, object_name: str, file_path: Path) -> bool:
+    '''
+    Download client to path
+    '''
+    file_path = Path(file_path) # Double check its a path
+    try:
+        response = s3_request('GET', bucket_name, object_name)
+    except S3RequestError as e:
+        raise ObjectStorageException(f'Error downloading file: {e}') from e
+    return _verify_and_write(response.content, response.headers.get('ETag', ''), object_name, file_path)
+
+async def get_file_async(bucket_name: str, object_name: str, file_path: Path) -> bool:
+    '''
+    `get_file` for the event loop.
+    '''
+    file_path = Path(file_path) # Double check its a path
+    try:
+        response = await s3_request_async('GET', bucket_name, object_name)
+    except S3RequestError as e:
+        raise ObjectStorageException(f'Error downloading file: {e}') from e
+    return await asyncio.to_thread(_verify_and_write, response.content, response.headers.get('ETag', ''),
+                                   object_name, file_path)
+
 def _parse_last_modified(value: str) -> datetime:
     # `2025-01-01T00:00:00.000Z`; fromisoformat reads the Z suffix from Python 3.11 on.
     return datetime.fromisoformat(value)
+
+def _parse_listing(content: bytes) -> tuple[list[dict], str | None]:
+    '''
+    One page of a ListObjectsV2 answer: its objects, and the token for the next page (None on the last).
+    '''
+    root = ET.fromstring(content)  # nosec B314
+    results = []
+    for element in root:
+        if _local_name(element.tag) != 'Contents':
+            continue
+        results.append({
+            'key': _child_text(element, 'Key'),
+            'last_modified': _parse_last_modified(_child_text(element, 'LastModified')),
+        })
+    token = _child_text(root, 'NextContinuationToken')
+    if _child_text(root, 'IsTruncated') != 'true' or not token:
+        token = None
+    return results, token
+
+def _listing_params(prefix: str, token: str | None) -> list[tuple[str, str]]:
+    params = [('list-type', '2'), ('prefix', prefix)]
+    if token:
+        params.append(('continuation-token', token))
+    return params
 
 def list_objects(bucket_name: str, prefix: str) -> list[dict]:
     '''
@@ -421,22 +547,32 @@ def list_objects(bucket_name: str, prefix: str) -> list[dict]:
     Returns [{'key': ..., 'last_modified': ...}] or [] if no objects found.
     '''
     results = []
-    params = [('list-type', '2'), ('prefix', prefix)]
+    token = None
     try:
         while True:
-            response = s3_request('GET', bucket_name, params=params)
-            root = ET.fromstring(response.content)  # nosec B314
-            for element in root:
-                if _local_name(element.tag) != 'Contents':
-                    continue
-                results.append({
-                    'key': _child_text(element, 'Key'),
-                    'last_modified': _parse_last_modified(_child_text(element, 'LastModified')),
-                })
-            token = _child_text(root, 'NextContinuationToken')
-            if _child_text(root, 'IsTruncated') != 'true' or not token:
+            response = s3_request('GET', bucket_name, params=_listing_params(prefix, token))
+            page, token = _parse_listing(response.content)
+            results.extend(page)
+            if token is None:
                 break
-            params = [('list-type', '2'), ('prefix', prefix), ('continuation-token', token)]
+    except (S3RequestError, ET.ParseError, TypeError, ValueError) as e:
+        raise ObjectStorageException(f'Error listing objects: {e}') from e
+    results.sort(key=lambda x: x['last_modified'], reverse=True)
+    return results
+
+async def list_objects_async(bucket_name: str, prefix: str) -> list[dict]:
+    '''
+    `list_objects` for the event loop.
+    '''
+    results = []
+    token = None
+    try:
+        while True:
+            response = await s3_request_async('GET', bucket_name, params=_listing_params(prefix, token))
+            page, token = _parse_listing(response.content)
+            results.extend(page)
+            if token is None:
+                break
     except (S3RequestError, ET.ParseError, TypeError, ValueError) as e:
         raise ObjectStorageException(f'Error listing objects: {e}') from e
     results.sort(key=lambda x: x['last_modified'], reverse=True)
@@ -448,6 +584,16 @@ def delete_file(bucket_name: str, object_name: str) -> bool:
     '''
     try:
         s3_request('DELETE', bucket_name, object_name)
+        return True
+    except S3RequestError as e:
+        raise ObjectStorageException(f'Error deleting file: {e}') from e
+
+async def delete_file_async(bucket_name: str, object_name: str) -> bool:
+    '''
+    `delete_file` for the event loop.
+    '''
+    try:
+        await s3_request_async('DELETE', bucket_name, object_name)
         return True
     except S3RequestError as e:
         raise ObjectStorageException(f'Error deleting file: {e}') from e
