@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.24.1] - 2026-11-25
+
+### Changed
+
+- Added a `notify` flag to retry lifecycle updates and an `understood` flag to `DownloadStatus`, so recognised transient download errors can retry without a UI note. `Did not get any data blocks` is now a known transient error.
+
 ## [3.24.0] - 2026-11-24
 
 ### Changed
