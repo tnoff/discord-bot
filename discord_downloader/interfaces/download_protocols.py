@@ -66,7 +66,7 @@ from discord_downloader.utils.integrations.egress_probe import (
 
 # DownloadClient and RETRY_BACKOFF_SECONDS_MINIMUM moved to
 # interfaces/download_client_protocol so that annotating a download handle does
-# not import this module's engine deps (yt_dlp, boto3 via integrations/s3).
+# not import this module's engine deps (yt_dlp).
 # Re-exported here so existing imports keep working —
 # same move, same reason, as BrokerClient before them.
 __all__ = ['DownloadClient', 'RETRY_BACKOFF_SECONDS_MINIMUM', 'ClearGuildResult']

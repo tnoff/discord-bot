@@ -60,16 +60,16 @@ def bucket_for_key(key: str, bucket_name: str | None, cache_bucket_name: str | N
 # pod, which only needs the Redis WorkQueue/BundleStore from workers/redis_queues.
 # CheckoutResult is re-exported for the same reason, and moved for a stronger one:
 # it is a plain dataclass that HttpBrokerClient needs, and leaving it here forced
-# the HTTP client to import this module — and with it s3's boto3, which the slim
-# search image does not install.  BrokerClient moved to
+# the HTTP client to import this module — and with it integrations/s3, which the
+# slim search image does not need.  BrokerClient moved to
 # interfaces/broker_client_protocol on the same argument.
 #
-# Those three moves were all made to escape *this* module's imports.  As of the
-# VideoCacheStore seam one of the two deps they were escaping is gone: annotating
-# video_cache against the Protocol instead of VideoCacheClient drops sqlalchemy
-# out of this import chain, leaving only boto3 via delete_file.  The escapes stay
-# — boto3 alone is still disqualifying for the slim images, and re-homing a type
-# that other modules now import from its canonical location would be churn.
+# Those three moves were all made to escape *this* module's imports.  Both deps they
+# were escaping are gone from this import chain: annotating video_cache against the
+# VideoCacheStore Protocol instead of VideoCacheClient dropped sqlalchemy, and
+# discord_core's S3 client (reached via delete_file) no longer imports boto3, only
+# requests.  The escapes stay: re-homing a type that other modules now import from
+# its canonical location would be churn.
 __all__ = ['DownloadResultQueue', 'SearchResultQueue', 'CheckoutResult', 'BrokerClient']
 
 
@@ -202,7 +202,9 @@ class MediaBrokerBase(PlayerSessionStore, ABC):
             if not to_delete:
                 return 0
             for vc in to_delete:
-                delete_file(bucket_for_key(str(vc.base_path), self.bucket_name, self.cache_bucket_name), str(vc.base_path))
+                # delete_file is a blocking HTTP call: keep it off the event loop, as the rest of the broker does.
+                await asyncio.to_thread(
+                    delete_file, bucket_for_key(str(vc.base_path), self.bucket_name, self.cache_bucket_name), str(vc.base_path))
             await self.video_cache.remove_video_cache([vc.id for vc in to_delete])
             return len(to_delete)
 

@@ -22,7 +22,7 @@ from discord_core.types.player_session import PlayerSession
 
 # The span-churn assertions patch the span wrapper where HttpBrokerClient uses
 # it, which is its own module now (clients/http_broker_client.py) — the split
-# that keeps the search pod's import chain free of sqlalchemy/boto3.  The class
+# that keeps the search pod's import chain free of sqlalchemy.  The class
 # itself is still re-exported from clients/broker_client.py, so the import
 # above and every other test here are unchanged.
 
