@@ -41,7 +41,7 @@ CHANNEL_ID = 707
 
 # The intermediate span the collector rule dropped on 2026-09-04. Named here so
 # the severance test reproduces that incident rather than an invented one.
-SEVERED_SPAN = 'markov.store.add_channel'
+SEVERED_SPAN = 'db.markov_store.add_channel'
 
 
 async def _capture_add_channel(mocker, fake_engine):  # pylint:disable=redefined-outer-name

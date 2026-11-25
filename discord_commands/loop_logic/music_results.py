@@ -19,7 +19,7 @@ from discord_core.utils.otel import async_otel_span_wrapper, span_links_from_con
 from discord_commands.types.playlist_add_result import PlaylistAddResult
 from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
-OTEL_SPAN_PREFIX = 'music'
+OTEL_SPAN_PREFIX = 'commands'
 
 
 class MusicResultsLoop:

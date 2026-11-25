@@ -154,7 +154,7 @@ class BotDownloadFlagged(RetryableException):
     Youtube flagged download as a bot
     '''
 
-OTEL_SPAN_PREFIX = 'music.download_client'
+OTEL_SPAN_PREFIX = 'downloader'
 # Span attributes for the format yt-dlp chose (<prefix>.format_id, .acodec, .abr, .ext).
 # Plain strings here rather than AttributeNaming members: this pod installs
 # discord_core from its pinned tag, so a new member would need a core release first.

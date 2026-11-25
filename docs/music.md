@@ -316,7 +316,7 @@ music:
 
 When enabled, the live exit is attached to observability — deliberately **not** as a high-cardinality metric label:
 
-- the `music.download_client.create_source` span gets `egress.hostname` / `egress.ip` attributes
+- the `downloader.create_source` span gets `egress.hostname` / `egress.ip` attributes
 - each YouTube download failure logs `Download failure (<type>) attributed to egress exit <hostname>`
 
 Aggregate failure alerting stays on the existing `download_failure_count` metric; the per-exit breakdown is a trace/log drill-down. The probe runs in the standalone [HA downloader](architecture.md) process, which owns the proxy. An unknown `egress_probe` value fails at startup rather than silently disabling attribution. Add a new provider by subclassing `ExitProbe` in `discord_downloader/utils/integrations/egress_probe.py` and registering it in `EXIT_PROBE_TYPES`.

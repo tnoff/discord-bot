@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.3.0] - 2026-11-25
+
+### Changed
+
+- Spans are now named after this pod: `music.video_cache.*`, `music.playlist_store.*`, `music.guild_analytics_store.*` and `markov.store.*` became `db.video_cache.*`, `db.playlist_store.*`, `db.guild_analytics_store.*` and `db.markov_store.*`. `sql_retry.*` is unchanged: it is the span between a route's SERVER span and the SQLAlchemy spans below it, and a collector filter dropping it once severed every trace this pod produced.
+
 ## [3.2.7] - 2026-11-25
 
 ### Changed
