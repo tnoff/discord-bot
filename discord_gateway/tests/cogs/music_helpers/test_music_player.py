@@ -2,7 +2,6 @@ import asyncio
 from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-import time
 from unittest.mock import Mock, patch, AsyncMock
 
 import pytest
