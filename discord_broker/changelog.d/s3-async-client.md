@@ -1,0 +1,1 @@
+The broker's S3 calls (cache flush and eviction, discarding a queued song, the corrupt-object check) now use discord_core's asyncio S3 client instead of running the blocking one in a worker thread. Needs discord_core 3.25.0 (pinned by #1239).

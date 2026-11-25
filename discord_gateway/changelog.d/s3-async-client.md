@@ -1,0 +1,1 @@
+Staging a queued song from object storage now uses discord_core's asyncio S3 client instead of running the blocking one in a worker thread, so superseding or discarding a track abandons its download request. Needs discord_core 3.25.0.

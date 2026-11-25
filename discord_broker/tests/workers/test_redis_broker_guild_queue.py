@@ -660,8 +660,8 @@ async def test_finish_played_track_is_promoted_to_the_cache_then_deleted_from_th
     def fake_upload(bucket, path, key):
         calls.append(('upload', bucket, key, Path(path).read_bytes()))
 
-    with patch(f'{S3}.get_file', side_effect=fake_get), patch(f'{S3}.upload_file', side_effect=fake_upload), \
-            patch(f'{S3}.delete_file', side_effect=lambda bucket, key: calls.append(('delete', bucket, key))):
+    with patch(f'{S3}.get_file_async', side_effect=fake_get), patch(f'{S3}.upload_file_async', side_effect=fake_upload), \
+            patch(f'{S3}.delete_file_async', side_effect=lambda bucket, key: calls.append(('delete', bucket, key))):
         await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
         await queues.wait_for_retired()
 
@@ -681,8 +681,8 @@ async def test_finish_skipped_track_is_deleted_without_being_cached():
     uuid = await _playing(broker, queues, 'song', file_path='queue/song.pcm')
     await queues.skip(GUILD, uuid)
 
-    with patch(f'{S3}.get_file') as get_file, patch(f'{S3}.upload_file') as upload_file, \
-            patch(f'{S3}.delete_file') as delete_file:
+    with patch(f'{S3}.get_file_async') as get_file, patch(f'{S3}.upload_file_async') as upload_file, \
+            patch(f'{S3}.delete_file_async') as delete_file:
         await queues.finish(GUILD, uuid, skipped=True, history_cap=5)
         await queues.wait_for_retired()
 
@@ -700,8 +700,8 @@ async def test_retire_keeps_a_queue_object_another_entry_still_uses():
     uuid = await _playing(broker, queues, 'song', file_path='queue/song.pcm')
     await _available(broker, 'song-again', file_path='queue/song.pcm')
 
-    with patch(f'{S3}.get_file', side_effect=lambda bucket, key, path: Path(path).write_bytes(b'pcm')), \
-            patch(f'{S3}.upload_file'), patch(f'{S3}.delete_file') as delete_file:
+    with patch(f'{S3}.get_file_async', side_effect=lambda bucket, key, path: Path(path).write_bytes(b'pcm')), \
+            patch(f'{S3}.upload_file_async'), patch(f'{S3}.delete_file_async') as delete_file:
         await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
         await queues.wait_for_retired()
 
@@ -717,7 +717,7 @@ async def test_retire_leaves_cache_objects_alone():
     uuid = await _playing(broker, queues, 'hit', file_path='cache/hit.pcm', cache_hit=True)
     video_cache.iterate_file.reset_mock()
 
-    with patch(f'{S3}.get_file') as get_file, patch(f'{S3}.delete_file') as delete_file:
+    with patch(f'{S3}.get_file_async') as get_file, patch(f'{S3}.delete_file_async') as delete_file:
         await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
         await queues.wait_for_retired()
 
@@ -734,8 +734,8 @@ async def test_retire_failed_copy_keeps_the_queue_object_and_does_not_raise(capl
     uuid = await _playing(broker, queues, 'song', file_path='queue/song.pcm')
 
     with caplog.at_level(logging.WARNING), \
-            patch(f'{S3}.get_file', side_effect=ObjectStorageException('boom')), \
-            patch(f'{S3}.delete_file') as delete_file:
+            patch(f'{S3}.get_file_async', side_effect=ObjectStorageException('boom')), \
+            patch(f'{S3}.delete_file_async') as delete_file:
         await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
         await queues.wait_for_retired()
 
@@ -753,8 +753,8 @@ async def test_retire_failure_in_the_catalog_is_logged_by_the_task(caplog):
     uuid = await _playing(broker, queues, 'song', file_path='queue/song.pcm')
 
     with caplog.at_level(logging.WARNING), \
-            patch(f'{S3}.get_file', side_effect=lambda bucket, key, path: Path(path).write_bytes(b'pcm')), \
-            patch(f'{S3}.upload_file'), patch(f'{S3}.delete_file') as delete_file:
+            patch(f'{S3}.get_file_async', side_effect=lambda bucket, key, path: Path(path).write_bytes(b'pcm')), \
+            patch(f'{S3}.upload_file_async'), patch(f'{S3}.delete_file_async') as delete_file:
         await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
         await queues.wait_for_retired()
 
@@ -772,8 +772,8 @@ async def test_promote_drops_its_copy_when_the_catalog_already_holds_another_for
     broker, queues = _make_split(video_cache)
     uuid = await _playing(broker, queues, 'song', file_path='queue/song.pcm')
 
-    with patch(f'{S3}.get_file', side_effect=lambda bucket, key, path: Path(path).write_bytes(b'pcm')), \
-            patch(f'{S3}.upload_file'), patch(f'{S3}.delete_file') as delete_file:
+    with patch(f'{S3}.get_file_async', side_effect=lambda bucket, key, path: Path(path).write_bytes(b'pcm')), \
+            patch(f'{S3}.upload_file_async'), patch(f'{S3}.delete_file_async') as delete_file:
         await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
         await queues.wait_for_retired()
 
@@ -787,7 +787,7 @@ async def test_retire_does_nothing_without_split_buckets():
     broker, queues = _make()
     uuid = await _playing(broker, queues, 'song', file_path='queue/song.pcm')
 
-    with patch(f'{S3}.delete_file') as delete_file:
+    with patch(f'{S3}.delete_file_async') as delete_file:
         await queues.finish(GUILD, uuid, skipped=False, history_cap=5)
         await queues.wait_for_retired()
 
@@ -801,7 +801,7 @@ async def test_retire_download_ignores_what_is_not_a_queue_object(split, file_pa
     broker, _ = _make_split(_catalog()) if split else _make()
     download = _download(_request(), 'song', file_path=file_path)
 
-    with patch(f'{S3}.delete_file') as delete_file, patch(f'{S3}.get_file') as get_file:
+    with patch(f'{S3}.delete_file_async') as delete_file, patch(f'{S3}.get_file_async') as get_file:
         await broker.retire_download(download, played=True)
         await broker.retire_download(None, played=True)
 
@@ -816,7 +816,7 @@ async def test_close_and_clear_delete_queue_objects_without_caching():
     broker, queues = _make_split(video_cache)
     await _queued_split(broker, queues, 'one', 'two')
 
-    with patch(f'{S3}.delete_file') as delete_file, patch(f'{S3}.get_file') as get_file:
+    with patch(f'{S3}.delete_file_async') as delete_file, patch(f'{S3}.get_file_async') as get_file:
         assert await queues.clear(GUILD) == 2
         await queues.wait_for_retired()
     assert sorted(call.args for call in delete_file.call_args_list) == [
@@ -824,7 +824,7 @@ async def test_close_and_clear_delete_queue_objects_without_caching():
     get_file.assert_not_called()
 
     await _queued_split(broker, queues, 'three')
-    with patch(f'{S3}.delete_file') as delete_file:
+    with patch(f'{S3}.delete_file_async') as delete_file:
         await queues.close(GUILD)
         await queues.wait_for_retired()
     delete_file.assert_called_once_with(BUCKET, 'queue/three.pcm')
@@ -847,7 +847,7 @@ async def test_discard_deletes_only_a_queue_object_when_split():
     queued = await _available(broker, 'queued', file_path='queue/queued.pcm')
     cached = await _available(broker, 'cached', file_path='cache/cached.pcm', cache_hit=True)
 
-    with patch(f'{S3}.delete_file') as delete_file:
+    with patch(f'{S3}.delete_file_async') as delete_file:
         await broker.discard(queued)
         await broker.discard(cached)
 

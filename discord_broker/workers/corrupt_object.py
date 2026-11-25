@@ -4,14 +4,13 @@ Evict a cached object a player found does not match the digest in its key.
 A function over a broker rather than a method on it: the broker base class is at the limit of public
 methods, and this reads three of its attributes and nothing else.
 '''
-import asyncio
 import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from discord_core.types.media_request import MediaRequest
 from discord_core.utils.integrations.s3 import (
-    ObjectDigestMismatch, ObjectStorageException, delete_file, get_file, key_digest,
+    ObjectDigestMismatch, ObjectStorageException, delete_file_async, get_file_async, key_digest,
 )
 
 from discord_broker.interfaces.broker_protocols import MediaBrokerBase, bucket_for_key
@@ -47,7 +46,7 @@ async def evict_corrupt_object(broker: MediaBrokerBase, media_request: MediaRequ
     bucket = bucket_for_key(key, broker.bucket_name, broker.cache_bucket_name)
     with TemporaryDirectory() as tmp_dir:
         try:
-            await asyncio.to_thread(get_file, bucket, key, Path(tmp_dir) / Path(key).name)
+            await get_file_async(bucket, key, Path(tmp_dir) / Path(key).name)
         except ObjectDigestMismatch:
             pass
         except ObjectStorageException:
@@ -64,5 +63,5 @@ async def evict_corrupt_object(broker: MediaBrokerBase, media_request: MediaRequ
     if remaining is not None and str(remaining.file_path) == key:
         logger.error('The catalog still holds %s after asking it to drop the row, leaving the object', key)
         return False
-    await asyncio.to_thread(delete_file, bucket, key)
+    await delete_file_async(bucket, key)
     return True

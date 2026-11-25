@@ -27,7 +27,7 @@ from discord_core.interfaces.result_queue import DownloadResultQueue, SearchResu
 from discord_core.interfaces.broker_client_protocol import BrokerClient
 from discord_core.interfaces.player_session_store import PlayerSessionStore
 from discord_core.types.checkout_result import CheckoutResult
-from discord_core.utils.integrations.s3 import delete_file
+from discord_core.utils.integrations.s3 import delete_file_async
 
 from discord_broker.workers.media_bundle import BundleRenderer, BundleState
 
@@ -67,8 +67,8 @@ def bucket_for_key(key: str, bucket_name: str | None, cache_bucket_name: str | N
 # Those three moves were all made to escape *this* module's imports.  Both deps they
 # were escaping are gone from this import chain: annotating video_cache against the
 # VideoCacheStore Protocol instead of VideoCacheClient dropped sqlalchemy, and
-# discord_core's S3 client (reached via delete_file) no longer imports boto3, only
-# requests.  The escapes stay: re-homing a type that other modules now import from
+# discord_core's S3 client (reached via delete_file_async) no longer imports boto3, only
+# requests and aiohttp.  The escapes stay: re-homing a type that other modules now import from
 # its canonical location would be churn.
 __all__ = ['DownloadResultQueue', 'SearchResultQueue', 'CheckoutResult', 'BrokerClient']
 
@@ -202,9 +202,8 @@ class MediaBrokerBase(PlayerSessionStore, ABC):
             if not to_delete:
                 return 0
             for vc in to_delete:
-                # delete_file is a blocking HTTP call: keep it off the event loop, as the rest of the broker does.
-                await asyncio.to_thread(
-                    delete_file, bucket_for_key(str(vc.base_path), self.bucket_name, self.cache_bucket_name), str(vc.base_path))
+                await delete_file_async(
+                    bucket_for_key(str(vc.base_path), self.bucket_name, self.cache_bucket_name), str(vc.base_path))
             await self.video_cache.remove_video_cache([vc.id for vc in to_delete])
             return len(to_delete)
 
