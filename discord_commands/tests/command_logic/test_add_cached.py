@@ -21,7 +21,7 @@ async def queued_urls(pod, fake_context):  # pylint: disable=redefined-outer-nam
 @pytest.mark.asyncio
 async def test_add_cached_caches_video(fake_engine, mocker, fake_context, fake_stores):  # pylint: disable=redefined-outer-name
     """Queueing a track with S3 caching enabled records it in the video cache"""
-    mocker.patch('tests.fakes.asyncio_broker.get_file', return_value=True)
+    mocker.patch('tests.fakes.asyncio_broker.get_file_async', return_value=True)
     pod = await pod_with_player(
         fake_context, fake_stores,
         {'download': {'cache': {'enable_cache_files': True}, 'storage': {'bucket_name': 'test-bucket'}}},

@@ -17,7 +17,7 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.utils.otel import async_otel_span_wrapper, otel_span_wrapper
 
 from discord_core.types.player_session import PlayerSession
-from discord_core.utils.integrations.s3 import delete_file, get_file
+from discord_core.utils.integrations.s3 import delete_file_async, get_file_async
 
 from discord_broker.interfaces.broker_protocols import BrokerEntry, CheckoutResult, MediaBrokerBase, Zone
 from discord_broker.workers.media_bundle import BundleState
@@ -188,9 +188,7 @@ class AsyncioBroker(BundleAttachMixin, MediaBrokerBase):
                 guild_path.mkdir(exist_ok=True)
                 uuid_path = guild_path / f'{entry.download.media_request.uuid}{"".join(i for i in entry.download.file_path.suffixes)}'
                 if self.bucket_name:
-                    await asyncio.to_thread(
-                        get_file, self.bucket_name, str(entry.download.file_path), uuid_path
-                    )
+                    await get_file_async(self.bucket_name, str(entry.download.file_path), uuid_path)
                 else:
                     if not entry.download.file_path.exists():
                         raise FileNotFoundError('Unable to locate base path')
@@ -223,7 +221,7 @@ class AsyncioBroker(BundleAttachMixin, MediaBrokerBase):
         if entry and entry.download and not self.video_cache:
             if entry.download.file_path:
                 if self.bucket_name:
-                    await asyncio.to_thread(delete_file, self.bucket_name, str(entry.download.file_path))
+                    await delete_file_async(self.bucket_name, str(entry.download.file_path))
                 else:
                     await asyncio.to_thread(entry.download.file_path.unlink, missing_ok=True)
         if entry is not None:

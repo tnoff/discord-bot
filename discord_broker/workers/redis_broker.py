@@ -5,7 +5,6 @@ Checkout returns the S3 object key rather than staging files locally —
 file I/O is the caller's responsibility (HttpBrokerClient). S3 is required;
 local-disk mode will not work across separate pods.
 '''
-import asyncio
 import copy
 import logging
 from pathlib import Path
@@ -18,7 +17,7 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist_add_request import parse_media_request
 
 from discord_core.types.player_session import PlayerSession
-from discord_core.utils.integrations.s3 import ObjectStorageException, delete_file, get_file, upload_file
+from discord_core.utils.integrations.s3 import ObjectStorageException, delete_file_async, get_file_async, upload_file_async
 
 from discord_broker.interfaces.broker_protocols import (
     CACHE_KEY_PREFIX, QUEUE_KEY_PREFIX, BrokerEntry, CheckoutResult, MediaBrokerBase, Zone, bucket_for_key,
@@ -262,7 +261,7 @@ class RedisBroker(MediaBrokerBase):
             # With split buckets only the queue's own objects are garbage here: a cached object is
             # still the cache's, however this request ended.
             if file_path and self.bucket_name and (not self.cache_bucket_name or str(file_path).startswith(QUEUE_KEY_PREFIX)):
-                await asyncio.to_thread(delete_file, self.bucket_name, file_path)
+                await delete_file_async(self.bucket_name, file_path)
         if data is not None:
             await self._maybe_render_bundle(parse_media_request(data['request']))
 
@@ -290,7 +289,7 @@ class RedisBroker(MediaBrokerBase):
             if played and self.video_cache and not download.cache_hit:
                 await self._promote_to_cache(download, key)
             if not await self._key_in_use(key):
-                await asyncio.to_thread(delete_file, self.bucket_name, key)
+                await delete_file_async(self.bucket_name, key)
         except ObjectStorageException:
             logger.warning('Could not retire %s from the queue bucket', key, exc_info=True)
 
@@ -299,22 +298,22 @@ class RedisBroker(MediaBrokerBase):
         cache_key = CACHE_KEY_PREFIX + queue_key[len(QUEUE_KEY_PREFIX):]
         with TemporaryDirectory() as tmp_dir:
             local_path = Path(tmp_dir) / Path(queue_key).name
-            await asyncio.to_thread(get_file, self.bucket_name, queue_key, local_path)
-            await asyncio.to_thread(upload_file, self.cache_bucket_name, local_path, cache_key)
+            await get_file_async(self.bucket_name, queue_key, local_path)
+            await upload_file_async(self.cache_bucket_name, local_path, cache_key)
         promoted = copy.copy(download)
         promoted.file_path = Path(cache_key)
         try:
             await self.video_cache.iterate_file(promoted)
         except Exception:
             # Not cataloged, so the cache could never evict it: drop the object just uploaded.
-            await asyncio.to_thread(delete_file, self.cache_bucket_name, cache_key)
+            await delete_file_async(self.cache_bucket_name, cache_key)
             raise
         # The catalog keeps one row per video. A second copy of a video promoted while the first is
         # cataloged (different audio, so a different digest in the key) is not recorded, and nothing
         # would ever evict that object, so it goes.
         kept = await self.video_cache.get_webpage_url_item(download.media_request)
         if kept is not None and str(kept.file_path) != cache_key:
-            await asyncio.to_thread(delete_file, self.cache_bucket_name, cache_key)
+            await delete_file_async(self.cache_bucket_name, cache_key)
 
     async def _key_in_use(self, key: str) -> bool:
         '''True if a registry entry still points at this object key.'''

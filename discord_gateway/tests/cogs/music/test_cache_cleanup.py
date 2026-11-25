@@ -71,7 +71,7 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylin
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with downloaded_from_context(fake_context) as sd:
         with downloaded_from_context(fake_context) as sd2:
-            delete_mock = mocker.patch('discord_broker.interfaces.broker_protocols.delete_file', return_value=True)
+            delete_mock = mocker.patch('discord_broker.interfaces.broker_protocols.delete_file_async', return_value=True)
             # Register via iterate_file only (no S3 upload — simulates pre-existing cache rows)
             await broker.video_cache.iterate_file(sd)
             await broker.video_cache.iterate_file(sd2)
