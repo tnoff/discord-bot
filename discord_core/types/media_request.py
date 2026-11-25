@@ -171,8 +171,12 @@ class MediaRequestStateMachine:
 
     def mark_retry_download(self, reason: str, backoff_seconds: int | None = None,
                             retry_count: int | None = None,
-                            max_retries: int | None = None):
+                            max_retries: int | None = None,
+                            notify: bool = True):
         '''Transition to RETRY_DOWNLOAD and record retry details.
+
+        notify=False records the retry but pre-marks the reason as sent, so the
+        bundle never renders a "Retrying ..." note for it.
 
         retry_count is the worker's authoritative attempt number; when provided
         it is stored so the "attempt N/M" summary renders the real count instead
@@ -190,7 +194,7 @@ class MediaRequestStateMachine:
             info.retry_count = retry_count
         if max_retries is not None:
             info.retry_max = max_retries
-        info.retry_reason_sent = False
+        info.retry_reason_sent = not notify
         self._transition(MediaRequestLifecycleStage.RETRY_DOWNLOAD)
 
     def mark_retry_search(self, reason: str, backoff_seconds: int | None = None,
