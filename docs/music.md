@@ -484,7 +484,8 @@ When a retryable error occurs:
    unrecognised error is still shown, since it may be a matcher gone stale
 4. The request is processed again from the download queue
 5. If all retries are exhausted, the request is marked as permanently failed and the failure
-   summary reports `Download failed after N attempts: <last error>`
+   summary reports `Download failed after N attempts:` followed by the last error in a code
+   block (so yt-dlp's help links do not unfurl), normalised and capped at 500 characters
 
 Step 2 holds the request off the queue before it becomes eligible again, doubling
 per attempt (30s, 60s, 120s, …, capped at 300s):
