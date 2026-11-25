@@ -28,7 +28,8 @@ class StubBrokerBase:
         async def handle(request: web.Request) -> web.StreamResponse:
             body = await request.json() if request.can_read_body else None
             self.calls.append({'route': route, 'match': dict(request.match_info),
-                               'query': dict(request.query), 'body': body})
+                               'query': dict(request.query), 'body': body,
+                               'traceparent': request.headers.get('traceparent')})
             status, answer = self.answers[route]
             if answer is None:
                 return web.Response(status=status)

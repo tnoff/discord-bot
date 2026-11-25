@@ -1,3 +1,4 @@
+import secrets
 from enum import Enum
 from contextlib import asynccontextmanager, contextmanager
 from opentelemetry import trace
@@ -248,6 +249,27 @@ def otel_span_wrapper(span_name: str,
             raise e
         finally:
             pass
+
+def unsampled_context():
+    '''
+    A context whose span is not sampled, for propagating "do not record" to a peer.
+
+    Skipping the client span (async_untraced_span) is not enough for a call that crosses a
+    process: the peer extracts whatever traceparent the request carries, so a call made under a
+    live span still lands its server-side span in that span's trace -- which is how a
+    per-track heartbeat grew one gateway-intent trace past Tempo's max_bytes_per_trace.
+    Injecting this context instead sends a traceparent with the sampled flag clear, and a
+    ParentBased sampler (the SDK default) then records nothing for the peer's spans either.
+
+    Reuses the active trace id when there is one so logs that carry it still correlate;
+    mints one otherwise, because an invalid context injects no header at all.
+    '''
+    current = trace.get_current_span().get_span_context()
+    trace_id = current.trace_id if current.is_valid else (secrets.randbits(128) or 1)
+    span_context = trace.SpanContext(
+        trace_id=trace_id, span_id=secrets.randbits(64) or 1, is_remote=False,
+        trace_flags=trace.TraceFlags(trace.TraceFlags.DEFAULT))
+    return trace.set_span_in_context(trace.NonRecordingSpan(span_context))
 
 @asynccontextmanager
 async def async_untraced_span():

@@ -26,7 +26,7 @@ from discord_core.types.checkout_result import CheckoutResult
 from discord_core.types.guild_queue import ClaimedDownload, GuildQueueSnapshot, PlayingSnapshot
 from discord_core.types.media_download import MediaDownload, media_download_from_dict
 from discord_core.types.playlist_add_request import parse_media_request
-from discord_core.utils.otel import async_otel_span_wrapper
+from discord_core.utils.otel import async_otel_span_wrapper, async_untraced_span
 
 _NO_CONTENT_STATUS = 204
 
@@ -42,6 +42,12 @@ def _guild(guild_id: int) -> dict:
 
 class HttpGuildQueueMixin:
     '''Guild-queue calls against a remote BrokerHttpServer.'''
+
+    #: Whether the per-track background loops (heartbeat, queue watch) emit spans. Off by
+    #: default: they run for as long as a track plays, under the long-lived gateway-intent
+    #: span, and one listening session grew a single trace past Tempo's per-trace byte cap.
+    #: HttpBrokerClient sets it from monitoring.tracing.trace_playback_loops.
+    _trace_playback_loops: bool = False
 
     async def enqueue_track(self, guild_id: int, uuid: str, max_size: int = 0) -> str:
         '''POST /guilds/{guild_id}/queue — queue an AVAILABLE entry.  ok, closed, full or duplicate.'''
@@ -128,13 +134,15 @@ class HttpGuildQueueMixin:
             url = f'{url}?since={since}'
         session = self._get_session()
         async with session.request(guild_queue_routes.POLL_GUILD_QUEUE.method, url,
-                                   headers=self._trace_headers()) as resp:
+                                   headers=self._trace_headers(self._trace_playback_loops)) as resp:
             if resp.status == _NO_CONTENT_STATUS:
                 return None
             resp.raise_for_status()
             payload = await resp.json()
-        async with async_otel_span_wrapper('broker.poll_guild_queue', kind=SpanKind.CLIENT,
-                                           attributes=_guild(guild_id)):
+        span_cm = (async_otel_span_wrapper('broker.poll_guild_queue', kind=SpanKind.CLIENT,
+                                           attributes=_guild(guild_id))
+                   if self._trace_playback_loops else async_untraced_span())
+        async with span_cm:
             body = self._validate(PollGuildQueueResponse, payload)
         return body.version, body.skip_for
 
@@ -156,13 +164,20 @@ class HttpGuildQueueMixin:
             return None
 
     async def playing_heartbeat(self, guild_id: int, uuid: str) -> bool:
-        '''POST /guilds/{guild_id}/playing/heartbeat.'''
-        async with async_otel_span_wrapper(
+        '''
+        POST /guilds/{guild_id}/playing/heartbeat.
+
+        Fires every few seconds for as long as a track plays, so it is untraced end to end unless
+        monitoring.tracing.trace_playback_loops is on: no client span, no retry span, and an
+        unsampled traceparent so the broker's server span is dropped too.
+        '''
+        span_cm = (async_otel_span_wrapper(
             'broker.playing_heartbeat', kind=SpanKind.CLIENT,
             attributes={**_guild(guild_id), 'music.media_request.uuid': uuid},
-        ):
+        ) if self._trace_playback_loops else async_untraced_span())
+        async with span_cm:
             payload = await self._call_route(guild_queue_routes.PLAYING_HEARTBEAT, {'uuid': uuid},
-                                             guild_id=guild_id)
+                                             guild_id=guild_id, traced=self._trace_playback_loops)
         return self._validate(PlayingHeartbeatResponse, payload).alive
 
     async def skip_track(self, guild_id: int, uuid: str) -> str:

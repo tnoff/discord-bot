@@ -95,9 +95,9 @@ denominator made only of errors.
 
 ### Span Suppression (`monitoring.tracing`)
 
-Separate from the above, and not a reversal of it. Four call sites in this
+Separate from the above, and not a reversal of it. Five call sites in this
 codebase decline to emit spans for measured reasons, and this block is the
-off-switch for those four decisions. It does **not** re-introduce name-pattern
+off-switch for those five decisions. It does **not** re-introduce name-pattern
 matching: it is a fixed, enumerated set of toggles, one per site.
 
 The distinction that makes them different controls is lifecycle:
@@ -135,6 +135,15 @@ general:
       # inverted sense: this one is a manual span, so it is governed by
       # `traced=` rather than by `suppress_instrumentation()`.
       trace_queue_worker_status_poll: false
+      # clients/http_guild_queue.py — the heartbeat and queue-watch poll that
+      # run every few seconds while a track plays, under the long-lived
+      # gateway-intent span. One listening session put ~3500 heartbeat spans
+      # into a single trace and tripped Tempo's max_bytes_per_trace (the
+      # "Tempo Discarding Spans" alert, reason=trace_too_large). Off means no
+      # client span, no retry span, and an unsampled traceparent so the
+      # broker's server span is dropped too. Turn ON to debug a lapsing
+      # now-playing record.
+      trace_playback_loops: false
 ```
 
 Two things worth knowing before changing a value:
