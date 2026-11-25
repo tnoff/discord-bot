@@ -1,4 +1,10 @@
 # Changelog
+## [0.12.0] - 2026-11-25
+
+### Changed
+
+- Spans are now named after this pod: `music.process_download_results`, `music.process_search_results`, `music.add_source_to_player` and `music.search_client.check_source` became `commands.process_download_results`, `commands.process_search_results`, `commands.add_source_to_player` and `commands.search_client.check_source`. `process_download_results` is a CONSUMER span, so the Consumer Span Error Rate alert still counts it, by `service_name`, which did not change. The markov and delete_messages loop spans keep their names on purpose: the collector's drop filter matches `^markov` and `^delete_messages`, and renaming them would stop it dropping their OK spans. Also, `enqueue_media_requests` now runs each item under its own root span, `commands.enqueue_media_request`, linked back to the command, instead of under the command's span. A 48-song playlist used to make one 279-span trace across five pods; each item is now its own small trace and the command stays one click away. Control flow is unchanged: the per-item body moved into `_enqueue_one`, which reports whether to carry on, stop on a full queue, or abort on blocked puts.
+
 ## [0.11.12] - 2026-11-25
 
 ### Changed
