@@ -23,7 +23,7 @@ from discord_core.utils.failure_queue import FailureQueue as DownloadFailureQueu
 from discord_core.utils.integrations.s3 import content_digest, key_digest, key_with_digest
 
 from discord_downloader.interfaces import download_protocols
-from discord_downloader.interfaces.download_protocols import VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded, DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator, DirectItemAvailableException
+from discord_downloader.interfaces.download_protocols import VideoTooLong, VideoBanned, BotDownloadFlagged, RetryableException, RetryLimitExceeded, DownloadTerminalException, DownloadClientException, VideoAgeRestrictedException, match_generator, DirectItemAvailableException, DownloadWorkerBase, RETRY_LIMIT_ERROR_MAX_CHARS
 from discord_downloader.utils.audio import AudioProcessingError
 from discord_downloader.utils.integrations.egress_pool import (
     DownloadEgress, HttpProxyEgress, PoolEgress, ExitPool, ExitClients, MullvadSocks5Resolver,
@@ -1668,6 +1668,49 @@ async def test_retry_limit_exceeded_carries_last_error_for_the_user():
     assert result.status.error_type == DownloadErrorType.RETRY_LIMIT_EXCEEDED
     assert 'after 3 attempts' in result.status.user_message
     assert 'Did not get any data blocks' in result.status.user_message
+
+
+BOT_FLAG_RAW = (
+    "ERROR: [youtube] TzA5-_QaRR4: Sign in to confirm you\u2019re not a bot. This helps protect our "
+    "community. Use --cookies-from-browser or --cookies for the authentication. See  "
+    "https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp  for how to manually "
+    "pass cookies. Also see  https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies"
+    "  for tips on effectively exporting YouTube cookies"
+)
+
+
+def test_retry_limit_message_puts_the_error_in_a_code_block():
+    '''A fenced error does not unfurl yt-dlp's wiki links into a GitHub card, and reads as
+    an error rather than prose. The header stays outside the fence.'''
+    message = DownloadWorkerBase._retry_limit_message(5, 'ERROR: Did not get any data blocks')
+    assert message == 'Download failed after 5 attempts:\n```\nERROR: Did not get any data blocks\n```'
+
+
+def test_retry_limit_message_keeps_a_real_bot_flag_error_whole_and_tidy():
+    '''The production bot-flag text (~380 chars, curly apostrophe, double-spaced URLs) fits
+    under the cap untruncated -- the 300-char slice used to cut it mid-URL -- and comes out
+    normalised.'''
+    message = DownloadWorkerBase._retry_limit_message(5, BOT_FLAG_RAW)
+    assert "you're not a bot" in message
+    assert '  ' not in message
+    assert message.endswith('exporting YouTube cookies\n```')
+    assert '\u2026' not in message
+
+
+def test_retry_limit_message_cannot_break_out_of_its_fence():
+    '''Backticks in the error would close the fence early and let the rest unfurl.'''
+    message = DownloadWorkerBase._retry_limit_message(3, 'bad ```code``` and `ticks`')
+    body = message.split('```\n', 1)[1].rsplit('\n```', 1)[0]
+    assert '`' not in body
+
+
+def test_retry_limit_message_is_capped_with_an_ellipsis():
+    '''One failure row must stay far below the 2000-char page a DapperTable accepts.'''
+    message = DownloadWorkerBase._retry_limit_message(5, 'x' * 5000)
+    body = message.split('```\n', 1)[1].rsplit('\n```', 1)[0]
+    assert len(body) == RETRY_LIMIT_ERROR_MAX_CHARS
+    assert body.endswith('\u2026')
+    assert len(message) < 600
 
 
 @pytest.mark.asyncio(loop_scope="session")

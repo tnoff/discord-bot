@@ -203,6 +203,12 @@ def match_generator(max_video_length: int, banned_videos_list: List[str]):
     return filter_function
 
 
+# Longest error text shown in a retry-limit failure. A row is one DapperTable entry and
+# the page limit is DISCORD_MAX_MESSAGE_LENGTH (2000); this leaves room for the request
+# name, the header and the fence, even for a long display name.
+RETRY_LIMIT_ERROR_MAX_CHARS = 500
+
+
 class DownloadWorkerBase(ABC):
     '''
     Download engine base: the queue-agnostic yt-dlp pipeline + consumer loop.
@@ -690,8 +696,18 @@ class DownloadWorkerBase(ABC):
 
         Retries are shown only when unrecognised, so for a known-transient error this
         is the first time the user sees the underlying reason.
+
+        The error goes in a code block: Discord does not unfurl links inside one, so
+        yt-dlp's appended wiki URLs stop expanding into a GitHub card, and the raw
+        text reads as an error rather than prose. The text is whitespace-normalised
+        (yt-dlp pads its URLs with double spaces), backticks are neutralised so they
+        cannot close the fence early, and the cap keeps a single failure row far below
+        the message length a DapperTable page will accept.
         '''
-        return f'Download failed after {max_retries} attempts: {error_str[:300]}'
+        detail = normalize_ytdlp_error(error_str).replace('`', "'")
+        if len(detail) > RETRY_LIMIT_ERROR_MAX_CHARS:
+            detail = detail[:RETRY_LIMIT_ERROR_MAX_CHARS - 1] + '\u2026'
+        return f'Download failed after {max_retries} attempts:\n```\n{detail}\n```'
 
     @staticmethod
     def _make_error_result(
