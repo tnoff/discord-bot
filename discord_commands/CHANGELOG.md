@@ -1,4 +1,10 @@
 # Changelog
+## [0.11.11] - 2026-11-25
+
+### Changed
+
+- Dropped a stale comment that named boto3 as an import-chain dependency; discord_core no longer uses it.
+
 ## [0.11.10] - 2026-11-24
 
 ### Changed

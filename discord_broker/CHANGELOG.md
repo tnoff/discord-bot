@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.8.4] - 2026-11-25
+
+### Changed
+
+- Cache eviction (`evict_cache`) now deletes objects in a worker thread (`asyncio.to_thread`) instead of calling `delete_file` on the event loop, which blocked the broker for every object removed. Also dropped the stale boto3 comments, and the import-chain test now asserts boto3 is absent.
+
 ## [3.8.3] - 2026-11-24
 
 ### Changed

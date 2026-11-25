@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.5.8] - 2026-11-25
+
+### Changed
+
+- Dropped stale boto3 comments (a protocol comment and the Dockerfile): S3 upload is discord_core's own client now.
+
 ## [3.5.7] - 2026-11-24
 
 ### Changed
