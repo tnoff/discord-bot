@@ -3,11 +3,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from discord_core.types.clear_guild_result import ClearGuildResult
 from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage, SearchType
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 
-from discord_downloader.interfaces.download_protocols import ClearGuildResult
 
 from discord_commands.workers.guild_teardown import GuildTeardown
 

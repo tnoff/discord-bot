@@ -8,7 +8,6 @@ from click.testing import CliRunner
 from discord_core.exceptions import DiscordBotException
 from discord_core.utils.common import SeamContractConfig
 
-from discord_gateway.cogs.music import MusicGeneralConfig
 from discord_broker.cli import broker as broker_cli
 from discord_broker.clients.http_video_cache_store import HttpVideoCacheStore
 
@@ -116,14 +115,6 @@ def test_run_honours_configured_message_delete_after(mocker):
 
     _, broker_kwargs = mocks['RedisBroker'].call_args
     assert broker_kwargs['message_delete_after'] == 45
-
-
-def test_default_message_delete_after_matches_music_config():
-    '''The CLI default is a hand-copy of MusicGeneralConfig.message_delete_after
-    (the broker process cannot import cogs.music — that drags discord.py /
-    yt-dlp into a slim pod). Pin them together so the copy cannot drift.'''
-    assert (broker_cli.DEFAULT_MESSAGE_DELETE_AFTER
-            == MusicGeneralConfig().message_delete_after)
 
 
 # --- MR 4a: the catalog is remote -------------------------------------------

@@ -1,4 +1,3 @@
-from functools import partial
 import logging
 from pathlib import Path
 from tempfile import NamedTemporaryFile, TemporaryDirectory
@@ -6,7 +5,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 from pydantic import ValidationError as PydanticValidationError
 from aiohttp import ClientConnectionError, ClientResponseError
-from discord.errors import DiscordServerError, HTTPException, RateLimited, NotFound
 from opentelemetry.trace.status import StatusCode
 import pytest
 
@@ -19,8 +17,6 @@ from discord_core.utils.common import rm_tree
 from discord_core.utils.discord_utils import discord_format_string_embed
 from discord_core.utils.loop_health import LoopHealth
 
-from discord_dispatcher.utils.discord_retry import async_retry_command
-from discord_dispatcher.utils.discord_retry import async_retry_discord_message_command
 
 from tests.helpers import fake_bot_yielder
 
@@ -195,82 +191,12 @@ def test_get_logger():
         assert logger.getEffectiveLevel() == 30
         assert logger.hasHandlers() is True
 
-@pytest.mark.asyncio
-async def test_retry_command_async(mocker):
-    class FakeResponse():
-        def __init__(self):
-            self.status = 500
-            self.reason = 'Cat unplugged the machines'
-    async def test_send_message():
-        raise DiscordServerError(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_core.utils.retry.async_sleep', return_value=False)
-    with pytest.raises(DiscordServerError):
-        await async_retry_command(partial(test_send_message), retry_exceptions=DiscordServerError)
-    assert mock_time.call_count == 3
 
 
-@pytest.mark.asyncio
-async def test_retry_discord_message_command_server_error(mocker):
-    '''DiscordServerError (5xx) should be retried with exponential backoff'''
-    class FakeResponse():
-        def __init__(self):
-            self.status = 503
-            self.reason = 'Service Unavailable'
-    async def test_send_message():
-        raise DiscordServerError(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_core.utils.retry.async_sleep', return_value=False)
-    with pytest.raises(DiscordServerError):
-        await async_retry_discord_message_command(partial(test_send_message))
-    assert mock_time.call_count == 3
 
-@pytest.mark.asyncio
-async def test_retry_command_async_429(mocker):
-    async def test_send_message():
-        raise RateLimited(2)
-    mock_time = mocker.patch('discord_core.utils.retry.async_sleep', return_value=False)
-    with pytest.raises(RateLimited):
-        await async_retry_discord_message_command(partial(test_send_message))
-    assert mock_time.call_count == 3
 
-@pytest.mark.asyncio
-async def test_retry_command_async_http_429(mocker):
-    '''HTTPException with status 429 (e.g. error code 40062) should be retried with backoff'''
-    class FakeResponse():
-        def __init__(self):
-            self.status = 429
-            self.reason = 'Service resource is being rate limited'
-    async def test_send_message():
-        raise HTTPException(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_core.utils.retry.async_sleep', return_value=False)
-    with pytest.raises(HTTPException):
-        await async_retry_discord_message_command(partial(test_send_message))
-    assert mock_time.call_count == 3
 
-@pytest.mark.asyncio
-async def test_retry_command_async_http_non_429(mocker):
-    '''HTTPException with a non-429 status should propagate immediately without retrying'''
-    class FakeResponse():
-        def __init__(self):
-            self.status = 403
-            self.reason = 'Missing Permissions'
-    async def test_send_message():
-        raise HTTPException(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_core.utils.retry.async_sleep', return_value=False)
-    with pytest.raises(HTTPException):
-        await async_retry_discord_message_command(partial(test_send_message))
-    assert mock_time.call_count == 0
 
-@pytest.mark.asyncio
-async def test_retry_command_async_404(mocker):
-    class FakeResponse():
-        def __init__(self):
-            self.status = 404
-            self.reason = 'Cat ate the message'
-    async def test_send_message():
-        raise NotFound(FakeResponse(), 'bar')
-    mock_time = mocker.patch('discord_core.utils.retry.async_sleep', return_value=False)
-    await async_retry_discord_message_command(partial(test_send_message), allow_404=True)
-    assert mock_time.call_count == 0
 
 def test_rm_tree():
     with TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:

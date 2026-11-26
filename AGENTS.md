@@ -54,10 +54,15 @@ enforces it.
 
 Each of the eight packages has its own `tests/` tree
 (`discord_core/tests/`, `discord_gateway/tests/`, …), mirroring that
-package's own layout. Only genuinely cross-package tests (a real HTTP
-client in one package tested against a real server in another, the
-import-boundary/CI-build-filter checks) stay in the central `tests/` at
-repo root. Run pytest with **no path argument** — bare `pytest --cov ...`
+package's own layout. **A package's tests may use that package, the pinned
+`discord_core`, and the shared test infrastructure under `tests/` (fakes,
+helpers) — never another pod's production code.** Core is the independent artifact the pods
+depend on, so core's tests import no pod at all. Anything that needs two pods
+(a real HTTP client in one pod tested against a real server in another, a default
+two pods each copy, the import-boundary/CI-build-filter checks) is an integration
+test and lives in the central `tests/` at repo root.
+`tests/cli/test_package_test_imports.py` enforces it, with a short list of
+integration tests still to be moved that may only shrink. Run pytest with **no path argument** — bare `pytest --cov ...`
 from repo root, exactly as `tox.ini` does. Passing `tests/` explicitly
 collects only the central tree and silently skips the other seven; this
 already broke CI once (PR #1005) before the invocation was fixed.
