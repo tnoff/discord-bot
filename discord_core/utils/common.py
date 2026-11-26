@@ -92,7 +92,8 @@ class MonitoringTracingConfig(BaseModel):
     # suppress_* one, and hence the inverted default.
     trace_queue_worker_status_poll: bool = False
     # clients/http_guild_queue.py: the heartbeat and queue-watch poll that run for as long as a
-    # track plays, inside the long-lived gateway-intent span. One listening session put ~3500
+    # track plays, and the once-a-second claim poll while a guild's queue is empty (a hit still
+    # records a client span), inside the long-lived gateway-intent span. One listening session put ~3500
     # heartbeat spans into a single trace and pushed it past Tempo's max_bytes_per_trace
     # (the "Tempo Discarding Spans" alert, reason=trace_too_large). A manual span like the
     # poller above, so a trace_* toggle with the inverted default. Turn ON to see the
