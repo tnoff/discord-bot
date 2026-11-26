@@ -196,6 +196,12 @@ def test_entrypoint_is_genuinely_all_six():
     assert _affected(['docker/entrypoint.sh'])[0] == {'bot', 'db'}
 
 
+def test_dockerignore_is_genuinely_all_six():
+    '''It decides what every image's build context contains, and no Dockerfile names it, so without
+    this a change to it would build and scan nothing.'''
+    assert _affected(['.dockerignore'])[0] == {'bot', 'db'}
+
+
 def test_retired_root_version_reaches_no_image():
     '''
     The repo-wide VERSION is gone and no Dockerfile COPYs it, so deleting it (or

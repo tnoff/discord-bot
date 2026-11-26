@@ -121,6 +121,7 @@ CENTRAL_INPUTS = (
     '.github/',
     'docker/',
     'catalog-info.yaml',
+    '.dockerignore',
     'tests/cli/image-closure.json',
 )
 

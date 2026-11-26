@@ -40,7 +40,8 @@ from tests.cli._roots import CORE_ROOT, TESTS_DIR, root_of
 CLOSURE_PATH = 'tests/cli/image-closure.json'
 
 # Inputs that are not python modules. docker/entrypoint.sh is genuinely
-# all-six -- every image COPYs it. (The repo-wide VERSION was too, until it was
+# all-six -- every image COPYs it. So is .dockerignore: it decides what every image's build
+# context contains, so a change to it can change all six even though no Dockerfile names it. (The repo-wide VERSION was too, until it was
 # retired: each package's own VERSION lives inside that package's root, so it
 # reaches exactly the images that package already does.) alembic/ is COPYd by
 # Dockerfile.db alone. The bare, repo-root pyproject.toml is deliberately
@@ -53,7 +54,7 @@ CLOSURE_PATH = 'tests/cli/image-closure.json'
 # Everything else under docker/ -- the .cnf.example files, the compose file --
 # matches the old `docker/*` filter but is copied by no Dockerfile, so it
 # rebuilt six images and changed none of them.
-ALWAYS_ALL = ('docker/entrypoint.sh',)
+ALWAYS_ALL = ('docker/entrypoint.sh', '.dockerignore')
 DB_ONLY_PREFIXES = ('alembic/',)
 DB_ONLY_FILES = ('alembic.ini',)
 
