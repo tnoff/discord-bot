@@ -23,7 +23,7 @@ from discord_db.cli._lib.db import setup_db
 from discord_db.cli._lib.db_url import async_url, backend_name
 from discord_db.database import BASE, Playlist
 
-from tests.helpers import fake_engine  # pylint:disable=unused-import
+from tests.db_helpers import fake_engine  # pylint:disable=unused-import
 
 ALEMBIC_INI = Path(__file__).resolve().parents[3] / 'alembic.ini'
 

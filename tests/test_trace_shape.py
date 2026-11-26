@@ -33,8 +33,8 @@ from discord_db.servers.database_server import DatabaseHttpServer
 
 from tests.tracing_support import record_spans
 from tests.helpers import assert_one_connected_trace
-from tests.helpers import fake_engine  # pylint:disable=unused-import
-from tests.helpers import async_mock_session
+from tests.db_helpers import fake_engine  # pylint:disable=unused-import
+from tests.db_helpers import async_mock_session
 
 GUILD_ID = 606
 CHANNEL_ID = 707

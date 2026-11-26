@@ -16,8 +16,8 @@ from discord_core.types.playlist import (
 from discord_db.clients.playlist_client import PlaylistClient
 from discord_db.database import Playlist, PlaylistItem
 
-from tests.helpers import fake_engine #pylint:disable=unused-import
-from tests.helpers import async_mock_session
+from tests.db_helpers import fake_engine  #pylint:disable=unused-import
+from tests.db_helpers import async_mock_session
 
 GUILD_ID = 555
 MAX_SIZE = 4

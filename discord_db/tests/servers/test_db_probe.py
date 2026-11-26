@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 from discord_db.servers.db_probe import db_ping
 
-from tests.helpers import fake_engine  # pylint: disable=unused-import
+from tests.db_helpers import fake_engine  # pylint: disable=unused-import
 
 
 def _engine(*, connect_error=None, execute_error=None):

@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from discord_db.servers.database_health_server import DatabasePingHealthServer
 
-from tests.helpers import fake_engine  # pylint: disable=unused-import
+from tests.db_helpers import fake_engine  # pylint: disable=unused-import
 
 
 def _server(engine):

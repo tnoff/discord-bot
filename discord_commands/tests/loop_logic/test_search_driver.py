@@ -15,7 +15,8 @@ from discord_core.utils.failure_queue import FailureStatus
 from discord_search.workers.youtube_music_search_driver import SEARCH_BACKOFF_SLICE_SECONDS
 
 from tests.fakes.search_pipeline_fakes import MockYoutubeMusicClient, create_test_media_request, make_broker_bundle
-from tests.helpers import fake_engine, fake_context, fake_stores  #pylint:disable=unused-import
+from tests.helpers import fake_context  #pylint:disable=unused-import
+from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
 from tests.results_pod import ResultsPod, music_settings
 
 

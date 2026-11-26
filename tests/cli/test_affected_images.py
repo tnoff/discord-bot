@@ -14,9 +14,11 @@ import json
 
 import pytest
 
+import tests.cli._run_tests as run_tests
 from tests.cli._affected_images import (
     affected, images_for_pyproject, module_for,
 )
+from tests.cli._affected_tests import Selection
 from tests.cli._image_deps import CLOSURE_DOC, REPO_ROOT
 from tests.cli._roots import LEGACY_ROOT, ROOTS, SHIPS_AHEAD_OF_CONSUMER
 
@@ -416,12 +418,25 @@ def test_the_tox_gates_cover_every_root_on_disk():
     # testing each <source>, and a name under several roots resolves to the
     # first that exists. Measured at the media_search move: four names collided
     # and coverage.xml held one entry for each instead of three.
-    assert '--cov=' not in tox, (
-        'tox.ini enumerates --cov=<root> again. That makes coverage.xml ambiguous '
-        'for any filename present under more than one root, and diff-cover then '
-        'reports the wrong file. Use bare --cov with pyproject\'s source root.'
+    # The pytest invocations moved out of tox.ini into tests/cli/_run_tests.py, so the checks on
+    # them follow: tox.ini must still CALL that driver (or no test would run at all), and every
+    # command it can issue must use bare --cov.
+    assert 'python -m tests.cli._run_tests' in tox, (
+        'tox.ini no longer runs tests/cli/_run_tests.py, which is where pytest is invoked now.'
     )
-    assert '--cov ' in tox or tox.rstrip().endswith('--cov'), 'no --cov invocation in tox.ini'
+    commands = [
+        *run_tests.full_plan('python'),
+        *run_tests.narrowed_plan(Selection(False, ('discord_core', 'discord_db'), ('discord_db',), ''), 'python'),
+    ]
+    pytest_commands = [command for command in commands if 'pytest' in command]
+    assert pytest_commands, 'no pytest invocation found in the _run_tests plans -- the gate or this test moved'
+    for command in pytest_commands:
+        assert '--cov' in command, f'{command} does not measure coverage'
+        assert not any(arg.startswith('--cov=') for arg in command), (
+            f'{command} enumerates --cov=<root> again. That makes coverage.xml ambiguous '
+            'for any filename present under more than one root, and diff-cover then '
+            'reports the wrong file. Use bare --cov with pyproject\'s source root.'
+        )
     pyproject = (REPO_ROOT / 'pyproject.toml').read_text(encoding='utf-8')
     assert '[tool.coverage.run]' in pyproject and 'source = ["."]' in pyproject, (
         'pyproject no longer sets a single repo-rooted coverage source, so '

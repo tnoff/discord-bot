@@ -26,8 +26,8 @@ from discord_db.clients.markov_client import MarkovClient
 from discord_db.servers.database_server import DatabaseHttpServer
 
 from tests.fakes.recording_store import RecordingStoreBase
-from tests.helpers import fake_engine #pylint:disable=unused-import
-from tests.helpers import async_mock_session
+from tests.db_helpers import fake_engine  #pylint:disable=unused-import
+from tests.db_helpers import async_mock_session
 
 GUILD_ID = 606
 CHANNEL_ID = 707

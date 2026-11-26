@@ -7,7 +7,8 @@ from discord_core.exceptions import ExitEarlyException
 from discord_gateway.cogs.music import Music
 from discord_gateway.tests.cogs.test_music import BASE_MUSIC_CONFIG
 
-from tests.helpers import fake_engine, fake_context #pylint:disable=unused-import
+from tests.helpers import fake_context  #pylint:disable=unused-import
+from tests.db_helpers import fake_engine  #pylint:disable=unused-import
 
 
 @pytest.mark.asyncio()

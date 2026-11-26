@@ -8,8 +8,8 @@ from discord_db.database import MarkovChannel, MarkovRelation
 
 from discord_commands.command_logic.markov import MarkovCommands
 
-from tests.helpers import fake_engine, fake_markov_store #pylint:disable=unused-import
-from tests.helpers import async_mock_session
+from tests.db_helpers import fake_engine, fake_markov_store  #pylint:disable=unused-import
+from tests.db_helpers import async_mock_session
 
 
 def _logic(reply, fake_markov_store, reject_list=None):  #pylint:disable=redefined-outer-name
