@@ -179,8 +179,13 @@ the import graph (imports, relative imports, and dotted strings such as `monkeyp
 followed through the shared `tests.*` fakes). A package's `tests/` tree runs when something it can
 reach changed, and so does each file of the central `tests/` tree, one at a time. Rules worth knowing:
 
-- **A `discord_core` change selects only `discord_core`'s tests.** Every pod pins a released core
-  tag and its tests run against that, not this checkout; `test_every_pod_pins_core` guards it.
+- **A `discord_core` change selects only `discord_core`'s tests.** Core is a released, versioned
+  artifact: every pod pins a tag, and the pods' tests (and the central ones) run against that pin, not this
+  checkout. The pods meet a new core in the PR that bumps their pin, which is where a break shows up.
+  That only holds because pytest is told not to put the repo root first on `sys.path`
+  (`--import-mode=append`, and `python -P` in CI); `tests/cli/_run_tests.py` checks the installed core
+  against the pin before a run and refuses to narrow if it is not the pin. `test_every_pod_pins_core`
+  guards the pins.
 - **A central test file that reads the repo always runs.** The import graph cannot see a dependency
   that is not an import, so any file that (or whose shared helpers) mentions `REPO_ROOT`/`__file__`,
   runs `subprocess`, reads TOML, or holds a string naming a repo path (`docs/…`, `.github/…`,
@@ -204,6 +209,15 @@ Coverage is gated at 100% on the whole tree for a full run. A narrowed run gates
 whose *source* changed, which is exact because every test that can execute it is in the run. A
 test-only edit is not gated; the weekly full run in `scheduled.yml` is what would catch a
 coverage drop from one.
+
+**Locally** a plain `venv/bin/pytest` uses whichever core your venv has, normally an editable install of this
+checkout, which is convenient for development. CI uses the pin. A change to a pod that needs core code
+that has not been released yet will therefore pass locally and fail there until core is tagged and the pins
+are bumped, which is the point.
+
+Core is covered only by its own tests (`discord_core/tests`), because the pods and the central tests run
+against the pinned release, not this checkout, so the 100% gate on the whole tree also holds core to 100%
+on its own terms. A core change needs core tests; a pod test no longer carries it.
 
 Try it before pushing, from a venv with the packages installed:
 
