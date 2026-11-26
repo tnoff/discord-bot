@@ -26,10 +26,10 @@ is read, not ~/.aws/config: region and endpoint come from the variables above.
 
 Each call comes twice: the synchronous one (`upload_file`), which the downloader's worker thread and
 the tests use, and an asyncio one (`upload_file_async`), sent with aiohttp, for code on the event
-loop. Both share the signing, the digest checks and the parsing; only the transport differs. The
-synchronous calls buffer a whole object in memory. The asyncio upload and download stream it instead,
-a chunk at a time between the file and the socket, so a large object costs a chunk of memory rather
-than its size; their file reads and writes run in a worker thread.
+loop. Both share the signing, the digest checks and the parsing; only the transport differs. Both
+uploads and the asyncio download stream an object a chunk at a time between the file and the socket,
+so a large object costs a chunk of memory rather than its size; the asyncio calls do their file reads
+and writes in a worker thread. The synchronous download (unused by any pod) still buffers.
 '''
 import asyncio
 import base64
@@ -44,7 +44,7 @@ import xml.etree.ElementTree as ET  # nosec B405
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import AsyncIterator, Awaitable, Callable, Mapping, TypeVar
+from typing import AsyncIterator, Awaitable, BinaryIO, Callable, Mapping, TypeVar
 from urllib.parse import quote, urlsplit
 
 import aiohttp
@@ -361,15 +361,22 @@ def _status_error(method: str, bucket: str, key: str, status: int, content: byte
     return S3RequestError(f'{method} {bucket}/{key} returned {status} {code or ""}'.rstrip(), status=status, code=code)
 
 def s3_request(method: str, bucket: str, key: str = '', *, #pylint:disable=too-many-arguments
-               params: list[tuple[str, str]] | None = None, body: bytes = b'',
-               headers: dict[str, str] | None = None, config: S3Config | None = None) -> requests.Response:
+               params: list[tuple[str, str]] | None = None, body: bytes | BinaryIO = b'',
+               headers: dict[str, str] | None = None, config: S3Config | None = None,
+               payload_hash: str | None = None) -> requests.Response:
     '''
     Send one signed request to `<endpoint>/<bucket>/<key>` and return the response.
+
+    `body` is bytes, or an open binary file that requests streams from disk; for a file the caller
+    must pass its SHA-256 as `payload_hash`, since the signature covers it and it cannot be read
+    twice. A retry rewinds the file.
 
     Raises S3RequestError when the store cannot be reached or answers with an error status.
     '''
     config = config or config_from_env()
-    url, signed = _prepare_request(config, method, bucket, key, params, _payload_hash(body), headers)
+    if payload_hash is None:
+        payload_hash = _payload_hash(body)
+    url, signed = _prepare_request(config, method, bucket, key, params, payload_hash, headers)
     try:
         with _session(config) as session:
             response = session.request(method, url, data=body or None, headers=signed,
@@ -450,34 +457,6 @@ async def s3_request_async(method: str, bucket: str, key: str = '', *, #pylint:d
 # The four calls, each in a synchronous and an asyncio form
 # ---------------------------------------------------------------------------
 
-def _read_for_upload(file_path: Path, object_name: str) -> tuple[bytes, dict[str, str]]:
-    '''
-    The file's bytes and the Content-MD5 header to send them with, after checking the file is there
-    and matches the digest in its key. Reads and hashes the file: blocking.
-    '''
-    if not file_path.exists() or not file_path.is_file():
-        raise ObjectStorageException(f'Invalid file path {str(file_path)}')
-    data = file_path.read_bytes()
-    expected = key_digest(object_name)
-    if expected is not None and content_digest(data) != expected:
-        raise ObjectStorageException(f'{file_path} does not match the digest in its key {object_name}')
-    # bandit B324: MD5 is mandated by the S3 Content-MD5 protocol header, not used for security
-    md5_digest = hashlib.md5(data, usedforsecurity=False).digest()
-    return data, {'Content-MD5': base64.b64encode(md5_digest).decode('utf-8')}
-
-def upload_file(bucket_name: str, file_path: Path, object_name: str = None) -> bool:
-    '''
-    Upload a file to object storage
-    '''
-    file_path = Path(file_path) # Double check its a path
-    object_name = object_name or str(file_path)
-    data, headers = _read_for_upload(file_path, object_name)
-    try:
-        s3_request('PUT', bucket_name, object_name, body=data, headers=headers)
-        return True
-    except S3RequestError as e:
-        raise ObjectStorageException(f'Error uploading file: {e}') from e
-
 def _hash_for_upload(file_path: Path, object_name: str) -> tuple[str, str, int]:
     '''
     The file's SHA-256 (hex, for the signature), its Content-MD5 header value and its size, after
@@ -499,6 +478,22 @@ def _hash_for_upload(file_path: Path, object_name: str) -> tuple[str, str, int]:
     if expected is not None and sha.hexdigest()[:DIGEST_LENGTH] != expected:
         raise ObjectStorageException(f'{file_path} does not match the digest in its key {object_name}')
     return sha.hexdigest(), base64.b64encode(md5.digest()).decode('utf-8'), size
+
+def upload_file(bucket_name: str, file_path: Path, object_name: str = None) -> bool:
+    '''
+    Upload a file to object storage. The file is hashed first (the signature needs its SHA-256 up
+    front), then streamed from disk, so it is never held whole in memory.
+    '''
+    file_path = Path(file_path) # Double check its a path
+    object_name = object_name or str(file_path)
+    payload_hash, content_md5, size = _hash_for_upload(file_path, object_name)
+    try:
+        with file_path.open('rb') as handle:
+            s3_request('PUT', bucket_name, object_name, body=handle if size else b'',
+                       headers={'Content-MD5': content_md5}, payload_hash=payload_hash)
+        return True
+    except S3RequestError as e:
+        raise ObjectStorageException(f'Error uploading file: {e}') from e
 
 async def _file_chunks(handle) -> AsyncIterator[bytes]:
     '''

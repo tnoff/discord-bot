@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 from datetime import datetime, timezone
@@ -54,6 +55,9 @@ class FakeStore:
         return False
 
     def request(self, method, url, data=None, headers=None, timeout=None):
+        if hasattr(data, 'read'):
+            # A streamed file: take its bytes now, the caller closes it once the call returns.
+            data = data.read()
         self.calls.append({'method': method, 'url': url, 'data': data, 'headers': headers, 'timeout': timeout})
         if self.error:
             raise self.error
@@ -881,3 +885,40 @@ async def test_get_file_async_cleans_up_when_every_attempt_is_cut_short(server, 
     with pytest.raises(ObjectStorageException, match='Error downloading file'):
         await get_file_async('bucket', 'song.mp3', tmp_path / 'song.mp3')
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.asyncio
+async def test_upload_file_streams_a_file_from_disk(server, tmp_path, mocker):  # pylint: disable=redefined-outer-name
+    data = bytes(range(256)) * 4096
+    path = tmp_path / 'song.mp3'
+    path.write_bytes(data)
+    opened = mocker.spy(s3.Path, 'open')
+    key = key_with_digest('song.mp3', content_digest(data))
+    assert await asyncio.to_thread(upload_file, 'bucket', path, key) is True
+    call = server.calls[0]
+    assert call['body'] == data
+    assert call['headers']['Content-Length'] == str(len(data))
+    assert 'Transfer-Encoding' not in call['headers']
+    assert call['headers']['Content-MD5'] == base64.b64encode(hashlib.md5(data).digest()).decode()
+    assert not server.bad_signatures
+    assert opened.spy_return_list and all(handle.closed for handle in opened.spy_return_list)
+
+
+@pytest.mark.asyncio
+async def test_upload_file_sends_an_empty_file(server, tmp_path):  # pylint: disable=redefined-outer-name
+    path = tmp_path / 'empty.mp3'
+    path.write_bytes(b'')
+    assert await asyncio.to_thread(upload_file, 'bucket', path, 'empty.mp3') is True
+    assert server.calls[0]['body'] == b''
+    assert not server.bad_signatures
+
+
+@pytest.mark.asyncio
+async def test_upload_file_rewinds_the_file_on_retry(server, tmp_path):  # pylint: disable=redefined-outer-name
+    data = b'0123456789abcdef' * 1000
+    path = tmp_path / 'song.mp3'
+    path.write_bytes(data)
+    server.answers.append((503, b'', {}))
+    assert await asyncio.to_thread(upload_file, 'bucket', path, 'song.mp3') is True
+    assert [call['body'] for call in server.calls] == [data, data]
+    assert not server.bad_signatures
