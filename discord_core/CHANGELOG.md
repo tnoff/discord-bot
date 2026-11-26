@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.28.0] - 2026-11-26
+
+### Changed
+
+- Stream the synchronous `upload_file` too, which the downloader uses. It hashes the file in chunks, then hands `requests` the open file, so the upload goes out from disk with a Content-Length instead of the whole file being read into memory first; a retry rewinds the file. `s3_request` takes an open file as `body` together with its `payload_hash`. The synchronous `get_file` is unchanged: no pod calls it.
+
 ## [3.27.0] - 2026-11-26
 
 ### Changed
