@@ -16,8 +16,8 @@ import pytest
 import tests.cli._git_diff as git_diff
 import tests.cli._run_tests as run_tests
 from tests.cli._affected_tests import Selection
-from tests.cli._run_tests import (CORE_COVERAGE_FLOOR, changed_files, core_is_pinned, decide, ensure_pinned_core,
-                                  full_plan, installed_core, main, narrowed_plan, plan)
+from tests.cli._run_tests import (changed_files, core_is_pinned, decide, ensure_pinned_core, full_plan, installed_core,
+                                  main, narrowed_plan, plan)
 from tests.cli._scratch_repo import commit, git, init_scratch_repo
 
 PY = 'python'
@@ -42,18 +42,13 @@ def _write(root, name, text='x\n'):
 
 def test_full_plan_tests_the_pods_against_the_pin_and_core_against_the_checkout():
     '''Pass 1 without the working directory on the path (the pinned core wins), then core's dependencies
-    but NOT core itself, then pass 2 the other way round, then every gate.'''
+    but NOT core itself, then pass 2 the other way round, then ONE 100% gate over the whole tree.'''
     plan_ = full_plan(PY)
     assert plan_[0] == ['python', '-P', '-m', 'pytest', '--ignore=discord_core/tests', '--cov', '--cov-report=']
     assert plan_[1] == ['python', '-m', 'pip', 'install', *CORE_DEPS]
     assert plan_[2] == ['python', '-m', 'pytest', '--import-mode=prepend', 'discord_core/tests', '--cov',
                         '--cov-append', '--cov-report=xml']
-    gates = plan_[3:]
-    assert [gate[3] for gate in gates] == ['report', 'report']
-    assert gates[0][4].startswith('--omit=') and gates[0][4].endswith('/discord_core/*')
-    assert gates[0][-1] == '--fail-under=100'
-    assert gates[1][4].startswith('--include=') and gates[1][4].endswith('/discord_core/*')
-    assert gates[1][-1] == f'--fail-under={CORE_COVERAGE_FLOOR}'
+    assert plan_[3:] == [['python', '-m', 'coverage', 'report', '--skip-covered', '--fail-under=100']]
 
 
 def test_no_plan_ever_installs_core_itself():
@@ -100,15 +95,15 @@ def test_narrowed_plan_never_passes_the_whole_central_directory():
     assert 'tests' not in narrowed_plan(selection, PY)[0]
 
 
-def test_narrowed_plan_with_core_runs_its_own_tests_against_the_checkout_and_gates_the_floor():
-    '''Core is tested after the pods, on its own terms, with coverage appended and the floor as its gate.'''
+def test_narrowed_plan_with_core_runs_its_own_tests_against_the_checkout_and_gates_it_at_100():
+    '''Core is tested after the pods, on its own terms, with coverage appended, and held to 100 like the rest.'''
     selection = Selection(False, ('discord_core',), ('discord_core',), 'why', ('tests/cli/test_a.py',))
     commands = narrowed_plan(selection, PY)
     assert commands[0] == ['python', '-P', '-m', 'pytest', 'tests/cli/test_a.py', '--cov', '--cov-report=']
     assert commands[1] == ['python', '-m', 'pip', 'install', *CORE_DEPS]
     assert commands[2] == ['python', '-m', 'pytest', '--import-mode=prepend', 'discord_core/tests', '--cov',
                            '--cov-append', '--cov-report=']
-    assert commands[-1][-1] == f'--fail-under={CORE_COVERAGE_FLOOR}'
+    assert commands[-1][-1] == '--fail-under=100'
     assert commands[-1][4].endswith('/discord_core/*')
 
 
@@ -120,13 +115,19 @@ def test_a_core_only_selection_runs_core_alone_without_cov_append():
                            '--cov-report=']
 
 
-def test_pods_and_core_are_gated_separately():
-    '''Pods at 100, core at its floor, in two reports so each can fail on its own.'''
+def test_pods_and_core_share_one_gate_at_100():
+    '''Core is a package like any other: one report over everything gated, no special case.'''
     selection = Selection(False, ('discord_core', 'discord_db'), ('discord_core', 'discord_db'), 'why', ('tests/a.py',))
     gates = [command for command in narrowed_plan(selection, PY) if command[3:4] == ['report']]
-    assert len(gates) == 2
-    assert gates[0][-1] == '--fail-under=100' and gates[0][4].endswith('/discord_db/*')
-    assert gates[1][-1] == f'--fail-under={CORE_COVERAGE_FLOOR}'
+    assert len(gates) == 1
+    assert gates[0][-1] == '--fail-under=100'
+    assert gates[0][4].endswith('/discord_core/*') or '/discord_core/*' in gates[0][4]
+    assert '/discord_db/*' in gates[0][4]
+
+
+def test_there_is_no_core_coverage_floor_any_more():
+    '''It existed while core's own tests covered 77% of core. Nothing may reintroduce a lower bar quietly.'''
+    assert not hasattr(run_tests, 'CORE_COVERAGE_FLOOR')
 
 
 def test_narrowed_plan_with_central_files_only_still_writes_coverage_xml_and_does_not_gate():

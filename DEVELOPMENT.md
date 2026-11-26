@@ -215,9 +215,9 @@ checkout, which is convenient for development. CI uses the pin. A change to a po
 that has not been released yet will therefore pass locally and fail there until core is tagged and the pins
 are bumped, which is the point.
 
-Core's own coverage is gated at a floor, not 100% (see `CORE_COVERAGE_FLOOR` in `_run_tests.py`):
-everything else is 100%, and core is covered only by its own tests, which do not yet cover all of it.
-Raise the floor as core's own tests grow; it must never go down.
+Core is covered only by its own tests (`discord_core/tests`), because the pods and the central tests run
+against the pinned release, not this checkout, so the 100% gate on the whole tree also holds core to 100%
+on its own terms. A core change needs core tests; a pod test no longer carries it.
 
 Try it before pushing, from a venv with the packages installed:
 

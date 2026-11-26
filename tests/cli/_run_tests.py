@@ -60,13 +60,11 @@ against the pin and, inside a tox environment only, reinstalls it if it differs.
 own venv, which normally has core editable) it never touches the environment, and a narrowed run falls back
 to everything instead, because the narrowing assumes the pods are tested against the pin.
 
-CORE'S COVERAGE FLOOR
----------------------
-With pass 1 off the checkout, core's coverage comes from core's own tests alone, and a good part of it used to
-be earned by the pods' and central tests exercising the checkout. Measured at the time of the switch: 77% of
-core's statements, with the rest covered only from outside `discord_core/tests`. Everything else is still
-gated at 100%; core is gated at `CORE_COVERAGE_FLOOR`, a number that may only go UP, and the work is to cover
-core from inside core until the floor is 100 and this paragraph can be deleted.
+CORE IS COVERED BY ITS OWN TESTS
+--------------------------------
+With pass 1 off the checkout, `discord_core`'s coverage comes from core's own tests alone, so the 100% gate on
+the whole tree is also a gate that core is tested on its own terms, not through the pods that use it. (It was
+77% when pass 1 was switched off the checkout, and `discord_core/tests` was brought up to 100% in the same PR.)
 
 The central tests are narrowed per file as well (see `_affected_tests`): the ones that read the repo
 always run, the rest run when something they reach changed. A narrowed run cannot gate the combined total (most of the tree did not run). It
@@ -90,9 +88,6 @@ from tests.cli._affected_tests import CORE_ROOT, ImportGraph, Selection, select
 from tests.cli._git_diff import REPO_ROOT, base_head_parser, diff_paths, git_output
 from tests.cli._package_pins import declared_core_pin
 from tests.cli._roots import SERVICE_ROOTS
-
-#: The least of core's statements that core's own tests must cover. It may only go up; see the module doc.
-CORE_COVERAGE_FLOOR = 77
 
 #: Pass 1: no working directory on sys.path, so the pinned core in site-packages wins.
 PASS_1 = ['-P', '-m', 'pytest']
@@ -189,43 +184,31 @@ def changed_files(base: Optional[str] = None, environ=None, head: str = 'HEAD') 
         return None
 
 
-def _core_glob() -> str:
-    return f'{REPO_ROOT / CORE_ROOT}/*'
-
-
 def _core_install(python: str) -> list:
     '''Install core's declared dependencies, never core itself (see the module doc). Empty if it has none.'''
     deps = core_dependencies()
     return [[python, '-m', 'pip', 'install', *deps]] if deps else []
 
 
-def _gates(python: str, gated: tuple) -> list:
-    '''The coverage reports that can fail the run: 100% for every gated package, the floor for core.
+def _gate(python: str, gated: Optional[tuple]) -> list:
+    '''The coverage report that can fail the run: 100%, over the whole tree or over the gated packages.
 
-    gated=None means the whole tree (a full run): everything but core at 100%, core at its floor.
+    gated=None means the whole tree (a full run). Core is a package like any other here: its own tests are the
+    only thing that covers it, so it is gated at 100% too.
     '''
-    commands = []
-    pods = [package for package in (gated or ()) if package != CORE_ROOT]
     if gated is None:
-        commands.append([python, '-m', 'coverage', 'report', f'--omit={_core_glob()}', '--skip-covered',
-                         '--fail-under=100'])
-    elif pods:
-        include = ','.join(f'{REPO_ROOT / package}/*' for package in pods)
-        commands.append([python, '-m', 'coverage', 'report', f'--include={include}', '--skip-covered',
-                         '--fail-under=100'])
-    if gated is None or CORE_ROOT in gated:
-        commands.append([python, '-m', 'coverage', 'report', f'--include={_core_glob()}', '--skip-covered',
-                         f'--fail-under={CORE_COVERAGE_FLOOR}'])
-    return commands
+        return [[python, '-m', 'coverage', 'report', '--skip-covered', '--fail-under=100']]
+    include = ','.join(f'{REPO_ROOT / package}/*' for package in gated)
+    return [[python, '-m', 'coverage', 'report', f'--include={include}', '--skip-covered', '--fail-under=100']]
 
 
 def full_plan(python: str) -> list:
-    '''The whole suite: pass 1 against the pinned core, pass 2 against the checkout, then every gate.'''
+    '''The whole suite: pass 1 against the pinned core, pass 2 against the checkout, then the 100% gate.'''
     return [
         [python, *PASS_1, f'--ignore={CORE_ROOT}/tests', '--cov', '--cov-report='],
         *_core_install(python),
         [python, *PASS_2, f'{CORE_ROOT}/tests', '--cov', '--cov-append', '--cov-report=xml'],
-        *_gates(python, None),
+        *_gate(python, None),
     ]
 
 
@@ -251,7 +234,7 @@ def narrowed_plan(selection: Selection, python: str) -> list:
     # The workflow uploads coverage.xml for diff-cover, so it must exist either way.
     commands.append([python, '-m', 'coverage', 'xml'])
     if selection.gated:
-        commands.extend(_gates(python, selection.gated))
+        commands.extend(_gate(python, selection.gated))
     return commands
 
 
