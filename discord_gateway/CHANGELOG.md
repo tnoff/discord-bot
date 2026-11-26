@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.17.9] - 2026-11-26
+
+### Changed
+
+- The per-track heartbeat and queue-watch poll are no longer traced by default, which stops one long listening session growing a single trace past Tempo's size limit (the "Tempo Discarding Spans" alert). Set `general.monitoring.tracing.trace_playback_loops: true` to get their spans back. Needs discord_core 3.26.0.
+
 ## [3.17.8] - 2026-11-25
 
 ### Changed
