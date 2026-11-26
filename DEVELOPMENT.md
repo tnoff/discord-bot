@@ -187,12 +187,17 @@ reach changed, and so does each file of the central `tests/` tree, one at a time
   `discord_x/…`) is on the always-run side. That is **derived on every run**, not a list to maintain;
   `repo_reads` in `_affected_tests.py` is the detector, and it is deliberately generous.
 - **Central inputs don't force a full run.** `docs/openapi/`, `docs/monitoring/`, `docs/architecture.md`,
-  `docs/configuration.md`, `.github/`, `docker/`, `.dockerignore`, `catalog-info.yaml` and the measured image
-  closure are read only by those always-running files (or by nothing), so changing one selects no package.
+  `docs/configuration.md`, `.github/`, `docker/`, `.dockerignore`, `.pylintrc*`, `catalog-info.yaml` and the
+  measured image closure are read only by those always-running files (or by nothing), so changing one
+  selects no package.
   `test_no_package_test_reads_a_central_input` fails if a package's own tests start naming one;
   if you need that, drop the path from `CENTRAL_INPUTS`.
-- **Anything else it cannot classify runs everything**: `pyproject.toml`, `tox.ini`, `.pylintrc*`,
-  `alembic/`, a data file under `tests/`, a deleted or moved file. So does every run that is not a
+- **A package's own inputs select only that package.** `alembic/` and `alembic.ini` are read only by
+  `discord_db`'s tests (and the always-running central ones), so changing one runs the db test tree and
+  not the packages that import `discord_db`. `test_only_the_owning_package_tests_read_a_package_input`
+  fails if another package's tests start reading one.
+- **Anything else it cannot classify runs everything**: the root `pyproject.toml` (a test-dependency bump can change test behavior), `tox.ini`,
+  a data file under `tests/`, a deleted or moved file. So does every run that is not a
   pull request: local `tox`, the weekly job.
 
 Coverage is gated at 100% on the whole tree for a full run. A narrowed run gates each package

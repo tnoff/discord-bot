@@ -81,11 +81,18 @@ tests that pin it, rather than hiding.
 
 CENTRAL INPUTS
 --------------
-A few paths are read only by those always-running files: the generated OpenAPI docs and
-monitoring docs, `.github/`, `docker/`, `catalog-info.yaml`, the measured image closure.
+A few paths are read only by those always-running files (or by nothing at all): the generated OpenAPI
+docs and monitoring docs, `.github/`, `docker/`, `catalog-info.yaml`, the lint configs, the measured image
+closure.
 Changing one therefore needs no package at all, just the files that always run, and no
 longer falls back to "everything". `test_no_package_test_reads_a_central_input` is what
 keeps that true: it fails if a package's own tests start naming one of them.
+
+PACKAGE INPUTS
+--------------
+`alembic/` and `alembic.ini` are the same idea for ONE package: only `discord_db`'s own tests (and the
+always-running central ones) read them, so changing one selects the db test tree and nothing else,
+where it used to run everything. The packages that import `discord_db` never look at those files.
 '''
 import ast
 import re
@@ -122,8 +129,19 @@ CENTRAL_INPUTS = (
     'docker/',
     'catalog-info.yaml',
     '.dockerignore',
+    '.pylintrc',
+    '.pylintrc.test',
     'tests/cli/image-closure.json',
 )
+
+#: Paths read by exactly one package's own tests (and by the always-running central ones), mapped to
+#: that package. Changing one selects that package's test tree and nothing else -- not the packages that
+#: merely import it, which never look at the file. Prefixes end in '/'; the rest are exact files.
+#: test_only_the_owning_package_tests_read_a_package_input is what keeps "exactly one" true.
+PACKAGE_INPUTS = {
+    'alembic/': 'discord_db',
+    'alembic.ini': 'discord_db',
+}
 
 # A string constant that names a path inside the repo. Generous on purpose: see `repo_reads`.
 _REPO_PATH = re.compile(
@@ -213,6 +231,14 @@ def repo_reads(source: str) -> set:
               and len(node.value) < 200 and _REPO_PATH.search(node.value)):
             found.add(f'path {node.value[:40]!r}')
     return found
+
+
+def package_input_owner(path: str):
+    '''The package whose own tests read `path`, or None if it is not one of PACKAGE_INPUTS.'''
+    for entry, package in PACKAGE_INPUTS.items():
+        if path.startswith(entry) if entry.endswith('/') else path == entry:
+            return package
+    return None
 
 
 def is_central_input(path: str) -> bool:
@@ -344,6 +370,9 @@ def changed_node(path: str, graph: ImportGraph):
     '''
     if path in METADATA_ONLY or is_documentation(path) or is_central_input(path):
         return None
+    owner = package_input_owner(path)
+    if owner in graph.packages:
+        return ('tests', owner)
     parts = path.split('/')
     if len(parts) > 1 and parts[0] in graph.packages:
         return ('tests', parts[0]) if len(parts) > 2 and parts[1] == CENTRAL_TESTS else ('root', parts[0])
