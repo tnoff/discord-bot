@@ -187,8 +187,8 @@ reach changed, and so does each file of the central `tests/` tree, one at a time
   `discord_x/…`) is on the always-run side. That is **derived on every run**, not a list to maintain;
   `repo_reads` in `_affected_tests.py` is the detector, and it is deliberately generous.
 - **Central inputs don't force a full run.** `docs/openapi/`, `docs/monitoring/`, `docs/architecture.md`,
-  `docs/configuration.md`, `.github/`, `docker/`, `catalog-info.yaml` and the measured image closure
-  are read only by those always-running files, so changing one selects no package.
+  `docs/configuration.md`, `.github/`, `docker/`, `.dockerignore`, `catalog-info.yaml` and the measured image
+  closure are read only by those always-running files (or by nothing), so changing one selects no package.
   `test_no_package_test_reads_a_central_input` fails if a package's own tests start naming one;
   if you need that, drop the path from `CENTRAL_INPUTS`.
 - **Anything else it cannot classify runs everything**: `pyproject.toml`, `tox.ini`, `.pylintrc*`,

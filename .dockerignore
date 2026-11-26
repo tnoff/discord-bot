@@ -37,7 +37,15 @@ env/
 .pytest_cache/
 .coverage
 .coverage.*
+coverage.xml
 htmlcov/
+# No image contains tests. The Dockerfiles COPY each package directory whole, so its tests/ would
+# ride into the builder stage (each pyproject.toml's packages.find already keeps it out of the
+# wheel) and a test-only edit would invalidate that COPY layer's cache for nothing. The root
+# tests/ and conftest.py are never copied by anything.
+tests/
+discord_*/tests/
+conftest.py
 .mypy_cache/
 .dmypy.json
 dmypy.json

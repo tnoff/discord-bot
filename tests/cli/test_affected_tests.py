@@ -252,7 +252,8 @@ def test_central_inputs_select_no_package_and_only_the_files_that_always_run(tre
 @pytest.mark.parametrize('path, expected', [
     ('docs/openapi/db.yaml', True), ('docs/monitoring/metrics_reference.md', True),
     ('docs/architecture.md', True), ('docs/configuration.md', True), ('.github/workflows/ci.yml', True),
-    ('docker/Dockerfile.db', True), ('catalog-info.yaml', True), ('tests/cli/image-closure.json', True),
+    ('docker/Dockerfile.db', True), ('catalog-info.yaml', True), ('.dockerignore', True),
+    ('tests/cli/image-closure.json', True),
     # Close but not on the list: a prefix needs its slash, a file is exact.
     ('docs/openapi', False), ('docker', False), ('.github', False), ('docs/music.md', False),
     ('catalog-info.yaml.bak', False), ('alembic/env.py', False), ('pyproject.toml', False),
@@ -435,7 +436,7 @@ def test_every_central_input_exists():
 # Package test code may import these from a central module that otherwise reads the repo: the one call
 # made there does not.
 _ALLOWED_READER_IMPORTS = {'tests.cli._image_deps': {'measure'}}
-_INPUT_WORDS = ('docs', 'docker', '.github', 'catalog-info.yaml', 'image-closure.json')
+_INPUT_WORDS = ('docs', 'docker', '.github', 'catalog-info.yaml', '.dockerignore', 'image-closure.json')
 
 
 def _names_a_central_input(value: str) -> bool:
