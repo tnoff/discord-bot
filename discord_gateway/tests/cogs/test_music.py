@@ -904,6 +904,22 @@ def test_music_init_with_broker_client_config(fake_context):  #pylint:disable=re
     assert cog.broker_client._bucket_name == 'my-cache-bucket'  # pylint: disable=protected-access
 
 
+@pytest.mark.parametrize('tracing,expected', [
+    ({'trace_playback_loops': True}, True),
+    ({'trace_playback_loops': False}, False),
+    (None, False),
+], ids=['on', 'off', 'no-tracing-block'])
+def test_music_forwards_the_playback_loop_tracing_toggle_to_the_broker_client(
+        fake_context, tracing, expected):  #pylint:disable=redefined-outer-name
+    """The cog is where the broker client is built, so this is where monitoring.tracing either
+    reaches it or is quietly replaced by the default -- which here is the trace-size alert."""
+    overrides = {}
+    if tracing is not None:
+        overrides = {'general': {'monitoring': {'otlp': {'enabled': False}, 'tracing': tracing}}}
+    cog = Music(fake_context['bot'], music_config(overrides), fake_context['dispatcher'])
+    assert cog.broker_client._trace_playback_loops is expected  # pylint: disable=protected-access
+
+
 def test_missing_broker_client_config_is_fatal(fake_context):  #pylint:disable=redefined-outer-name
     """
     A music section without the broker url kills the process.

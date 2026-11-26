@@ -21,7 +21,8 @@ from discord_core.clients.http_client_base import start_seam_checks
 from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException, ExitEarlyException
 from discord_core.utils.common import (is_peer_unavailable, rm_tree,
                                       return_loop_runner,
-                                      seam_contract_from_settings)
+                                      seam_contract_from_settings,
+                                      tracing_config_from_settings)
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming, MetricNaming, METER_PROVIDER, create_observable_gauge, loop_heartbeat_observations
@@ -225,7 +226,8 @@ class Music(CogHelperBase): #pylint:disable=too-many-public-methods
         seam_contract_config = seam_contract_from_settings(settings)
         self.broker_client: BrokerClient = HttpBrokerClient(
             self.config.broker_client.url, bucket_name=storage_bucket_name,
-            seam_contract=seam_contract_config)
+            seam_contract=seam_contract_config,
+            trace_playback_loops=tracing_config_from_settings(settings).trace_playback_loops)
         # Unlike the other logic classes this one holds state (a task per guild), so it is built once.
         self.intents_logic = GatewayIntentsLoop(
             self.logger, self.broker_client, CogPlayerGateway(self), self.gateway_id)
