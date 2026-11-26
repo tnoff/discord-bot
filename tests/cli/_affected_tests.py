@@ -43,13 +43,17 @@ the module it measures in its OWN literal, which is still read.
 
 discord_core IS NOT A DEPENDENCY OF THE PODS' TESTS
 ---------------------------------------------------
-Each pod pins `discord-core` to a released tag, and `tox.ini`'s first pytest pass
-runs the pods against THAT install, never this checkout (the checkout is installed
-editable only afterwards, for `discord_core/tests`). So a PR that edits
-`discord_core/` cannot change what a pod's test run sees, and following the
-`discord_core` edge would just rebuild "run everything" for the commonest kind of
-change. The edge is dropped for every package but core itself.
-tests/cli/test_affected_tests.py checks the premise (every pod pins core).
+Each pod pins `discord-core` to a released tag, and the pods' tests (and the central ones) run against
+THAT install, never this checkout; core's own tests are the ones run against the checkout. So a PR that edits
+`discord_core/` cannot change what a pod's test run sees -- the pods meet the new core in the PR that bumps
+their pin -- and following the `discord_core` edge would just rebuild "run everything" for the commonest kind
+of change. The edge is dropped for every package but core itself.
+
+This is only true if the tests really import the pinned copy, and for a long time they did not: pytest puts
+the repo root first on `sys.path`, so `import discord_core` resolved to the checkout and shadowed the pin.
+tests/cli/_run_tests.py explains how that is now prevented (`--import-mode=append`, `python -P`, no editable
+core install) and verifies it before a run; when it cannot be verified the run is not narrowed at all.
+tests/cli/test_affected_tests.py checks the other premise (every pod pins core).
 
 AN ALLOW-LIST, AND EVERYTHING ELSE IS EVERYTHING
 ------------------------------------------------

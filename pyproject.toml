@@ -66,6 +66,12 @@ test = [
 packages = []
 
 [tool.pytest.ini_options]
+# APPEND the repo root to sys.path instead of prepending it. Prepended (the default), the checkout's
+# `discord_core/` shadows the release the pods pin and that is installed in site-packages, so every
+# test silently imports the checkout. Appended, site-packages wins and the pods are tested against
+# the pinned core, as the pins intend. tests/cli/_run_tests.py explains the rest (`python -P`, and
+# why core's own tests are run the other way round).
+addopts = ["--import-mode=append"]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
 python_files = ["tests/*.py"]
