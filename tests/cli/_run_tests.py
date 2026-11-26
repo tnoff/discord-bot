@@ -30,21 +30,27 @@ change. (If the base moved since the merge commit was made the diff can only be 
 superset, which over-selects, never under-selects.) A local `--base REF` uses the
 ordinary three-dot diff instead, so the same narrowing can be tried before pushing.
 
-THE TWO PYTEST PASSES, AND WHY THEY ARE TWO
--------------------------------------------
-Pass 1 runs the selected central test files and the pods against `discord_core` as the pods' own pins resolve it (a
-released tag, installed from each pyproject.toml), NOT this checkout. Pass 2 then
-installs this checkout's `discord_core` editable and runs only `discord_core/tests`.
-An editable install alongside the pins in one `pip install` is a ResolutionImpossible,
-which is why core is installed between the passes and not in tox's `deps`. Pass 2's
-coverage is appended to pass 1's, so full runs gate ONE combined total at 100%.
+THE TWO PYTEST PASSES, AND WHAT THEY DO AND DO NOT MEAN
+-------------------------------------------------------
+Pass 1 runs the selected central test files and the pods; pass 2 installs this checkout's
+`discord_core` editable and runs `discord_core/tests`, appending its coverage to pass 1's so a
+full run gates ONE combined total at 100%. The editable install has to happen between the passes
+and not in tox's `deps`: alongside the pods' pinned `discord-core @ <tag>` in one `pip install`
+it is a ResolutionImpossible.
+
+What the split does NOT do, despite what this comment and tox.ini's used to say, is test the pods
+against the pinned release. pytest puts the repo root on `sys.path`, so `import discord_core` in
+pass 1 -- from a pod's test, a central test, or the conftest -- resolves to the CHECKOUT, shadowing
+the pinned copy (reproduced in a venv built the way tox builds one). The pins decide what an image
+ships; they do not decide what the tests import. That is why a core change is selected like any other
+dependency (see `_affected_tests`) and why pass 1 already exercises the checkout's core.
 
 The central tests are narrowed per file as well (see `_affected_tests`): the ones that read the repo
-always run, the rest run when something they reach changed. A narrowed run cannot gate the combined total (most of the tree did not run). It
-gates each package whose SOURCE changed instead: every test that can execute that
-package is in the run, so the number is what a full run would report for it. A
-test-only edit is not gated, for the reason in `Selection`. The pylint and bandit
-steps in tox.ini are static and are not narrowed.
+always run, the rest run when something they reach changed. A narrowed run cannot gate the combined
+total (most of the tree did not run). It gates each package whose SOURCE changed instead: every test
+that can execute that package is in the run, so the number is what a full run would report for it. A
+test-only edit is not gated, for the reason in `Selection`. The pylint and bandit steps in tox.ini are
+static and are not narrowed.
 
 Shared tox.yml discovers environments by `tox -l`, matching `py\\d+`, and runs exactly
 `tox -e pyXY` -- so none of this can be a second tox environment; it is inside each.

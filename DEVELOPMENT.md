@@ -179,8 +179,11 @@ the import graph (imports, relative imports, and dotted strings such as `monkeyp
 followed through the shared `tests.*` fakes). A package's `tests/` tree runs when something it can
 reach changed, and so does each file of the central `tests/` tree, one at a time. Rules worth knowing:
 
-- **A `discord_core` change selects only `discord_core`'s tests.** Every pod pins a released core
-  tag and its tests run against that, not this checkout; `test_every_pod_pins_core` guards it.
+- **A `discord_core` change selects nearly everything.** The pods pin a released core tag, and that decides
+  what an *image* ships, but pytest puts the repo root on `sys.path`, so every test imports the
+  **checkout's** `discord_core`, not the pinned copy. A core edit therefore reaches every test that imports
+  core (the root `conftest.py` does), and a core PR runs most of the suite. `test_tests_import_the_checkout_discord_core`
+  records the fact this rests on. (An earlier version of the selector assumed the opposite and under-selected.)
 - **A central test file that reads the repo always runs.** The import graph cannot see a dependency
   that is not an import, so any file that (or whose shared helpers) mentions `REPO_ROOT`/`__file__`,
   runs `subprocess`, reads TOML, or holds a string naming a repo path (`docs/…`, `.github/…`,

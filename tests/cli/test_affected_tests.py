@@ -4,7 +4,7 @@ fails that matters is UNDER-selecting: a test that should have run, did not, and
 
 So most of this is stated against a small synthetic tree whose shape is the point:
 
-    pkg_core   the core package; pods drop their edge to it
+    pkg_core   the core package; every test imports it, so a change to it reaches them all
     pod_a      a pod whose source others use
     pod_b      imports pod_a directly in its tests
     pod_c      reaches pod_a only THROUGH a shared fake in the central tests/ tree -- the
@@ -16,19 +16,22 @@ repo directly and one that reads it through a shared module (both always run).
 
 and the last block checks properties of the REAL tree, since a synthetic fixture cannot
 notice the real one drifting: the root conftest staying light (the coupling the helpers
-split removed), every pod still pinning core (the premise for dropping that edge), and no
-pod's tests importing another pod without being selected for its changes.
+split removed), tests importing the CHECKOUT's core (the fact that makes a core change reach
+every test), and no pod's tests importing another pod without being selected for its changes.
 '''
 import ast
 import re
+from pathlib import Path
 
 import pytest
+
+import discord_core
 
 from tests.cli import _affected_tests as affected_tests
 from tests.cli._affected_tests import (CENTRAL_INPUTS, CONFTEST, PACKAGE_INPUTS, PACKAGES, ImportGraph,
                                        Selection, changed_node, is_central_input, main, package_input_owner,
                                        referenced_modules, repo_reads, select)
-from tests.cli._package_pins import REPO_ROOT as PINS_REPO_ROOT, POD_ROOTS, declared_core_pin
+from tests.cli._package_pins import REPO_ROOT as PINS_REPO_ROOT
 from tests.cli._roots import CORE_ROOT, SERVICE_ROOTS
 from tests.cli._scratch_repo import commit, init_scratch_repo
 
@@ -61,7 +64,7 @@ def tree_fixture(tmp_path):
     # pod_d: only through the target string of a patch.
     _write(tmp_path, 'pod_d/tests/test_patches.py',
            'def test_it(monkeypatch):\n    monkeypatch.setattr("pod_a.mod.VALUE", 2)\n')
-    # pod_a's own tests import core, which is pinned and so must not count.
+    # pod_a's own tests import core too.
     _write(tmp_path, 'pod_a/tests/test_core.py', 'import pkg_core\n')
     # Central test files: two that only import, one that reads the repo, one that does so via a helper.
     _write(tmp_path, 'tests/test_uses_a.py', 'import pod_a.mod\n\n\ndef test_x():\n    pass\n')
@@ -102,11 +105,11 @@ def test_test_only_change_selects_only_that_tree_and_is_not_gated(tree):  # pyli
     assert selection.gated == ()
 
 
-def test_core_change_selects_only_core(tree):  # pylint: disable=redefined-outer-name
-    '''Pods run against the pinned release, never this checkout, so core's source reaches core alone,
-    even though the conftest and every pod's tests import it.'''
+def test_core_change_selects_everything_that_imports_core(tree):  # pylint: disable=redefined-outer-name
+    '''pytest puts the repo root on sys.path, so every test imports the CHECKOUT's core, not the pinned
+    release. The root conftest imports it, so every unit reaches it, and the gate applies to core.'''
     selection = select(['pkg_core/mod.py'], tree)
-    assert selection.packages == ('pkg_core',)
+    assert selection.packages == SYNTHETIC
     assert selection.gated == ('pkg_core',)
 
 
@@ -277,10 +280,11 @@ def test_an_unrelated_pod_change_skips_central_files_that_do_not_reach_it(tree):
     assert 'tests/test_uses_b.py' in central
 
 
-def test_a_core_change_skips_central_files_that_only_reach_core(tree):  # pylint: disable=redefined-outer-name
-    '''Central tests run in the first pass, against the pinned core, like a pod's.'''
+def test_a_core_change_selects_the_central_files_that_reach_core(tree):  # pylint: disable=redefined-outer-name
+    '''A central test of a core class is exactly what a core edit must rerun; here a file reaching
+    ONLY core, which the old rule dropped.'''
     _write(tree.repo_root, 'tests/test_core_only.py', 'import pkg_core\n\n\ndef test_x():\n    pass\n')
-    assert 'tests/test_core_only.py' not in select(['pkg_core/mod.py'], tree).central
+    assert 'tests/test_core_only.py' in select(['pkg_core/mod.py'], tree).central
 
 
 def test_changing_a_central_file_selects_that_file(tree):  # pylint: disable=redefined-outer-name
@@ -386,12 +390,12 @@ def test_packages_are_exactly_the_ones_on_disk():
     assert set(PACKAGES) == on_disk
 
 
-def test_every_pod_pins_core():
-    '''The premise for dropping the discord_core edge: a pod's tests never run against this
-    checkout's core, because each pod installs a pinned release. If one stopped pinning, a core
-    change WOULD reach it and this selection would under-select.'''
-    for root in POD_ROOTS.values():
-        assert declared_core_pin(root) is not None, f'{root} no longer pins {CORE_ROOT}'
+def test_tests_import_the_checkout_discord_core():
+    '''The fact the core edge rests on: from a test, `discord_core` is the checkout's, even when a pinned
+    copy is installed in site-packages, because pytest puts the repo root on sys.path. If this ever
+    fails, tests would import the pinned release and a core edit would NOT reach them -- the selection
+    would then over-select, which is safe, but the comment in _affected_tests.py would be wrong.'''
+    assert Path(discord_core.__file__).resolve().is_relative_to(PINS_REPO_ROOT)
 
 
 def test_root_conftest_reaches_no_pod():

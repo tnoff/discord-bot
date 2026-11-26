@@ -41,15 +41,22 @@ entrypoint as a string. Counting those as edges made every test that merely call
 `measure(...)` look like it depends on all six pods. The test that calls it names
 the module it measures in its OWN literal, which is still read.
 
-discord_core IS NOT A DEPENDENCY OF THE PODS' TESTS
----------------------------------------------------
-Each pod pins `discord-core` to a released tag, and `tox.ini`'s first pytest pass
-runs the pods against THAT install, never this checkout (the checkout is installed
-editable only afterwards, for `discord_core/tests`). So a PR that edits
-`discord_core/` cannot change what a pod's test run sees, and following the
-`discord_core` edge would just rebuild "run everything" for the commonest kind of
-change. The edge is dropped for every package but core itself.
-tests/cli/test_affected_tests.py checks the premise (every pod pins core).
+discord_core IS A DEPENDENCY OF EVERY TEST THAT IMPORTS IT
+----------------------------------------------------------
+Each pod PINS `discord-core` to a released tag, and for a while this module (and tox.ini's
+comments) assumed the pods' tests therefore ran against that release, so a `discord_core`
+edit could not reach them and the edge could be dropped. That is not what happens. pytest
+puts the repo root on `sys.path` (the root conftest.py has no `__init__.py` beside it), so
+`import discord_core` from ANY test resolves to the CHECKOUT's `discord_core/`, shadowing the
+pinned copy in site-packages. Reproduced in a venv built the way tox builds one (pods
+editable, core only from the pinned tag): bare `pytest` and `python -m pytest` both import
+`<repo>/discord_core/__init__.py`.
+
+So a core edit reaches every test that imports core, and the edge is followed like any other.
+That makes a core change select most trees, which is correct: the alternative under-selected,
+and a core-only PR (a third of recent commits) could ship without the tests that exercise
+the changed client or type. Over-selecting is the safe direction, so nothing guards this.
+`test_tests_import_the_checkout_discord_core` records the fact the rule rests on.
 
 AN ALLOW-LIST, AND EVERYTHING ELSE IS EVERYTHING
 ------------------------------------------------
@@ -305,25 +312,21 @@ class ImportGraph:
             self._edges[node] = targets
         return self._edges[node]
 
-    def closure(self, starts, skipped=frozenset()) -> set:
-        '''Every node reachable from `starts` (themselves included), never entering `skipped`.'''
+    def closure(self, starts) -> set:
+        '''Every node reachable from `starts`, themselves included.'''
         seen = set()
         stack = list(starts)
         while stack:
             node = stack.pop()
-            if node in seen or node in skipped:
+            if node in seen:
                 continue
             seen.add(node)
             stack.extend(self.edges(node))
         return seen
 
     def reach(self, package: str) -> set:
-        '''Every node a package's test tree can execute, itself included.
-
-        Drops the discord_core nodes for every package but core: see the module doc.
-        '''
-        skipped = set() if package == self.core else {('root', self.core), ('tests', self.core)}
-        return self.closure([('tests', package), ('file', CONFTEST)], skipped)
+        '''Every node a package's test tree can execute, itself included.'''
+        return self.closure([('tests', package), ('file', CONFTEST)])
 
     def central_tests(self) -> list:
         '''Repo-relative central test files: those under `tests/` that pytest would collect a test from.
@@ -346,9 +349,8 @@ class ImportGraph:
                 if defines_test(ast.parse(path.read_text(encoding='utf-8')).body)]
 
     def central_reach(self, path: str) -> set:
-        '''Every node a central test file can execute. Run in the first pytest pass, against the
-        pinned core, so the core nodes are dropped as for a pod.'''
-        return self.closure([('file', path), ('file', CONFTEST)], {('root', self.core), ('tests', self.core)})
+        '''Every node a central test file can execute.'''
+        return self.closure([('file', path), ('file', CONFTEST)])
 
     def reads_repo(self, path: str) -> set:
         '''What a central test file, the central modules it imports, or the root conftest.py read
