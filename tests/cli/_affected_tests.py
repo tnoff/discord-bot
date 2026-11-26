@@ -62,8 +62,30 @@ a deleted or moved file that IS one of the above kinds: its importers are the on
 that would break, and they may be in a tree that is not selected. (Deleting ignorable
 documentation is as harmless as editing it, and is ignored.)
 
-The central `tests/` tree is not selected, it always runs: it holds the import-
-boundary, pin, catalog and census checks, which look at the whole repo.
+THE CENTRAL tests/ TREE IS SELECTED PER FILE, AND SOME OF IT ALWAYS RUNS
+------------------------------------------------------------------------
+Each central test file is a unit of its own, with its own reach (the file, the shared
+`tests.*` modules it imports, and the pods those import). It runs when something in that
+reach changed, exactly as a package's tree does -- except a file that READS THE REPO,
+which always runs. Those are the import-boundary, pin, catalog, census and OpenAPI-doc
+checks: they look at files by path (docs, workflows, Dockerfiles, other packages'
+source), and an import graph cannot see a dependency that is not an import.
+
+Which files read the repo is DERIVED each run, not listed by hand (`repo_reads`): a file
+counts if it, or anything central it imports, mentions REPO_ROOT or `__file__`, runs
+`subprocess`, reads TOML, walks the working directory, or holds a string that names a
+repo path (`docs/...`, `.github/...`, `discord_x/...`). That is deliberately generous --
+over-flagging only costs a test that runs anyway -- and it includes the root conftest.py,
+so a repo read added THERE flags every file and turns the narrowing off, loudly, in the
+tests that pin it, rather than hiding.
+
+CENTRAL INPUTS
+--------------
+A few paths are read only by those always-running files: the generated OpenAPI docs and
+monitoring docs, `.github/`, `docker/`, `catalog-info.yaml`, the measured image closure.
+Changing one therefore needs no package at all, just the files that always run, and no
+longer falls back to "everything". `test_no_package_test_reads_a_central_input` is what
+keeps that true: it fails if a package's own tests start naming one of them.
 '''
 import ast
 import re
@@ -88,6 +110,30 @@ _DOTTED = re.compile(r'[A-Za-z_]\w*(?:\.\w+)+')
 # CI tooling whose string constants are data, not module references; see the module doc.
 _TOOLING_PREFIX = 'tests/cli/_'
 
+#: Paths read only by the central tests that always run (see "CENTRAL INPUTS"). Prefixes end in
+#: '/'; the rest are exact files. Deliberately short: a path belongs here only if the guard in
+#: test_affected_tests.py can show no package's own tests name it.
+CENTRAL_INPUTS = (
+    'docs/openapi/',
+    'docs/monitoring/',
+    'docs/architecture.md',
+    'docs/configuration.md',
+    '.github/',
+    'docker/',
+    'catalog-info.yaml',
+    'tests/cli/image-closure.json',
+)
+
+# A string constant that names a path inside the repo. Generous on purpose: see `repo_reads`.
+_REPO_PATH = re.compile(
+    r'^(?:docs|docker|alembic|\.github|tests|catalog-info\.yaml|pyproject\.toml|tox\.ini|renovate\.json'
+    r'|VERSION|CHANGELOG\.md|README\.md|AGENTS\.md|CONTRIBUTING\.md|DEVELOPMENT\.md|\.pylintrc(?:\.test)?)'
+    r'(?:/|\.|$)|^discord_[a-z]+/|(?:^|/)image-closure\.json$|/(?:docs|docker|alembic|\.github)(?:/|$)')
+
+# Calls that read the working tree, as (module, attribute).
+_TREE_CALLS = {('os', 'walk'), ('os', 'getcwd'), ('os', 'listdir'), ('os', 'scandir'), ('Path', 'cwd')}
+_TREE_MODULES = {'subprocess', 'tomllib'}
+
 Node = tuple[str, str]
 
 
@@ -103,11 +149,14 @@ class Selection(NamedTuple):
         package's tests may cover it -- so it is not gated, and the weekly full run
         in scheduled.yml is what catches a coverage drop from a test-only edit.
     reason: one line saying why, for the CI log.
+    central: the central test FILES to run (repo-relative), sorted: every one that reads the
+        repo, plus every one whose reach contains something that changed.
     '''
     everything: bool
     packages: tuple
     gated: tuple
     reason: str
+    central: tuple = ()
 
 
 def _package_of(path: str) -> str:
@@ -141,6 +190,35 @@ def referenced_modules(source: str, package: str, literals: bool = True) -> set:
     return names
 
 
+def repo_reads(source: str) -> set:
+    '''What `source` does that reads the repo rather than importing from it, as short labels.
+
+    Empty means "nothing here a changed file could affect except through an import". The
+    labels are only for messages; the callers just test for emptiness.
+    '''
+    found = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Name) and node.id in ('REPO_ROOT', '__file__'):
+            found.add(node.id)
+        elif (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+              and (node.value.id, node.attr) in _TREE_CALLS):
+            found.add(f'{node.value.id}.{node.attr}')
+        elif isinstance(node, ast.Import):
+            found.update(f'import {alias.name}' for alias in node.names
+                         if alias.name.split('.')[0] in _TREE_MODULES)
+        elif isinstance(node, ast.ImportFrom) and (node.module or '').split('.')[0] in _TREE_MODULES:
+            found.add(f'from {node.module}')
+        elif (isinstance(node, ast.Constant) and isinstance(node.value, str)
+              and len(node.value) < 200 and _REPO_PATH.search(node.value)):
+            found.add(f'path {node.value[:40]!r}')
+    return found
+
+
+def is_central_input(path: str) -> bool:
+    '''True for a path only the always-running central tests read; see CENTRAL_INPUTS.'''
+    return any(path.startswith(entry) if entry.endswith('/') else path == entry for entry in CENTRAL_INPUTS)
+
+
 class ImportGraph:
     '''The first-party import graph of a checkout, at the granularity described above.'''
 
@@ -149,6 +227,7 @@ class ImportGraph:
         self.packages = packages
         self.core = core
         self._edges: dict = {}
+        self._reads: dict = {}
 
     def _py_files(self, directory: str, tests: bool) -> list:
         '''Repo-relative .py files under a package: its tests/ tree, or everything else.'''
@@ -219,13 +298,50 @@ class ImportGraph:
         skipped = set() if package == self.core else {('root', self.core), ('tests', self.core)}
         return self.closure([('tests', package), ('file', CONFTEST)], skipped)
 
+    def central_tests(self) -> list:
+        '''Repo-relative central test files: those under `tests/` that pytest would collect a test from.
+
+        That is a module-level `test*` function, or a `test*` method of a top-level `Test*` class (pytest's
+        defaults; pyproject does not override them). A shared suite whose tests live in a differently named
+        class, or inside a factory function, is not collected on its own, only through whoever uses it,
+        so it is not a unit here (its users are).
+        '''
+        def defines_test(body) -> bool:
+            for node in body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith('test'):
+                    return True
+                if isinstance(node, ast.ClassDef) and node.name.startswith('Test') and defines_test(node.body):
+                    return True
+            return False
+
+        return [path.relative_to(self.repo_root).as_posix()
+                for path in sorted((self.repo_root / CENTRAL_TESTS).rglob('*.py'))
+                if defines_test(ast.parse(path.read_text(encoding='utf-8')).body)]
+
+    def central_reach(self, path: str) -> set:
+        '''Every node a central test file can execute. Run in the first pytest pass, against the
+        pinned core, so the core nodes are dropped as for a pod.'''
+        return self.closure([('file', path), ('file', CONFTEST)], {('root', self.core), ('tests', self.core)})
+
+    def reads_repo(self, path: str) -> set:
+        '''What a central test file, the central modules it imports, or the root conftest.py read
+        from the repo (see `repo_reads`). The conftest is included on purpose: a repo read there
+        reaches every file.'''
+        found = set()
+        for kind, name in self.central_reach(path):
+            if kind == 'file':
+                if name not in self._reads:
+                    self._reads[name] = repo_reads((self.repo_root / name).read_text(encoding='utf-8'))
+                found |= self._reads[name]
+        return found
+
 
 def changed_node(path: str, graph: ImportGraph):
     '''The node a changed path is, None if it cannot affect any test, or '' if unknown.
 
     '' (not None) is the "I cannot say" answer that makes the caller run everything.
     '''
-    if path in METADATA_ONLY or is_documentation(path):
+    if path in METADATA_ONLY or is_documentation(path) or is_central_input(path):
         return None
     parts = path.split('/')
     if len(parts) > 1 and parts[0] in graph.packages:
@@ -252,8 +368,11 @@ def select(changed, graph: ImportGraph) -> Selection:
         nodes.add(node)
     packages = tuple(package for package in graph.packages if nodes & graph.reach(package))
     gated = tuple(package for package in packages if ('root', package) in nodes)
+    central = tuple(path for path in graph.central_tests()
+                    if graph.reads_repo(path) or nodes & graph.central_reach(path))
     return Selection(False, packages, gated,
-                     f'{len(nodes)} changed node(s) reach {len(packages)} package(s)')
+                     f'{len(nodes)} changed node(s) reach {len(packages)} package(s) '
+                     f'and {len(central)} central test file(s)', central)
 
 
 def main(argv=None) -> int:
@@ -263,7 +382,11 @@ def main(argv=None) -> int:
     report_changed(changed)
     selection = select(changed, ImportGraph())
     print(selection.reason, file=sys.stderr)
-    print('scope=all' if selection.everything else f'scope=packages {" ".join(selection.packages)}'.rstrip())
+    if selection.everything:
+        print('scope=all')
+    else:
+        print(f'scope=packages {" ".join(selection.packages)}'.rstrip())
+        print(f'central={len(selection.central)}')
     return 0
 
 

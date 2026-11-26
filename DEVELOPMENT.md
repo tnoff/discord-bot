@@ -171,20 +171,29 @@ reading a doc that is on the list. Prose inside a package, including its
 ## Which tests CI runs
 
 `ci.yml`'s `tox` job runs `tests/cli/_run_tests.py` (called from `tox.ini`), which narrows
-pytest to the packages a pull request can affect. The same module is the only place pytest
+pytest to the packages and central test files a pull request can affect. The same module is the only place pytest
 is invoked now, so its docstring is where the two-pass structure and the coverage rules live.
 
 How it decides, from `tests/cli/_affected_tests.py`: it parses every first-party file and builds
 the import graph (imports, relative imports, and dotted strings such as `monkeypatch` targets,
-followed through the shared `tests.*` fakes), then runs a package's `tests/` tree when
-something it can reach changed. The central `tests/` tree always runs. Two rules are worth
-knowing:
+followed through the shared `tests.*` fakes). A package's `tests/` tree runs when something it can
+reach changed, and so does each file of the central `tests/` tree, one at a time. Rules worth knowing:
 
 - **A `discord_core` change selects only `discord_core`'s tests.** Every pod pins a released core
   tag and its tests run against that, not this checkout; `test_every_pod_pins_core` guards it.
-- **Anything the graph cannot classify runs everything**: `pyproject.toml`, `tox.ini`,
-  `.pylintrc*`, `docker/`, `alembic/`, `.github/`, a data file under `tests/`, a deleted
-  or moved file. So does every run that is not a pull request: local `tox`, the weekly job.
+- **A central test file that reads the repo always runs.** The import graph cannot see a dependency
+  that is not an import, so any file that (or whose shared helpers) mentions `REPO_ROOT`/`__file__`,
+  runs `subprocess`, reads TOML, or holds a string naming a repo path (`docs/…`, `.github/…`,
+  `discord_x/…`) is on the always-run side. That is **derived on every run**, not a list to maintain;
+  `repo_reads` in `_affected_tests.py` is the detector, and it is deliberately generous.
+- **Central inputs don't force a full run.** `docs/openapi/`, `docs/monitoring/`, `docs/architecture.md`,
+  `docs/configuration.md`, `.github/`, `docker/`, `catalog-info.yaml` and the measured image closure
+  are read only by those always-running files, so changing one selects no package.
+  `test_no_package_test_reads_a_central_input` fails if a package's own tests start naming one;
+  if you need that, drop the path from `CENTRAL_INPUTS`.
+- **Anything else it cannot classify runs everything**: `pyproject.toml`, `tox.ini`, `.pylintrc*`,
+  `alembic/`, a data file under `tests/`, a deleted or moved file. So does every run that is not a
+  pull request: local `tox`, the weekly job.
 
 Coverage is gated at 100% on the whole tree for a full run. A narrowed run gates each package
 whose *source* changed, which is exact because every test that can execute it is in the run. A
@@ -199,12 +208,14 @@ venv/bin/python -m tests.cli._run_tests --base origin/main --dry-run  # the comm
 venv/bin/python -m tests.cli._run_tests --base origin/main            # run them
 ```
 
-**What keeps it narrow.** The savings exist because a package's tests do not import pods they
-do not use. Importing a pod from the root `conftest.py` or from `tests/helpers.py` puts that pod
-on *every* package's path and silently turns the narrowing back into a full run; that coupling
-once made most PRs select all eight packages. `test_root_conftest_reaches_no_pod` fails if it
-comes back. Put fixtures that need a pod in a module only the tests that need them import,
-as `tests/db_helpers.py` does.
+**What keeps it narrow.** The savings exist because a test does not import pods it does not
+use, and does not read the repo. Importing a pod from the root `conftest.py` or from
+`tests/helpers.py` puts that pod on *every* test's path and silently turns the narrowing back into a
+full run; that coupling once made most PRs select all eight packages.
+`test_root_conftest_reaches_no_pod` fails if it comes back, and
+`test_the_root_conftest_and_shared_helpers_read_nothing_from_the_repo` is the same guard for a
+repo read, which would mark every central file as always-run. Put fixtures that need a pod in a
+module only the tests that need them import, as `tests/db_helpers.py` does.
 
 ## Alembic migrations
 
