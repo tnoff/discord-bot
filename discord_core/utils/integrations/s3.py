@@ -24,12 +24,11 @@ Requests always use path-style addressing (`<endpoint>/<bucket>/<key>`), which O
 and AWS still serves. Unlike boto3 there is no instance-role lookup, and only the credentials file
 is read, not ~/.aws/config: region and endpoint come from the variables above.
 
-Each call comes twice: the synchronous one (`upload_file`), which the downloader's worker thread and
-the tests use, and an asyncio one (`upload_file_async`), sent with aiohttp, for code on the event
-loop. Both share the signing, the digest checks and the parsing; only the transport differs. Both
-uploads and the asyncio download stream an object a chunk at a time between the file and the socket,
-so a large object costs a chunk of memory rather than its size; the asyncio calls do their file reads
-and writes in a worker thread. The synchronous download (unused by any pod) still buffers.
+The asyncio calls (`upload_file_async`, `get_file_async`, `list_objects_async`, `delete_file_async`),
+sent with aiohttp, are what the broker and gateway use. The one synchronous call is `upload_file`, for
+the downloader's worker thread. Uploads and the asyncio download stream an object a chunk at a time
+between the file and the socket, so a large object costs a chunk of memory rather than its size; the
+asyncio calls do their file reads and writes in a worker thread.
 '''
 import asyncio
 import base64
@@ -130,7 +129,7 @@ def key_with_digest(key: str, digest: str) -> str:
     '''
     Embed a content digest in an object key: `queue/a.pcm` becomes `queue/a.sha256-<digest>.pcm`.
 
-    The key then names the exact bytes it should hold. Every upload_file and get_file of that key
+    The key then names the exact bytes it should hold. Every upload and download of that key
     checks them, whichever pod does it, without the digest having to travel anywhere else (the broker
     registry, the cache catalog and the HTTP seam only ever carry the key).
     '''
@@ -533,40 +532,6 @@ async def upload_file_async(bucket_name: str, file_path: Path, object_name: str 
         for handle in opened:
             await asyncio.to_thread(handle.close)
 
-def _verify_and_write(data: bytes, etag: str, object_name: str, file_path: Path) -> bool:
-    '''
-    Check a fetched object, then write it to file_path. Hashes and writes: blocking.
-    '''
-    # bandit B324: comparing against S3 ETag (MD5 is dictated by S3 protocol), not used for security
-    computed_md5 = hashlib.md5(data, usedforsecurity=False).hexdigest()
-    etag = etag.strip('"')
-    # ETag from multi-part upload has '-N' suffix — skip check if so
-    if etag and '-' not in etag and etag != computed_md5:
-        logger.warning('S3 checksum mismatch: etag=%s computed=%s key=%s', etag, computed_md5, object_name)
-
-    # A key that names its content is checked here, before anything is written: unlike the ETag check
-    # above, which only warns, a mismatch means these are not the bytes that were uploaded.
-    expected = key_digest(object_name)
-    if expected is not None and content_digest(data) != expected:
-        raise ObjectDigestMismatch(f'Checksum mismatch downloading {object_name}')
-
-    # Write to destination file
-    file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_bytes(data)
-
-    return True
-
-def get_file(bucket_name: str, object_name: str, file_path: Path) -> bool:
-    '''
-    Download client to path
-    '''
-    file_path = Path(file_path) # Double check its a path
-    try:
-        response = s3_request('GET', bucket_name, object_name)
-    except S3RequestError as e:
-        raise ObjectStorageException(f'Error downloading file: {e}') from e
-    return _verify_and_write(response.content, response.headers.get('ETag', ''), object_name, file_path)
-
 def _write_chunk(handle, chunk: bytes, sha, md5) -> None:
     handle.write(chunk)
     sha.update(chunk)
@@ -574,7 +539,7 @@ def _write_chunk(handle, chunk: bytes, sha, md5) -> None:
 
 def _check_download(sha, md5, etag: str, object_name: str) -> None:
     '''
-    The checks `_verify_and_write` makes on a whole object, made on digests built up as it streamed in.
+    The checks made on a downloaded object: the ETag (a mismatch only warns) and the key's digest.
     '''
     computed_md5 = md5.hexdigest()
     etag = etag.strip('"')
@@ -586,7 +551,7 @@ def _check_download(sha, md5, etag: str, object_name: str) -> None:
 
 async def get_file_async(bucket_name: str, object_name: str, file_path: Path) -> bool:
     '''
-    `get_file` for the event loop. The object streams to a temporary file beside the destination,
+    The object streams to a temporary file beside the destination,
     a chunk at a time, and replaces the destination only once it has passed the same checks the
     synchronous call makes; a failed or mismatched download leaves nothing behind.
     '''
@@ -645,28 +610,10 @@ def _listing_params(prefix: str, token: str | None) -> list[tuple[str, str]]:
         params.append(('continuation-token', token))
     return params
 
-def list_objects(bucket_name: str, prefix: str) -> list[dict]:
+async def list_objects_async(bucket_name: str, prefix: str) -> list[dict]:
     '''
     List objects in an S3 bucket with the given prefix, sorted by last_modified descending.
     Returns [{'key': ..., 'last_modified': ...}] or [] if no objects found.
-    '''
-    results = []
-    token = None
-    try:
-        while True:
-            response = s3_request('GET', bucket_name, params=_listing_params(prefix, token))
-            page, token = _parse_listing(response.content)
-            results.extend(page)
-            if token is None:
-                break
-    except (S3RequestError, ET.ParseError, TypeError, ValueError) as e:
-        raise ObjectStorageException(f'Error listing objects: {e}') from e
-    results.sort(key=lambda x: x['last_modified'], reverse=True)
-    return results
-
-async def list_objects_async(bucket_name: str, prefix: str) -> list[dict]:
-    '''
-    `list_objects` for the event loop.
     '''
     results = []
     token = None
@@ -682,19 +629,9 @@ async def list_objects_async(bucket_name: str, prefix: str) -> list[dict]:
     results.sort(key=lambda x: x['last_modified'], reverse=True)
     return results
 
-def delete_file(bucket_name: str, object_name: str) -> bool:
-    '''
-    Delete files in object storage
-    '''
-    try:
-        s3_request('DELETE', bucket_name, object_name)
-        return True
-    except S3RequestError as e:
-        raise ObjectStorageException(f'Error deleting file: {e}') from e
-
 async def delete_file_async(bucket_name: str, object_name: str) -> bool:
     '''
-    `delete_file` for the event loop.
+    Delete an object from object storage.
     '''
     try:
         await s3_request_async('DELETE', bucket_name, object_name)
