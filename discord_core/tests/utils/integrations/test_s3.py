@@ -13,7 +13,7 @@ from aiohttp.test_utils import TestServer
 
 from discord_core.utils.integrations import s3
 from discord_core.utils.integrations.s3 import (
-    upload_file, get_file, delete_file, ObjectDigestMismatch, ObjectStorageException, S3Config, S3RequestError,
+    upload_file, ObjectDigestMismatch, ObjectStorageException, S3Config, S3RequestError,
     canonical_query, config_from_env, content_digest, file_digest, key_digest, key_with_digest,
     s3_request, sign_headers, EMPTY_PAYLOAD_HASH,
     delete_file_async, get_file_async, list_objects_async, s3_request_async, upload_file_async,
@@ -358,71 +358,6 @@ def test_upload_file_failure(store, tmp_path):  # pylint: disable=redefined-oute
         upload_file("my-bucket", file_path)
 
 
-def test_delete_file_success(store):  # pylint: disable=redefined-outer-name
-    store.responses.append(make_response(204))
-
-    assert delete_file("my-bucket", "test.txt") is True
-    assert store.calls[0]['method'] == 'DELETE'
-    assert store.calls[0]['url'].endswith('/my-bucket/test.txt')
-
-
-def test_delete_file_failure(store):  # pylint: disable=redefined-outer-name
-    store.responses.append(make_response(500))
-
-    with pytest.raises(ObjectStorageException, match="Error deleting file"):
-        delete_file("my-bucket", "test.txt")
-
-
-def test_download_file_success(store, tmp_path):  # pylint: disable=redefined-outer-name
-    destination_path = tmp_path / "nested" / "downloaded.txt"
-    store.responses.append(make_response(200, b"downloaded content"))
-
-    assert get_file("my-bucket", "test.txt", destination_path) is True
-    assert destination_path.read_bytes() == b"downloaded content"
-    assert store.calls[0]['method'] == 'GET'
-    assert store.calls[0]['url'].endswith('/my-bucket/test.txt')
-
-
-def test_get_file_matching_etag_no_warning(store, tmp_path, mocker):  # pylint: disable=redefined-outer-name
-    '''No warning when ETag matches the computed MD5 of downloaded bytes'''
-    mock_logger = mocker.patch('discord_core.utils.integrations.s3.logger')
-    fake_data = b'downloaded content'
-    store.responses.append(make_response(200, fake_data, {'ETag': f'"{hashlib.md5(fake_data).hexdigest()}"'}))
-
-    get_file('my-bucket', 'test.txt', tmp_path / 'out.txt')
-    mock_logger.warning.assert_not_called()
-
-
-def test_get_file_mismatched_etag_logs_warning(store, tmp_path, mocker):  # pylint: disable=redefined-outer-name
-    '''Warning logged when ETag does not match computed MD5'''
-    mock_logger = mocker.patch('discord_core.utils.integrations.s3.logger')
-    wrong_etag = 'deadbeef000000000000000000000000'
-    store.responses.append(make_response(200, b'downloaded content', {'ETag': f'"{wrong_etag}"'}))
-
-    get_file('my-bucket', 'test.txt', tmp_path / 'out.txt')
-    mock_logger.warning.assert_called_once()
-    args = mock_logger.warning.call_args[0]
-    assert wrong_etag in args[1]
-    assert 'test.txt' in args[3]
-
-
-def test_get_file_multipart_etag_no_warning(store, tmp_path, mocker):  # pylint: disable=redefined-outer-name
-    '''No warning for multipart ETags (contain a hyphen)'''
-    mock_logger = mocker.patch('discord_core.utils.integrations.s3.logger')
-    store.responses.append(make_response(200, b'downloaded content', {'ETag': '"abc123deadbeef-5"'}))
-
-    get_file('my-bucket', 'test.txt', tmp_path / 'out.txt')
-    mock_logger.warning.assert_not_called()
-
-
-def test_download_file_failure(store, tmp_path):  # pylint: disable=redefined-outer-name
-    store.responses.append(make_response(500))
-
-    with pytest.raises(ObjectStorageException, match="Error downloading file"):
-        get_file("my-bucket", "test.txt", tmp_path / "downloaded.txt")
-    assert not (tmp_path / "downloaded.txt").exists()
-
-
 # ---------------------------------------------------------------------------
 # Content digests in object keys
 # ---------------------------------------------------------------------------
@@ -462,36 +397,6 @@ def test_file_digest_matches_content_digest_across_chunks(tmp_path, monkeypatch)
     path = tmp_path / 'audio.pcm'
     path.write_bytes(b'0123456789abcdef-tail')
     assert file_digest(path) == content_digest(b'0123456789abcdef-tail')
-
-
-def test_get_file_verifies_the_digest_in_the_key(store, tmp_path):  # pylint: disable=redefined-outer-name
-    """Bytes that match the key's digest are written."""
-    data = b'downloaded content'
-    key = key_with_digest('queue/a.pcm', content_digest(data))
-    store.responses.append(make_response(200, data))
-
-    assert get_file('my-bucket', key, tmp_path / 'out.pcm') is True
-    assert (tmp_path / 'out.pcm').read_bytes() == data
-
-
-def test_get_file_rejects_bytes_that_do_not_match_the_key(store, tmp_path):  # pylint: disable=redefined-outer-name
-    """Corrupt or truncated bytes fail the fetch and nothing is written."""
-    key = key_with_digest('queue/a.pcm', content_digest(b'what was uploaded'))
-    store.responses.append(make_response(200, b'what was uploaded, cut sh'))
-
-    # A distinct type, so a caller can tell a bad object from a failed request; still an
-    # ObjectStorageException for everything that catches the base.
-    with pytest.raises(s3.ObjectDigestMismatch, match='Checksum mismatch') as caught:
-        get_file('my-bucket', key, tmp_path / 'out.pcm')
-    assert isinstance(caught.value, ObjectStorageException)
-    assert not (tmp_path / 'out.pcm').exists()
-
-
-def test_get_file_does_not_check_a_key_without_a_digest(store, tmp_path):  # pylint: disable=redefined-outer-name
-    """An old key is fetched as before, whatever its bytes."""
-    store.responses.append(make_response(200, b'anything'))
-
-    assert get_file('my-bucket', 'cache/old.pcm', tmp_path / 'out.pcm') is True
 
 
 def test_upload_file_checks_the_file_against_the_digest_in_its_key(store, tmp_path):  # pylint: disable=redefined-outer-name
@@ -922,3 +827,35 @@ async def test_upload_file_rewinds_the_file_on_retry(server, tmp_path):  # pylin
     assert await asyncio.to_thread(upload_file, 'bucket', path, 'song.mp3') is True
     assert [call['body'] for call in server.calls] == [data, data]
     assert not server.bad_signatures
+
+
+@pytest.mark.asyncio
+async def test_get_file_async_does_not_warn_when_the_etag_matches(server, tmp_path, caplog):  # pylint: disable=redefined-outer-name
+    data = b'downloaded content'
+    server.answers.append((200, data, {'ETag': f'"{hashlib.md5(data).hexdigest()}"'}))
+    with caplog.at_level('WARNING'):
+        await get_file_async('bucket', 'key', tmp_path / 'song.mp3')
+    assert 'S3 checksum mismatch' not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_get_file_async_does_not_warn_about_a_multipart_etag(server, tmp_path, caplog):  # pylint: disable=redefined-outer-name
+    server.answers.append((200, b'downloaded content', {'ETag': '"abc123deadbeef-5"'}))
+    with caplog.at_level('WARNING'):
+        await get_file_async('bucket', 'key', tmp_path / 'song.mp3')
+    assert 'S3 checksum mismatch' not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_get_file_async_does_not_check_a_key_without_a_digest(server, tmp_path):  # pylint: disable=redefined-outer-name
+    server.answers.append((200, b'anything', {}))
+    assert await get_file_async('bucket', 'cache/old.pcm', tmp_path / 'out.pcm') is True
+    assert (tmp_path / 'out.pcm').read_bytes() == b'anything'
+
+
+@pytest.mark.asyncio
+async def test_list_objects_async_parses_a_listing_without_a_namespace(server):  # pylint: disable=redefined-outer-name
+    server.answers.append((200, b'''<ListBucketResult><IsTruncated>false</IsTruncated>
+<Contents><Key>a</Key><LastModified>2025-01-01T00:00:00Z</LastModified></Contents></ListBucketResult>''', {}))
+    objects = await list_objects_async('bucket', '')
+    assert [(o['key'], o['last_modified']) for o in objects] == [('a', datetime(2025, 1, 1, tzinfo=timezone.utc))]

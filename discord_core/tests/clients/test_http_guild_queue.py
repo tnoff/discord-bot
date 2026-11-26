@@ -437,6 +437,54 @@ async def test_claim_returns_the_download_and_an_s3_checkout():
     assert stub.last(guild_queue_routes.CLAIM_TRACK)['body'] == {'gateway_id': 'gw-1'}
 
 
+async def _claim_under_a_live_span(answer: dict, trace_playback_loops: bool):
+    '''One claim made under a recording parent span; returns (stub, result, finished span names).'''
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    tracer = provider.get_tracer('test')
+    stub = StubBroker()
+    stub.answer(guild_queue_routes.CLAIM_TRACK, answer)
+    async with _connected(stub, trace_playback_loops=trace_playback_loops) as client:
+        with patch('discord_core.utils.otel.TRACER', tracer):
+            with tracer.start_as_current_span('music.resume_player_session'):
+                result = await client.claim_next_track(GUILD, 'gw-1')
+    return stub, result, [span.name for span in exporter.get_finished_spans()]
+
+
+@pytest.mark.asyncio
+async def test_claim_miss_is_untraced_end_to_end_by_default():
+    '''An empty-queue poll leaves no span and sends an unsampled traceparent.
+
+    This is the second leak behind the long playback trace: ~950 claim misses, each a client,
+    retry and broker span, in one resume-session trace.'''
+    stub, result, names = await _claim_under_a_live_span({'claimed': False}, False)
+    assert result is None
+    assert names == ['music.resume_player_session']
+    assert not _sampled(stub.last(guild_queue_routes.CLAIM_TRACK)['traceparent'])
+
+
+@pytest.mark.asyncio
+async def test_claim_hit_records_only_a_client_span_by_default():
+    '''A hit is worth one span, but its broker-side child is dropped with the rest of the call.'''
+    request = _request()
+    answer = {'claimed': True, 'download': _track(request, 'claimed'), 's3_key': 'claimed.mp3'}
+    stub, result, names = await _claim_under_a_live_span(answer, False)
+    assert result.download.title == 'claimed'
+    assert sorted(names) == ['broker.claim_next_track', 'music.resume_player_session']
+    assert not _sampled(stub.last(guild_queue_routes.CLAIM_TRACK)['traceparent'])
+
+
+@pytest.mark.asyncio
+async def test_claim_is_fully_traced_when_playback_loops_are_traced():
+    '''The toggle restores the whole call: client span, retry span, sampled traceparent.'''
+    stub, result, names = await _claim_under_a_live_span({'claimed': False}, True)
+    assert result is None
+    assert sorted(names) == ['broker.claim_next_track', 'music.resume_player_session',
+                             'utils.retry_broker_command']
+    assert _sampled(stub.last(guild_queue_routes.CLAIM_TRACK)['traceparent'])
+
+
 @pytest.mark.asyncio
 async def test_claim_of_an_empty_queue_is_none():
     '''Nothing queued answers claimed false.'''

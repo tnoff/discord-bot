@@ -43,7 +43,7 @@ def _guild(guild_id: int) -> dict:
 class HttpGuildQueueMixin:
     '''Guild-queue calls against a remote BrokerHttpServer.'''
 
-    #: Whether the per-track background loops (heartbeat, queue watch) emit spans. Off by
+    #: Whether the player's background loops (heartbeat, queue watch, empty-queue claim poll) emit spans. Off by
     #: default: they run for as long as a track plays, under the long-lived gateway-intent
     #: span, and one listening session grew a single trace past Tempo's per-trace byte cap.
     #: HttpBrokerClient sets it from monitoring.tracing.trace_playback_loops.
@@ -147,21 +147,45 @@ class HttpGuildQueueMixin:
         return body.version, body.skip_for
 
     async def claim_next_track(self, guild_id: int, gateway_id: str) -> ClaimedDownload | None:
-        '''POST /guilds/{guild_id}/claim — take the next track and mark it as playing.'''
-        async with async_otel_span_wrapper('broker.claim_next_track', kind=SpanKind.CLIENT,
-                                           attributes=_guild(guild_id)):
-            payload = await self._call_route(guild_queue_routes.CLAIM_TRACK, {'gateway_id': gateway_id},
-                                             guild_id=guild_id)
-            # Two models for one route, matching the two shapes the broker sends, like checkout:
-            # validating the branch we took names the peer if either shape drifts.
-            if payload and payload.get('claimed'):
-                hit = self._validate(ClaimTrackHitResponse, payload)
-                return ClaimedDownload(
-                    download=_download(hit.download),
-                    checkout=CheckoutResult(s3_key=hit.s3_key, bucket_name=self._bucket_name),
-                )
-            self._validate(ClaimTrackMissResponse, payload)
-            return None
+        '''
+        POST /guilds/{guild_id}/claim — take the next track and mark it as playing.
+
+        While a guild's queue is empty the player asks once a second until its disconnect
+        timeout, and a miss carries nothing worth a span: left traced, ~950 misses (client,
+        retry and broker server span each) piled into one long-lived resume-session trace in
+        a night. So unless monitoring.tracing.trace_playback_loops is on, the request is
+        untraced end to end -- no retry span, and an unsampled traceparent so the broker drops
+        its span too -- and only a hit records a client span, after the fact. The cost is that a
+        hit has no broker-side child span; turn the toggle on to get the whole call back.
+        '''
+        attributes = _guild(guild_id)
+        if self._trace_playback_loops:
+            async with async_otel_span_wrapper('broker.claim_next_track', kind=SpanKind.CLIENT,
+                                               attributes=attributes):
+                payload = await self._call_route(guild_queue_routes.CLAIM_TRACK,
+                                                 {'gateway_id': gateway_id}, guild_id=guild_id)
+                return self._claimed(payload)
+        payload = await self._call_route(guild_queue_routes.CLAIM_TRACK, {'gateway_id': gateway_id},
+                                         guild_id=guild_id, traced=False)
+        claimed = self._claimed(payload)
+        if claimed is not None:
+            async with async_otel_span_wrapper('broker.claim_next_track', kind=SpanKind.CLIENT,
+                                               attributes=attributes):
+                pass
+        return claimed
+
+    def _claimed(self, payload) -> ClaimedDownload | None:
+        '''Parse a claim answer: the track and where to fetch it, or None for an empty queue.'''
+        # Two models for one route, matching the two shapes the broker sends, like checkout:
+        # validating the branch we took names the peer if either shape drifts.
+        if payload and payload.get('claimed'):
+            hit = self._validate(ClaimTrackHitResponse, payload)
+            return ClaimedDownload(
+                download=_download(hit.download),
+                checkout=CheckoutResult(s3_key=hit.s3_key, bucket_name=self._bucket_name),
+            )
+        self._validate(ClaimTrackMissResponse, payload)
+        return None
 
     async def playing_heartbeat(self, guild_id: int, uuid: str) -> bool:
         '''

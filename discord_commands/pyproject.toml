@@ -17,8 +17,8 @@ requires-python = ">=3.13"
 dependencies = [
     # discord_core, pinned to a real released tag. All seven pods pin the IDENTICAL tag string;
     # tests/cli/test_package_pins.py enforces that they never drift apart.
-    "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.27.0.tar.gz#subdirectory=discord_core",
-    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.13.tar.gz",
+    "discord-core @ https://github.com/tnoff/discord-bot/archive/refs/tags/core-v3.30.0.tar.gz#subdirectory=discord_core",
+    "dappertable @ https://github.com/tnoff/dappertable/archive/refs/tags/v1.1.14.tar.gz",
     "beautifulsoup4==4.15.0",
 ]
 

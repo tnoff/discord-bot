@@ -1,5 +1,29 @@
 # Changelog
 
+## [3.3.7] - 2026-11-26
+
+### Changed
+
+- Bumped tnoff/dappertable to v1.1.14
+
+## [3.3.6] - 2026-11-26
+
+### Changed
+
+- Bumped tnoff/discord-bot to v3.30.0
+
+## [3.3.5] - 2026-11-26
+
+### Changed
+
+- Bumped tnoff/discord-bot to v3.29.0
+
+## [3.3.4] - 2026-11-26
+
+### Changed
+
+- Bumped tnoff/discord-bot to v3.28.0
+
 ## [3.3.3] - 2026-11-26
 
 ### Changed

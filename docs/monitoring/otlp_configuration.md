@@ -136,7 +136,9 @@ general:
       # `traced=` rather than by `suppress_instrumentation()`.
       trace_queue_worker_status_poll: false
       # clients/http_guild_queue.py — the heartbeat and queue-watch poll that
-      # run every few seconds while a track plays, under the long-lived
+      # run every few seconds while a track plays, and the once-a-second claim
+      # poll while a guild's queue is empty (a claim hit still records a client
+      # span, without the broker-side child), under the long-lived
       # gateway-intent span. One listening session put ~3500 heartbeat spans
       # into a single trace and tripped Tempo's max_bytes_per_trace (the
       # "Tempo Discarding Spans" alert, reason=trace_too_large). Off means no
