@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.29.0] - 2026-11-26
+
+### Changed
+
+- The empty-queue claim poll is no longer traced by default under `monitoring.tracing.trace_playback_loops`. A guild with nothing queued asks the broker for a track once a second, and each miss added a client, retry and broker span to one long-lived trace (~950 in a night). A miss now records nothing and sends an unsampled `traceparent`; a hit still records a `broker.claim_next_track` client span, without the broker-side child. Turn the toggle on to restore the whole call.
+
 ## [3.28.0] - 2026-11-26
 
 ### Changed
