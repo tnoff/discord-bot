@@ -55,8 +55,9 @@ package is released by its own `<short>-vX.Y.Z` tag (`core-v…`, `gateway-v…`
 cut by `release.yml`'s `package-tags` job. The root `CHANGELOG.md` is the
 history through 3.0.0 and is no longer written to.
 
-A PR that touches a package bumps that package's own `VERSION` — touching a
-package's nested `tests/` counts as touching the package, no exemptions.
+A PR that touches a package bumps that package's own `VERSION`. A change confined to
+the package's own `tests/` directory does not count — test code ships in no image or
+distribution, so it would only cut an empty release — but source next to it does.
 `ci.yml`'s "Detect package version bumps" job
 (`tests/cli/_package_versions.py`) fails a PR that changes a package without
 also changing that package's `VERSION`. Renovate's `dev-` PRs are bumped for

@@ -37,18 +37,25 @@ That changes once a later step moves release Dockerfiles onto pinned, tagged
 installs; until then a propagation rule would only invent bumps nothing
 downstream can observe.
 
-NO EXEMPTIONS
--------------
-Touching a package's own nested `tests/` counts as touching the package --
-the simplest rule available, and the one `_affected_images.module_for` had to
-learn to carve back OUT for a different purpose (test code ships in no
-image). This module asks a different question ("did this PR touch the
-package at all") and test code answers it the same as production code does.
+A PACKAGE'S OWN tests/ DOES NOT COUNT
+-------------------------------------
+A path under `<package>/tests/` is not a change to the package. VERSION is what
+release.yml tags and what the pods' `core-v...` pins and image tags follow, and
+test code ships in no image and no distribution (each pyproject.toml's
+`packages.find` excludes it, and `_affected_images.module_for` carves it out for
+the same reason). Requiring a bump for it only cut empty patch releases. A PR
+that changes a package's source AND its tests still bumps, because of the source.
+
+This used to be the opposite, on the grounds that "touching a package at all" was
+the simplest rule. It was simple, and it meant a test-only refactor (the helpers
+split in discord-bot#1253) forced four packages through a release. Only the nested
+`tests/` directory is exempt: a sibling such as `discord_x/testing_utils.py`, or
+a `tests` file that is not under a package root, is unaffected by this.
 '''
 import sys
 
 from tests.cli._git_diff import base_head_parser, diff_paths, report_changed
-from tests.cli._roots import CORE_ROOT, SERVICE_ROOTS, root_of
+from tests.cli._roots import CORE_ROOT, SERVICE_ROOTS, TESTS_DIR, root_of
 
 
 #: Every package root this convention covers, keyed the same way a tag-name
@@ -59,7 +66,7 @@ PACKAGE_ROOTS = {'core': CORE_ROOT, **SERVICE_ROOTS}
 
 def touched_packages(changed_files: list) -> set:
     '''The distinct package roots (`discord_core`, `discord_search`, ...) any
-    of `changed_files` sits under.
+    of `changed_files` sits under, other than inside the package's own `tests/`.
 
     Uses `root_of`'s direct-ownership mapping -- a repo-relative path to the
     one root it sits under -- not the dependency-closure fanout
@@ -67,7 +74,8 @@ def touched_packages(changed_files: list) -> set:
     different questions: that one is "which images must rebuild", this one is
     "whose version number did this PR's own diff change".
     '''
-    return {root for path in changed_files if (root := root_of(path)) is not None}
+    return {root for path in changed_files
+            if (root := root_of(path)) is not None and path.split('/')[1] != TESTS_DIR}
 
 
 def main(argv=None) -> int:
@@ -110,7 +118,7 @@ def main(argv=None) -> int:
         print(
             '\nEach of the seven packages now tracks its own version independently --'
             '\nsee DEVELOPMENT.md. Bump the VERSION file for every package this PR'
-            '\ntouches, including a nested tests/ change under it.',
+            '\ntouches. (A change confined to its own tests/ does not count.)',
             file=sys.stderr)
         return 1
 
