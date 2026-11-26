@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.30.0] - 2026-11-26
+
+### Changed
+
+- Removed the synchronous `get_file`, `list_objects` and `delete_file` from `utils/integrations/s3.py`, and their helper `_verify_and_write`. No pod called them: the broker and gateway use the asyncio calls (`get_file_async`, `list_objects_async`, `delete_file_async`), and the downloader only uploads. `upload_file` (sync, for the downloader's worker thread) and `s3_request` stay. A caller of a removed function moves to its `_async` form.
+
 ## [3.29.0] - 2026-11-26
 
 ### Changed
