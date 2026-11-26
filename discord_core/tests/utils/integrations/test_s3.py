@@ -524,6 +524,14 @@ class FakeServer:
         self.calls.append({'method': request.method, 'path': request.raw_path, 'headers': dict(request.headers), 'body': body})
         self._check_signature(request, body)
         status, content, headers = self.answers.pop(0) if self.answers else (200, b'', {})
+        if headers.get('X-Drop-After'):
+            # Promise the whole body, send part of it, then hang up.
+            cut = int(headers['X-Drop-After'])
+            response = web.StreamResponse(status=status, headers={'Content-Length': str(len(content))})
+            await response.prepare(request)
+            await response.write(content[:cut])
+            request.transport.close()
+            return response
         return web.Response(status=status, body=content, headers=headers)
 
     def _check_signature(self, request: web.Request, body: bytes):
@@ -776,3 +784,100 @@ async def test_list_objects_async_empty_and_failures(server):  # pylint: disable
     server.answers.append((403, b'', {}))
     with pytest.raises(ObjectStorageException, match='Error listing objects'):
         await list_objects_async('bucket', 'x')
+
+
+@pytest.mark.asyncio
+async def test_upload_file_async_streams_a_file_larger_than_a_chunk(server, tmp_path, monkeypatch):  # pylint: disable=redefined-outer-name
+    monkeypatch.setattr(s3, 'STREAM_CHUNK_BYTES', 7)
+    data = bytes(range(256)) * 3
+    path = tmp_path / 'song.mp3'
+    path.write_bytes(data)
+    assert await upload_file_async('bucket', path, key_with_digest('song.mp3', content_digest(data))) is True
+    call = server.calls[0]
+    assert call['body'] == data
+    assert call['headers']['Content-Length'] == str(len(data))
+    assert 'Transfer-Encoding' not in call['headers']
+    assert not server.bad_signatures
+
+
+@pytest.mark.asyncio
+async def test_upload_file_async_sends_an_empty_file(server, tmp_path):  # pylint: disable=redefined-outer-name
+    path = tmp_path / 'empty.mp3'
+    path.write_bytes(b'')
+    assert await upload_file_async('bucket', path, 'empty.mp3') is True
+    assert server.calls[0]['body'] == b''
+    assert not server.bad_signatures
+
+
+@pytest.mark.asyncio
+async def test_upload_file_async_restreams_from_the_start_on_retry(server, tmp_path, monkeypatch):  # pylint: disable=redefined-outer-name
+    monkeypatch.setattr(s3, 'STREAM_CHUNK_BYTES', 5)
+    path = tmp_path / 'song.mp3'
+    path.write_bytes(b'0123456789abcdef')
+    server.answers.append((503, b'', {}))
+    assert await upload_file_async('bucket', path, 'song.mp3') is True
+    assert [call['body'] for call in server.calls] == [b'0123456789abcdef'] * 2
+    assert not server.bad_signatures
+
+
+@pytest.mark.asyncio
+async def test_upload_file_async_closes_the_file_when_the_upload_fails(server, tmp_path, mocker):  # pylint: disable=redefined-outer-name
+    path = tmp_path / 'song.mp3'
+    path.write_bytes(b'x')
+    server.answers.append((403, b'', {}))
+    opened = mocker.spy(Path, 'open')
+    with pytest.raises(ObjectStorageException):
+        await upload_file_async('bucket', path, 'key')
+    assert opened.spy_return_list and all(handle.closed for handle in opened.spy_return_list)
+
+
+@pytest.mark.asyncio
+async def test_get_file_async_streams_an_object_larger_than_a_chunk(server, tmp_path, monkeypatch):  # pylint: disable=redefined-outer-name
+    monkeypatch.setattr(s3, 'STREAM_CHUNK_BYTES', 7)
+    data = bytes(range(256)) * 3
+    server.answers.append((200, data, {'ETag': f'"{hashlib.md5(data).hexdigest()}"'}))
+    target = tmp_path / 'song.mp3'
+    key = key_with_digest('song.mp3', content_digest(data))
+    assert await get_file_async('bucket', key, target) is True
+    assert target.read_bytes() == data
+    assert not list(tmp_path.glob('*.s3part'))
+
+
+@pytest.mark.asyncio
+async def test_get_file_async_leaves_no_partial_file_on_a_digest_mismatch(server, tmp_path):  # pylint: disable=redefined-outer-name
+    server.answers.append((200, b'truncated', {}))
+    with pytest.raises(ObjectDigestMismatch):
+        await get_file_async('bucket', key_with_digest('song.mp3', content_digest(b'whole')), tmp_path / 'song.mp3')
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.asyncio
+async def test_get_file_async_keeps_an_existing_file_until_the_new_one_is_verified(server, tmp_path):  # pylint: disable=redefined-outer-name
+    target = tmp_path / 'song.mp3'
+    target.write_bytes(b'old')
+    server.answers.append((200, b'bad', {}))
+    with pytest.raises(ObjectDigestMismatch):
+        await get_file_async('bucket', key_with_digest('song.mp3', content_digest(b'new')), target)
+    assert target.read_bytes() == b'old'
+
+
+@pytest.mark.asyncio
+async def test_get_file_async_retries_a_body_cut_short(server, tmp_path, monkeypatch):  # pylint: disable=redefined-outer-name
+    monkeypatch.setattr(s3, 'STREAM_CHUNK_BYTES', 4)
+    data = b'0123456789abcdef'
+    server.answers.append((200, data, {'X-Drop-After': '9'}))
+    server.answers.append((200, data, {}))
+    target = tmp_path / 'song.mp3'
+    assert await get_file_async('bucket', key_with_digest('song.mp3', content_digest(data)), target) is True
+    assert target.read_bytes() == data
+    assert len(server.calls) == 2
+    assert not list(tmp_path.glob('*.s3part'))
+
+
+@pytest.mark.asyncio
+async def test_get_file_async_cleans_up_when_every_attempt_is_cut_short(server, tmp_path, monkeypatch):  # pylint: disable=redefined-outer-name
+    monkeypatch.setenv('AWS_MAX_ATTEMPTS', '2')
+    server.answers.extend([(200, b'0123456789', {'X-Drop-After': '3'})] * 2)
+    with pytest.raises(ObjectStorageException, match='Error downloading file'):
+        await get_file_async('bucket', 'song.mp3', tmp_path / 'song.mp3')
+    assert not list(tmp_path.iterdir())

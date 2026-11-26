@@ -27,8 +27,9 @@ is read, not ~/.aws/config: region and endpoint come from the variables above.
 Each call comes twice: the synchronous one (`upload_file`), which the downloader's worker thread and
 the tests use, and an asyncio one (`upload_file_async`), sent with aiohttp, for code on the event
 loop. Both share the signing, the digest checks and the parsing; only the transport differs. The
-async calls buffer a whole object in memory, as the synchronous ones do, and read and write local
-files in a worker thread.
+synchronous calls buffer a whole object in memory. The asyncio upload and download stream it instead,
+a chunk at a time between the file and the socket, so a large object costs a chunk of memory rather
+than its size; their file reads and writes run in a worker thread.
 '''
 import asyncio
 import base64
@@ -43,7 +44,7 @@ import xml.etree.ElementTree as ET  # nosec B405
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Mapping
+from typing import AsyncIterator, Awaitable, Callable, Mapping, TypeVar
 from urllib.parse import quote, urlsplit
 
 import aiohttp
@@ -58,6 +59,8 @@ logger = logging.getLogger(__name__)
 # keeps keys short.
 DIGEST_LENGTH = 32
 DIGEST_CHUNK_BYTES = 1024 * 1024
+# Bytes moved between a file and the socket at a time by the asyncio upload and download.
+STREAM_CHUNK_BYTES = 256 * 1024
 # `<stem>.sha256-<digest><suffix>`; the marker keeps a key from before digests from ever matching.
 _KEY_DIGEST = re.compile(rf'\.sha256-(?P<digest>[0-9a-f]{{{DIGEST_LENGTH}}})(?:\.[^./]*)?$')
 
@@ -386,6 +389,46 @@ class S3Response:
     headers: Mapping[str, str]
     content: bytes
 
+T = TypeVar('T')
+
+async def _send_async(method: str, bucket: str, key: str, *, #pylint:disable=too-many-arguments,too-many-locals
+                      params: list[tuple[str, str]] | None, payload_hash: str,
+                      headers: dict[str, str] | None, config: S3Config,
+                      make_body: Callable[[], bytes | AsyncIterator[bytes] | None],
+                      content_length: int | None,
+                      consume: Callable[[aiohttp.ClientResponse], Awaitable[T]]) -> T | S3Response:
+    '''
+    The retrying request loop under every asyncio call. A fresh body comes from `make_body` on each
+    attempt (a stream cannot be replayed). A 2xx answer goes to `consume`, which reads it however it
+    likes and returns the result; any other answer is read whole and raised as an S3RequestError.
+    A connection error or timeout, in `consume` too, retries the whole attempt: `consume` must start
+    over cleanly. Anything else it raises propagates at once.
+    '''
+    # No overall limit, only per-read ones: a song takes as long as it takes, as with requests.
+    timeout = aiohttp.ClientTimeout(total=None, sock_connect=config.connect_timeout, sock_read=config.read_timeout)
+    failure = None
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
+        for attempt in range(config.max_attempts):
+            if attempt:
+                await asyncio.sleep(config.retry_backoff * 2 ** (attempt - 1))
+            url, signed = _prepare_request(config, method, bucket, key, params, payload_hash, headers)
+            if content_length is not None:
+                signed['Content-Length'] = str(content_length)
+            try:
+                # encoded=True: yarl must send the URL as signed, not normalise it.
+                async with session.request(method, URL(url, encoded=True), data=make_body(), headers=signed) as response:
+                    if response.status < 300:
+                        return await consume(response)
+                    result = S3Response(response.status, response.headers, await response.read())
+            except (aiohttp.ClientError, TimeoutError) as e:
+                failure = S3RequestError(f'{method} {bucket}/{key} failed: {e}')
+                failure.__cause__ = e
+                continue
+            failure = _status_error(method, bucket, key, result.status, result.content)
+            if result.status not in RETRY_STATUSES:
+                break
+    raise failure
+
 async def s3_request_async(method: str, bucket: str, key: str = '', *, #pylint:disable=too-many-arguments
                            params: list[tuple[str, str]] | None = None, body: bytes = b'',
                            headers: dict[str, str] | None = None, config: S3Config | None = None) -> S3Response:
@@ -397,30 +440,11 @@ async def s3_request_async(method: str, bucket: str, key: str = '', *, #pylint:d
     Raises S3RequestError when the store cannot be reached or answers with an error status.
     Cancelling the task abandons the request at once.
     '''
-    config = config or config_from_env()
-    payload_hash = _payload_hash(body)
-    # No overall limit, only per-read ones: a song takes as long as it takes, as with requests.
-    timeout = aiohttp.ClientTimeout(total=None, sock_connect=config.connect_timeout, sock_read=config.read_timeout)
-    failure = None
-    async with aiohttp.ClientSession(timeout=timeout, trust_env=True) as session:
-        for attempt in range(config.max_attempts):
-            if attempt:
-                await asyncio.sleep(config.retry_backoff * 2 ** (attempt - 1))
-            url, signed = _prepare_request(config, method, bucket, key, params, payload_hash, headers)
-            try:
-                # encoded=True: yarl must send the URL as signed, not normalise it.
-                async with session.request(method, URL(url, encoded=True), data=body or None, headers=signed) as response:
-                    result = S3Response(response.status, response.headers, await response.read())
-            except (aiohttp.ClientError, TimeoutError) as e:
-                failure = S3RequestError(f'{method} {bucket}/{key} failed: {e}')
-                failure.__cause__ = e
-                continue
-            if result.status < 300:
-                return result
-            failure = _status_error(method, bucket, key, result.status, result.content)
-            if result.status not in RETRY_STATUSES:
-                break
-    raise failure
+    async def read_whole(response: aiohttp.ClientResponse) -> S3Response:
+        return S3Response(response.status, response.headers, await response.read())
+    return await _send_async(method, bucket, key, params=params, payload_hash=_payload_hash(body),
+                             headers=headers, config=config or config_from_env(),
+                             make_body=lambda: body or None, content_length=None, consume=read_whole)
 
 # ---------------------------------------------------------------------------
 # The four calls, each in a synchronous and an asyncio form
@@ -454,18 +478,65 @@ def upload_file(bucket_name: str, file_path: Path, object_name: str = None) -> b
     except S3RequestError as e:
         raise ObjectStorageException(f'Error uploading file: {e}') from e
 
+def _hash_for_upload(file_path: Path, object_name: str) -> tuple[str, str, int]:
+    '''
+    The file's SHA-256 (hex, for the signature), its Content-MD5 header value and its size, after
+    checking the file is there and matches the digest in its key. Reads the file in chunks, so it is
+    never held whole; blocking.
+    '''
+    if not file_path.exists() or not file_path.is_file():
+        raise ObjectStorageException(f'Invalid file path {str(file_path)}')
+    sha = hashlib.sha256()
+    # bandit B324: MD5 is mandated by the S3 Content-MD5 protocol header, not used for security
+    md5 = hashlib.md5(usedforsecurity=False)
+    size = 0
+    with file_path.open('rb') as handle:
+        for chunk in iter(lambda: handle.read(DIGEST_CHUNK_BYTES), b''):
+            sha.update(chunk)
+            md5.update(chunk)
+            size += len(chunk)
+    expected = key_digest(object_name)
+    if expected is not None and sha.hexdigest()[:DIGEST_LENGTH] != expected:
+        raise ObjectStorageException(f'{file_path} does not match the digest in its key {object_name}')
+    return sha.hexdigest(), base64.b64encode(md5.digest()).decode('utf-8'), size
+
+async def _file_chunks(handle) -> AsyncIterator[bytes]:
+    '''
+    An open file's bytes a chunk at a time, read in a worker thread. The caller closes the file:
+    aiohttp stops reading once it has sent the Content-Length it was given, so this generator is not
+    always run to its end.
+    '''
+    while chunk := await asyncio.to_thread(handle.read, STREAM_CHUNK_BYTES):
+        yield chunk
+
 async def upload_file_async(bucket_name: str, file_path: Path, object_name: str = None) -> bool:
     '''
-    `upload_file` for the event loop.
+    `upload_file` for the event loop. The file is hashed first (the signature needs its SHA-256 up
+    front), then streamed to the store from disk a chunk at a time.
     '''
     file_path = Path(file_path) # Double check its a path
     object_name = object_name or str(file_path)
-    data, headers = await asyncio.to_thread(_read_for_upload, file_path, object_name)
+    payload_hash, content_md5, size = await asyncio.to_thread(_hash_for_upload, file_path, object_name)
+
+    async def discard(_response: aiohttp.ClientResponse) -> bool:
+        return True
+    opened = []
+    def make_body() -> AsyncIterator[bytes] | None:
+        if not size:
+            return None
+        # Each attempt streams the file from the start. Opening is quick, so it is done inline.
+        opened.append(file_path.open('rb')) #pylint:disable=consider-using-with
+        return _file_chunks(opened[-1])
     try:
-        await s3_request_async('PUT', bucket_name, object_name, body=data, headers=headers)
+        await _send_async('PUT', bucket_name, object_name, params=None, payload_hash=payload_hash,
+                          headers={'Content-MD5': content_md5}, config=config_from_env(),
+                          make_body=make_body, content_length=size, consume=discard)
         return True
     except S3RequestError as e:
         raise ObjectStorageException(f'Error uploading file: {e}') from e
+    finally:
+        for handle in opened:
+            await asyncio.to_thread(handle.close)
 
 def _verify_and_write(data: bytes, etag: str, object_name: str, file_path: Path) -> bool:
     '''
@@ -501,17 +572,55 @@ def get_file(bucket_name: str, object_name: str, file_path: Path) -> bool:
         raise ObjectStorageException(f'Error downloading file: {e}') from e
     return _verify_and_write(response.content, response.headers.get('ETag', ''), object_name, file_path)
 
+def _write_chunk(handle, chunk: bytes, sha, md5) -> None:
+    handle.write(chunk)
+    sha.update(chunk)
+    md5.update(chunk)
+
+def _check_download(sha, md5, etag: str, object_name: str) -> None:
+    '''
+    The checks `_verify_and_write` makes on a whole object, made on digests built up as it streamed in.
+    '''
+    computed_md5 = md5.hexdigest()
+    etag = etag.strip('"')
+    if etag and '-' not in etag and etag != computed_md5:
+        logger.warning('S3 checksum mismatch: etag=%s computed=%s key=%s', etag, computed_md5, object_name)
+    expected = key_digest(object_name)
+    if expected is not None and sha.hexdigest()[:DIGEST_LENGTH] != expected:
+        raise ObjectDigestMismatch(f'Checksum mismatch downloading {object_name}')
+
 async def get_file_async(bucket_name: str, object_name: str, file_path: Path) -> bool:
     '''
-    `get_file` for the event loop.
+    `get_file` for the event loop. The object streams to a temporary file beside the destination,
+    a chunk at a time, and replaces the destination only once it has passed the same checks the
+    synchronous call makes; a failed or mismatched download leaves nothing behind.
     '''
     file_path = Path(file_path) # Double check its a path
+    partial = file_path.with_name(file_path.name + '.s3part')
+
+    async def stream_to_file(response: aiohttp.ClientResponse) -> bool:
+        sha = hashlib.sha256()
+        # bandit B324: comparing against S3 ETag (MD5 is dictated by S3 protocol), not used for security
+        md5 = hashlib.md5(usedforsecurity=False)
+        await asyncio.to_thread(file_path.parent.mkdir, parents=True, exist_ok=True)
+        handle = await asyncio.to_thread(partial.open, 'wb')
+        try:
+            async for chunk in response.content.iter_chunked(STREAM_CHUNK_BYTES):
+                await asyncio.to_thread(_write_chunk, handle, chunk, sha, md5)
+            await asyncio.to_thread(handle.close)
+            _check_download(sha, md5, response.headers.get('ETag', ''), object_name)
+            await asyncio.to_thread(os.replace, partial, file_path)
+        except BaseException:
+            await asyncio.to_thread(handle.close)
+            await asyncio.to_thread(partial.unlink, missing_ok=True)
+            raise
+        return True
     try:
-        response = await s3_request_async('GET', bucket_name, object_name)
+        return await _send_async('GET', bucket_name, object_name, params=None, payload_hash=EMPTY_PAYLOAD_HASH,
+                                 headers=None, config=config_from_env(), make_body=lambda: None,
+                                 content_length=None, consume=stream_to_file)
     except S3RequestError as e:
         raise ObjectStorageException(f'Error downloading file: {e}') from e
-    return await asyncio.to_thread(_verify_and_write, response.content, response.headers.get('ETag', ''),
-                                   object_name, file_path)
 
 def _parse_last_modified(value: str) -> datetime:
     # `2025-01-01T00:00:00.000Z`; fromisoformat reads the Z suffix from Python 3.11 on.
