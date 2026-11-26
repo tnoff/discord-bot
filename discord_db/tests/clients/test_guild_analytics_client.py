@@ -11,8 +11,8 @@ from discord_core.types.guild_analytics import GuildAnalyticsEntry
 from discord_db.clients.guild_analytics_client import GuildAnalyticsClient
 from discord_db.database import Guild, GuildVideoAnalytics
 
-from tests.helpers import fake_engine #pylint:disable=unused-import
-from tests.helpers import async_mock_session
+from tests.db_helpers import fake_engine  #pylint:disable=unused-import
+from tests.db_helpers import async_mock_session
 
 GUILD_ID = 909
 SECONDS_PER_DAY = 60 * 60 * 24

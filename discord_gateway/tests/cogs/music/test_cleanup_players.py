@@ -16,8 +16,9 @@ from discord_gateway.types.cleanup_reason import CleanupReason
 
 from discord_gateway.tests.cogs.music_cog_support import prepared_cog
 from discord_gateway.tests.cogs.test_music import BASE_MUSIC_CONFIG
-from tests.helpers import FakeGuild, FakeVoiceClient, fake_engine, fake_context #pylint:disable=unused-import
-from tests.helpers import attach_in_process_broker
+from tests.helpers import FakeGuild, FakeVoiceClient, fake_context  #pylint:disable=unused-import
+from tests.db_helpers import fake_engine  #pylint:disable=unused-import
+from tests.fakes.in_process_stack import attach_in_process_broker
 
 @pytest.fixture(name='teardown_guild', autouse=True)
 def fixture_teardown_guild(mocker):

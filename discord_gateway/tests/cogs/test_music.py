@@ -23,9 +23,11 @@ from discord_gateway.utils.bot_metrics import BotMetricNaming
 
 from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
 from tests.helpers import downloaded_from_context
-from tests.helpers import fake_engine, fake_context, async_mock_session #pylint:disable=unused-import
+from tests.helpers import fake_context  #pylint:disable=unused-import
+from tests.db_helpers import fake_engine, async_mock_session  #pylint:disable=unused-import
 from tests.helpers import FakeChannel
-from tests.helpers import attach_in_process_broker, attach_in_process_download, merge_config_blocks, queue_in_broker
+from tests.helpers import merge_config_blocks
+from tests.fakes.in_process_stack import attach_in_process_broker, attach_in_process_download, queue_in_broker
 
 
 BASE_MUSIC_CONFIG = {

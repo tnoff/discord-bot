@@ -19,7 +19,8 @@ from tests.fakes.pipeline_fakes import (yield_download_worker_bot_flagged,
                                         yield_download_worker_video_too_long,
                                         yield_fake_download_worker)
 from tests.helpers import fake_media_download, fake_source_dict, random_string
-from tests.helpers import fake_engine, fake_context, fake_stores  #pylint:disable=unused-import
+from tests.helpers import fake_context  #pylint:disable=unused-import
+from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
 from tests.results_pod import ResultsPod, music_settings
 
 CACHE_MUSIC = music_settings({

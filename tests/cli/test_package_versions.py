@@ -21,8 +21,16 @@ from tests.cli._scratch_repo import commit, head_sha, init_scratch_repo
     (['discord_core/utils/otel.py'], {'discord_core'}),
     # A pod file.
     (['discord_search/clients/youtube.py'], {'discord_search'}),
-    # A package's own nested tests/ -- counts the same as production code.
-    (['discord_core/tests/utils/test_otel.py'], {'discord_core'}),
+    # A package's own nested tests/ does not count: test code ships in no image or distribution.
+    (['discord_core/tests/utils/test_otel.py'], set()),
+    (['discord_gateway/tests/__init__.py', 'discord_db/tests/cli/test_x.py'], set()),
+    # ...but source next to it does, and the two together bump once, for the source.
+    (['discord_gateway/tests/test_x.py', 'discord_gateway/cogs/music.py'], {'discord_gateway'}),
+    # Only the `tests` directory is exempt, not anything whose name starts with it.
+    (['discord_gateway/tests_support.py'], {'discord_gateway'}),
+    (['discord_gateway/testing/x.py'], {'discord_gateway'}),
+    # A file directly in the root is not "under tests/" either.
+    (['discord_gateway/VERSION'], {'discord_gateway'}),
     # A central tests/ file under no declared root.
     (['tests/helpers.py'], set()),
     # Root-level doc and workflow files, under no root either.

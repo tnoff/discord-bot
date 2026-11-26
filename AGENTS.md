@@ -31,7 +31,7 @@ assumptions about this repo, it's stale; check the current tree instead.
 | OTel naming enums, span/metric wrappers | `discord_core/utils/otel.py` (see `docs/monitoring/`) |
 | DB models (`BASE`-inheriting) | `discord_db/database.py` |
 | Async retry helpers | `discord_core/utils/common.py`; `discord_db/utils/sql_retry.py` (db pod only — the bot holds no DB connection) |
-| Test fixtures and fakes | `tests/helpers.py` (central — see "Tests are per-package now" below) |
+| Test fixtures and fakes | `tests/helpers.py` (pure), `tests/db_helpers.py` (needs `discord_db`), `tests/fakes/in_process_stack.py` (needs the broker/downloader/search fakes) — central; see "Tests are per-package now" below |
 
 ## Non-obvious internals
 
@@ -40,6 +40,15 @@ assumptions about this repo, it's stale; check the current tree instead.
 The system environment has an older `dappertable` (0.2.4) missing kwargs used
 throughout the tests, producing ~27 false failures. Always invoke pytest
 through the project venv. Same goes for pylint.
+
+### Keep the root `conftest.py` and `tests/helpers.py` light
+
+CI narrows pytest to the packages a PR can reach through imports (`tests/cli/_affected_tests.py`,
+run by `tests/cli/_run_tests.py`; see DEVELOPMENT.md's "Which tests CI runs"). Anything imported
+by the root `conftest.py` or `tests/helpers.py` is on every package's path, so importing a pod
+there turns every PR back into a full run. Fixtures that need a pod go in their own module
+(`tests/db_helpers.py`, `tests/fakes/in_process_stack.py`). `test_root_conftest_reaches_no_pod`
+enforces it.
 
 ### Tests are per-package now — do not pass `tests/` to pytest
 

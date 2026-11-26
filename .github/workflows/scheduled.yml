@@ -28,3 +28,24 @@ jobs:
     with:
       age_days: 30
       dry_run: false
+
+  # The full test suite, every week and on demand.
+  #
+  # Pull requests run only the packages they can affect (tox.ini ->
+  # tests/cli/_run_tests.py), and gate 100% coverage only on the packages whose
+  # SOURCE changed. A test-only edit that quietly lowers some other package's coverage,
+  # or a break only reachable through a path the import graph cannot see, would
+  # otherwise wait for the next PR that happens to run everything. This run is that
+  # backstop: no pull request is in play, so tests/cli/_run_tests.py runs the whole suite
+  # and gates the combined total, exactly as before narrowing existed. A failure
+  # reaches Discord through notify-failure.yml like any other scheduled job.
+  #
+  # Meant to be temporary: the goal is to remove this once the narrowing is trusted and
+  # test-only edits are covered another way. Revisit rather than let it become permanent.
+  #
+  # Same pin and inputs as ci.yml's `tox` job; keep them in step.
+  tox:
+    name: Tox (full suite)
+    uses: tnoff/github-workflows/.github/workflows/tox.yml@fd3bbf52e18c2edfa3d6fe015bed6f7056cfa777  # tox-v1.0.2
+    with:
+      extra_apt: 'ffmpeg'

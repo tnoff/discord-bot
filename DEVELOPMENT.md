@@ -55,8 +55,9 @@ package is released by its own `<short>-vX.Y.Z` tag (`core-v…`, `gateway-v…`
 cut by `release.yml`'s `package-tags` job. The root `CHANGELOG.md` is the
 history through 3.0.0 and is no longer written to.
 
-A PR that touches a package bumps that package's own `VERSION` — touching a
-package's nested `tests/` counts as touching the package, no exemptions.
+A PR that touches a package bumps that package's own `VERSION`. A change confined to
+the package's own `tests/` directory does not count — test code ships in no image or
+distribution, so it would only cut an empty release — but source next to it does.
 `ci.yml`'s "Detect package version bumps" job
 (`tests/cli/_package_versions.py`) fails a PR that changes a package without
 also changing that package's `VERSION`. Renovate's `dev-` PRs are bumped for
@@ -134,7 +135,8 @@ now lives *inside* it, so a plain scan would otherwise lint test code under
 the production rcfile too.
 
 Target score is 10.00/10. Tox runs both pylint invocations, bandit, and
-pytest across py313–py315:
+pytest across py313–py315 (pytest narrowed to the packages a PR can affect — see
+[Which tests CI runs](#which-tests-ci-runs)):
 
 ```bash
 tox
@@ -165,6 +167,44 @@ the result, and that edit skips tox. A new or deleted doc, or any change inside 
 block, runs it. `test_no_test_reads_a_file_that_skips_tox` fails if a test starts
 reading a doc that is on the list. Prose inside a package, including its
 `changelog.d/`, is that package changing and is never skipped.
+
+## Which tests CI runs
+
+`ci.yml`'s `tox` job runs `tests/cli/_run_tests.py` (called from `tox.ini`), which narrows
+pytest to the packages a pull request can affect. The same module is the only place pytest
+is invoked now, so its docstring is where the two-pass structure and the coverage rules live.
+
+How it decides, from `tests/cli/_affected_tests.py`: it parses every first-party file and builds
+the import graph (imports, relative imports, and dotted strings such as `monkeypatch` targets,
+followed through the shared `tests.*` fakes), then runs a package's `tests/` tree when
+something it can reach changed. The central `tests/` tree always runs. Two rules are worth
+knowing:
+
+- **A `discord_core` change selects only `discord_core`'s tests.** Every pod pins a released core
+  tag and its tests run against that, not this checkout; `test_every_pod_pins_core` guards it.
+- **Anything the graph cannot classify runs everything**: `pyproject.toml`, `tox.ini`,
+  `.pylintrc*`, `docker/`, `alembic/`, `.github/`, a data file under `tests/`, a deleted
+  or moved file. So does every run that is not a pull request: local `tox`, the weekly job.
+
+Coverage is gated at 100% on the whole tree for a full run. A narrowed run gates each package
+whose *source* changed, which is exact because every test that can execute it is in the run. A
+test-only edit is not gated; the weekly full run in `scheduled.yml` is what would catch a
+coverage drop from one.
+
+Try it before pushing, from a venv with the packages installed:
+
+```bash
+venv/bin/python -m tests.cli._affected_tests --base origin/main      # what would run
+venv/bin/python -m tests.cli._run_tests --base origin/main --dry-run  # the commands
+venv/bin/python -m tests.cli._run_tests --base origin/main            # run them
+```
+
+**What keeps it narrow.** The savings exist because a package's tests do not import pods they
+do not use. Importing a pod from the root `conftest.py` or from `tests/helpers.py` puts that pod
+on *every* package's path and silently turns the narrowing back into a full run; that coupling
+once made most PRs select all eight packages. `test_root_conftest_reaches_no_pod` fails if it
+comes back. Put fixtures that need a pod in a module only the tests that need them import,
+as `tests/db_helpers.py` does.
 
 ## Alembic migrations
 
@@ -382,19 +422,27 @@ outside that pod opens a database connection to retry against.
 
 ## Test infrastructure
 
-Shared fixtures and fakes are in `tests/helpers.py`:
+Shared fixtures and fakes live in three modules, split by what they need to import
+(see [Which tests CI runs](#which-tests-ci-runs) for why the split matters):
 
-| Name | Kind | What it provides |
-|------|------|------------------|
-| `fake_context` | fixture | dict with `bot/guild/author/channel/context` |
-| `fake_engine` | fixture | SQLite `AsyncEngine` built by `setup_db` over a fresh temp file, schema from `create_all` |
-| `async_mock_session` | async ctx mgr | `AsyncSession` bound to `fake_engine` |
-| `fake_bot_yielder` | factory | `fake_bot_yielder(channels=[...])() → FakeBot` |
-| `generate_fake_context` | non-fixture | inline equivalent of `fake_context` |
-| `fake_source_dict` | helper | constructs a `MediaRequest` for music tests |
-| `fake_media_download` | ctx mgr | yields a `MediaDownload` with a temp audio file |
-| `random_id`, `random_string` | helpers | test data generators |
-| `FakeBot`, `FakeGuild`, `FakeAuthor`, `FakeChannel`, `FakeMessage`, `FakeVoiceClient`, `FakeContext` | fakes | drop-in substitutes for discord.py objects |
+- `tests/helpers.py` — pure helpers and fakes. Imports `discord_core` and discord.py
+  only, because the root `conftest.py` imports it and so does every package's test run.
+- `tests/db_helpers.py` — `fake_engine`, `fake_stores`, `fake_markov_store` and
+  `async_mock_session`. Needs `discord_db`; import it only from tests that use a real engine.
+- `tests/fakes/in_process_stack.py` — `attach_in_process_broker`, `_download` and `_search`,
+  `queue_in_broker`, `play_through_in_broker`. Needs the broker, downloader, search and db fakes.
+
+| Name | Module | Kind | What it provides |
+|------|--------|------|------------------|
+| `fake_context` | `tests.helpers` | fixture | dict with `bot/guild/author/channel/context` |
+| `fake_engine` | `tests.db_helpers` | fixture | SQLite `AsyncEngine` built by `setup_db` over a fresh temp file, schema from `create_all` |
+| `async_mock_session` | `tests.db_helpers` | async ctx mgr | `AsyncSession` bound to `fake_engine` |
+| `fake_bot_yielder` | `tests.helpers` | factory | `fake_bot_yielder(channels=[...])() → FakeBot` |
+| `generate_fake_context` | `tests.helpers` | non-fixture | inline equivalent of `fake_context` |
+| `fake_source_dict` | `tests.helpers` | helper | constructs a `MediaRequest` for music tests |
+| `fake_media_download` | `tests.helpers` | ctx mgr | yields a `MediaDownload` with a temp audio file |
+| `random_id`, `random_string` | `tests.helpers` | helpers | test data generators |
+| `FakeBot`, `FakeGuild`, `FakeAuthor`, `FakeChannel`, `FakeMessage`, `FakeVoiceClient`, `FakeContext` | `tests.helpers` | fakes | drop-in substitutes for discord.py objects |
 
 `FakeChannel.send()` records every message in `channel.messages`, so tests
 assert against the list directly.

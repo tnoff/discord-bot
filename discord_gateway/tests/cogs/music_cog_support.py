@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from discord_gateway.cogs.music import Music
 
-from tests.helpers import attach_in_process_broker, attach_in_process_download, attach_in_process_search
+from tests.fakes.in_process_stack import attach_in_process_broker, attach_in_process_download, attach_in_process_search
 
 
 def prepared_cog(mocker, fake_context, config, *, download=False, search=False):

@@ -16,10 +16,9 @@ from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_db.database import VideoCache
 
 from tests.fakes.asyncio_broker import AsyncioBroker
-from tests.helpers import (
-    async_mock_session, fake_media_download, generate_fake_context, fake_source_dict,
-)
-from tests.helpers import fake_engine  # pylint:disable=unused-import
+from tests.helpers import fake_media_download, generate_fake_context, fake_source_dict
+from tests.db_helpers import async_mock_session
+from tests.db_helpers import fake_engine  # pylint:disable=unused-import
 
 
 # ---------------------------------------------------------------------------

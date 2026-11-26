@@ -24,9 +24,8 @@ from discord_commands.loop_logic.music_results import MusicResultsLoop
 from discord_commands.workers.result_loops import ResultLoops
 
 from tests.fakes.pod_music_config import PodMusicConfig
-from tests.helpers import (
-    attach_in_process_broker, attach_in_process_download, attach_in_process_search, merge_config_blocks,
-)
+from tests.helpers import merge_config_blocks
+from tests.fakes.in_process_stack import attach_in_process_broker, attach_in_process_download, attach_in_process_search
 
 BASE_MUSIC = {
     'broker_client': {'url': 'http://broker-host:8081'},

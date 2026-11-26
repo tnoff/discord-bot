@@ -3,7 +3,8 @@ from aiohttp import ClientConnectionError
 
 from tests.fakes.pipeline_fakes import fake_envelope, yield_search_client_check_source
 from tests.helpers import fake_source_dict
-from tests.helpers import fake_engine, fake_context, fake_stores  #pylint:disable=unused-import
+from tests.helpers import fake_context  #pylint:disable=unused-import
+from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
 from tests.results_pod import ResultsPod
 
 

@@ -3,8 +3,9 @@ from tempfile import TemporaryDirectory
 
 import pytest
 
-from tests.helpers import fake_media_download
-from tests.helpers import fake_engine, fake_context, fake_stores  # pylint: disable=unused-import
+from tests.helpers import fake_media_download  # pylint: disable=unused-import
+from tests.helpers import fake_context  # pylint: disable=unused-import
+from tests.db_helpers import fake_engine, fake_stores  # pylint: disable=unused-import
 from tests.results_pod import ResultsPod, music_settings
 
 
