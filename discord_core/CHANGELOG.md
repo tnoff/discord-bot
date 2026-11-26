@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.27.0] - 2026-11-26
+
+### Changed
+
+- Stream objects in the asyncio S3 calls. `upload_file_async` hashes the file in chunks, then sends it from disk a chunk at a time with a Content-Length; `get_file_async` writes the response to a temporary file beside the destination as it arrives, checks the ETag and key digest on the way, and moves it into place only when it passes, so a failed or cut-short download leaves nothing behind. A song no longer sits whole in memory, and a retry restarts the stream. The synchronous calls are unchanged.
+
 ## [3.26.0] - 2026-11-25
 
 ### Changed
