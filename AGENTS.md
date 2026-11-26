@@ -45,8 +45,8 @@ through the project venv. Same goes for pylint.
 
 CI narrows pytest to the packages a PR can reach through imports (`tests/cli/_affected_tests.py`,
 run by `tests/cli/_run_tests.py`; see DEVELOPMENT.md's "Which tests CI runs"). Anything imported
-by the root `conftest.py` or `tests/helpers.py` is on every package's path, so importing a pod
-there turns every PR back into a full run. Fixtures that need a pod go in their own module
+by the root `conftest.py` or `tests/helpers.py` is on every test's path, so importing a pod there,
+or reading a repo file there (`REPO_ROOT`, `__file__`, a `docs/…` path), turns every PR back into a full run. Fixtures that need a pod go in their own module
 (`tests/db_helpers.py`, `tests/fakes/in_process_stack.py`). `test_root_conftest_reaches_no_pod`
 enforces it.
 

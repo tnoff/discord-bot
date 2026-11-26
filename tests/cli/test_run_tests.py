@@ -43,12 +43,13 @@ def test_no_selection_or_everything_is_the_full_plan(selection):
     assert plan(selection, PY) == full_plan(PY)
 
 
-def test_narrowed_plan_for_pods_runs_central_tests_and_gates_changed_source():
-    '''Central tests always; only the selected pods' trees; the gate on gated packages only.'''
-    selection = Selection(False, ('discord_db', 'discord_gateway'), ('discord_db',), 'why')
+def test_narrowed_plan_runs_selected_central_files_and_pods_and_gates_changed_source():
+    '''The selected central files (one by one), then the selected pods' trees; the gate on gated packages only.'''
+    selection = Selection(False, ('discord_db', 'discord_gateway'), ('discord_db',), 'why',
+                          ('tests/cli/test_a.py', 'tests/clients/test_b.py'))
     commands = narrowed_plan(selection, PY)
-    assert commands[0] == ['python', '-m', 'pytest', 'tests', 'discord_db/tests', 'discord_gateway/tests',
-                           '--cov', '--cov-report=']
+    assert commands[0] == ['python', '-m', 'pytest', 'tests/cli/test_a.py', 'tests/clients/test_b.py',
+                           'discord_db/tests', 'discord_gateway/tests', '--cov', '--cov-report=']
     assert ['python', '-m', 'coverage', 'xml'] in commands
     gate = commands[-1]
     assert gate[:4] == ['python', '-m', 'coverage', 'report']
@@ -58,22 +59,35 @@ def test_narrowed_plan_for_pods_runs_central_tests_and_gates_changed_source():
     assert not any('pip' in command for command in commands)
 
 
+def test_narrowed_plan_never_passes_the_whole_central_directory():
+    '''`tests` as a path would collect every central file and make the per-file selection a lie.'''
+    selection = Selection(False, ('discord_db',), (), 'why', ('tests/cli/test_a.py',))
+    assert 'tests' not in narrowed_plan(selection, PY)[0]
+
+
 def test_narrowed_plan_with_core_installs_this_checkout_for_its_own_pass():
     '''Core is tested against THIS checkout, after the pods, with coverage appended.'''
-    selection = Selection(False, ('discord_core',), ('discord_core',), 'why')
+    selection = Selection(False, ('discord_core',), ('discord_core',), 'why', ('tests/cli/test_a.py',))
     commands = narrowed_plan(selection, PY)
-    assert commands[0] == ['python', '-m', 'pytest', 'tests', '--cov', '--cov-report=']
+    assert commands[0] == ['python', '-m', 'pytest', 'tests/cli/test_a.py', '--cov', '--cov-report=']
     assert commands[1] == ['python', '-m', 'pip', 'install', '-e', './discord_core']
     assert commands[2] == ['python', '-m', 'pytest', 'discord_core/tests', '--cov', '--cov-append',
                            '--cov-report=']
 
 
-def test_narrowed_plan_with_nothing_selected_still_writes_coverage_xml_and_does_not_gate():
+def test_narrowed_plan_with_central_files_only_still_writes_coverage_xml_and_does_not_gate():
     '''The workflow uploads coverage.xml unconditionally, so it must exist; an empty gate would
     be `--include=` of nothing.'''
-    commands = narrowed_plan(Selection(False, (), (), 'why'), PY)
-    assert commands == [['python', '-m', 'pytest', 'tests', '--cov', '--cov-report='],
+    commands = narrowed_plan(Selection(False, (), (), 'why', ('tests/cli/test_a.py',)), PY)
+    assert commands == [['python', '-m', 'pytest', 'tests/cli/test_a.py', '--cov', '--cov-report='],
                         ['python', '-m', 'coverage', 'xml']]
+
+
+def test_narrowed_plan_with_nothing_to_run_is_the_full_plan():
+    '''Bare `pytest` with no path collects the whole repo while the log says "narrowed". Refuse to
+    build that: no paths at all means something is wrong, so run everything.'''
+    assert narrowed_plan(Selection(False, (), (), 'why'), PY) == full_plan(PY)
+    assert narrowed_plan(Selection(False, ('discord_core',), (), 'why'), PY)[0][:3] == ['python', '-m', 'pytest']
 
 
 def test_test_only_selection_is_not_gated():
@@ -182,23 +196,23 @@ def test_decide_runs_everything_when_selection_says_so(monkeypatch, capsys):
 
 def test_decide_returns_the_narrowed_selection_and_logs_it(monkeypatch, capsys):
     '''The CI log must say what was narrowed to, and what is gated.'''
-    narrowed = Selection(False, ('discord_db',), ('discord_db',), '1 changed node')
+    narrowed = Selection(False, ('discord_db',), ('discord_db',), '1 changed node', ('tests/cli/test_a.py',))
     monkeypatch.setattr(run_tests, 'changed_files', lambda base, environ=None, head='HEAD': ['discord_db/x.py'])
     monkeypatch.setattr(run_tests, 'select', lambda changed, graph: narrowed)
     monkeypatch.setattr(run_tests, 'ImportGraph', lambda: None)
     assert decide() is narrowed
     err = capsys.readouterr().err
-    assert 'narrowed to discord_db' in err and 'gated on: discord_db' in err
+    assert 'narrowed to discord_db and 1 central test file(s)' in err and 'gated on: discord_db' in err
 
 
-def test_decide_names_the_central_tests_when_no_package_is_selected(monkeypatch, capsys):
-    '''A central-only change narrows to nothing but the always-on central tree.'''
+def test_decide_says_no_package_when_only_central_files_are_selected(monkeypatch, capsys):
+    '''A change only central tests care about narrows to those files alone.'''
     monkeypatch.setattr(run_tests, 'changed_files', lambda base, environ=None, head='HEAD': ['tests/test_x.py'])
-    monkeypatch.setattr(run_tests, 'select', lambda changed, graph: Selection(False, (), (), 'r'))
+    monkeypatch.setattr(run_tests, 'select', lambda changed, graph: Selection(False, (), (), 'r', ('tests/cli/test_a.py',)))
     monkeypatch.setattr(run_tests, 'ImportGraph', lambda: None)
     assert decide() is not None
     err = capsys.readouterr().err
-    assert 'the central tests only' in err and 'gated on: nothing' in err
+    assert 'narrowed to no package and 1 central test file(s)' in err and 'gated on: nothing' in err
 
 
 # --- main ---------------------------------------------------------------------------------------

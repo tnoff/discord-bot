@@ -32,14 +32,15 @@ ordinary three-dot diff instead, so the same narrowing can be tried before pushi
 
 THE TWO PYTEST PASSES, AND WHY THEY ARE TWO
 -------------------------------------------
-Pass 1 runs the pods against `discord_core` as the pods' own pins resolve it (a
+Pass 1 runs the selected central test files and the pods against `discord_core` as the pods' own pins resolve it (a
 released tag, installed from each pyproject.toml), NOT this checkout. Pass 2 then
 installs this checkout's `discord_core` editable and runs only `discord_core/tests`.
 An editable install alongside the pins in one `pip install` is a ResolutionImpossible,
 which is why core is installed between the passes and not in tox's `deps`. Pass 2's
 coverage is appended to pass 1's, so full runs gate ONE combined total at 100%.
 
-A narrowed run cannot gate the combined total (most of the tree did not run). It
+The central tests are narrowed per file as well (see `_affected_tests`): the ones that read the repo
+always run, the rest run when something they reach changed. A narrowed run cannot gate the combined total (most of the tree did not run). It
 gates each package whose SOURCE changed instead: every test that can execute that
 package is in the run, so the number is what a full run would report for it. A
 test-only edit is not gated, for the reason in `Selection`. The pylint and bandit
@@ -90,10 +91,17 @@ def full_plan(python: str) -> list:
 
 
 def narrowed_plan(selection: Selection, python: str) -> list:
-    '''Commands for only the selected packages. The central `tests/` tree always runs.'''
+    '''Commands for only the selected packages and central test files.
+
+    The central files are passed one by one (an explicit file is collected whatever
+    `python_files` says). With nothing at all to pass, bare `pytest` would collect the
+    whole repo and read as "narrowed" in the log, so that case is the full plan instead.
+    '''
     pods = [package for package in selection.packages if package != CORE_ROOT]
-    commands = [[python, '-m', 'pytest', 'tests', *(f'{pod}/tests' for pod in pods),
-                 '--cov', '--cov-report=']]
+    paths = [*selection.central, *(f'{pod}/tests' for pod in pods)]
+    if not paths:
+        return full_plan(python)
+    commands = [[python, '-m', 'pytest', *paths, '--cov', '--cov-report=']]
     if CORE_ROOT in selection.packages:
         commands.append([python, *PIP_INSTALL_CORE])
         commands.append([python, '-m', 'pytest', f'{CORE_ROOT}/tests', '--cov', '--cov-append',
@@ -128,7 +136,8 @@ def decide(base: Optional[str] = None, environ=None, head: str = 'HEAD') -> Opti
     if selection.everything:
         print(f'run-tests: running everything: {selection.reason}', file=sys.stderr)
         return None
-    print(f'run-tests: narrowed to {", ".join(selection.packages) or "the central tests only"} '
+    print(f'run-tests: narrowed to {", ".join(selection.packages) or "no package"} and '
+          f'{len(selection.central)} central test file(s) '
           f'(coverage gated on: {", ".join(selection.gated) or "nothing"}); {selection.reason}',
           file=sys.stderr)
     return selection
