@@ -25,9 +25,9 @@ import re
 import pytest
 
 from tests.cli import _affected_tests as affected_tests
-from tests.cli._affected_tests import (CENTRAL_INPUTS, CONFTEST, PACKAGES, ImportGraph, Selection,
-                                       changed_node, is_central_input, main, referenced_modules, repo_reads,
-                                       select)
+from tests.cli._affected_tests import (CENTRAL_INPUTS, CONFTEST, PACKAGE_INPUTS, PACKAGES, ImportGraph,
+                                       Selection, changed_node, is_central_input, main, package_input_owner,
+                                       referenced_modules, repo_reads, select)
 from tests.cli._package_pins import REPO_ROOT as PINS_REPO_ROOT, POD_ROOTS, declared_core_pin
 from tests.cli._roots import CORE_ROOT, SERVICE_ROOTS
 from tests.cli._scratch_repo import commit, init_scratch_repo
@@ -132,8 +132,7 @@ def test_documentation_and_metadata_are_ignored(tree):  # pylint: disable=redefi
 
 
 @pytest.mark.parametrize('path', [
-    'tox.ini', 'pyproject.toml', '.pylintrc', 'alembic/env.py', 'tests/data.json',
-    'something/nobody/classified.py',
+    'tox.ini', 'pyproject.toml', 'tests/data.json', 'something/nobody/classified.py',
 ])
 def test_anything_unclassified_runs_everything(tree, path):  # pylint: disable=redefined-outer-name
     '''An allow-list: a path no rule names cannot be reasoned about, so nothing is skipped.'''
@@ -253,6 +252,7 @@ def test_central_inputs_select_no_package_and_only_the_files_that_always_run(tre
     ('docs/openapi/db.yaml', True), ('docs/monitoring/metrics_reference.md', True),
     ('docs/architecture.md', True), ('docs/configuration.md', True), ('.github/workflows/ci.yml', True),
     ('docker/Dockerfile.db', True), ('catalog-info.yaml', True), ('.dockerignore', True),
+    ('.pylintrc', True), ('.pylintrc.test', True), ('.pylintrc.bak', False),
     ('tests/cli/image-closure.json', True),
     # Close but not on the list: a prefix needs its slash, a file is exact.
     ('docs/openapi', False), ('docker', False), ('.github', False), ('docs/music.md', False),
@@ -346,6 +346,37 @@ def test_repo_reads(source, expected):
     assert bool(repo_reads(source)) is expected
 
 
+# --- package inputs: a path read by one package's own tests ---------------------------------------
+
+
+def test_a_package_input_selects_only_the_owning_packages_tests(tree, monkeypatch):  # pylint: disable=redefined-outer-name
+    '''The owner's tree runs; the packages that merely import the owner do not, because they never read
+    the file. pod_b imports pod_a in this tree, so it is the one that must NOT be selected.'''
+    monkeypatch.setattr(affected_tests, 'PACKAGE_INPUTS', {'data/': 'pod_a'})
+    _write(tree.repo_root, 'data/schema.sql', 'x\n')
+    selection = select(['data/schema.sql'], tree)
+    assert not selection.everything
+    assert selection.packages == ('pod_a',)
+    assert selection.gated == ()
+
+
+@pytest.mark.parametrize('path, owner', [
+    ('alembic/env.py', 'discord_db'), ('alembic/versions/0001_x.py', 'discord_db'),
+    ('alembic.ini', 'discord_db'),
+    # A prefix needs its slash and a file is exact.
+    ('alembic', None), ('alembic.ini.bak', None), ('alembicx/env.py', None), ('discord_db/alembic.ini', None),
+])
+def test_package_input_owner(path, owner):
+    '''Prefixes end in a slash, files are exact.'''
+    assert package_input_owner(path) == owner
+
+
+def test_a_package_input_of_a_package_this_tree_does_not_have_is_unclassified(tree):  # pylint: disable=redefined-outer-name
+    '''The synthetic tree has no discord_db, so alembic/ there cannot be placed and must run everything.'''
+    _write(tree.repo_root, 'alembic/env.py')
+    assert select(['alembic/env.py'], tree).everything
+
+
 # --- properties of the REAL tree ----------------------------------------------------------------
 
 
@@ -436,7 +467,8 @@ def test_every_central_input_exists():
 # Package test code may import these from a central module that otherwise reads the repo: the one call
 # made there does not.
 _ALLOWED_READER_IMPORTS = {'tests.cli._image_deps': {'measure'}}
-_INPUT_WORDS = ('docs', 'docker', '.github', 'catalog-info.yaml', '.dockerignore', 'image-closure.json')
+_INPUT_WORDS = ('docs', 'docker', '.github', 'catalog-info.yaml', '.dockerignore', '.pylintrc', '.pylintrc.test',
+                'image-closure.json')
 
 
 def _names_a_central_input(value: str) -> bool:
@@ -488,3 +520,43 @@ def test_the_central_input_guard_would_catch_a_package_test_that_reads_one(tmp_p
     assert _names_a_central_input('.github/workflows/ci.yml')
     assert _names_a_central_input(f'{tmp_path}/docker/Dockerfile')
     assert not _names_a_central_input('monitoring')
+
+
+def test_every_package_input_exists_and_belongs_to_a_real_package():
+    '''A stale path or a misspelt owner would silently stop matching.'''
+    for entry, package in PACKAGE_INPUTS.items():
+        assert (PINS_REPO_ROOT / entry).exists(), f'{entry} is in PACKAGE_INPUTS but is not in the repo'
+        assert package in PACKAGES, f'{entry} is owned by {package}, which is not a package'
+
+
+def _names_a_package_input(value: str, entry: str) -> bool:
+    '''True for a string that names `entry` (a prefix or a file), not merely the word.'''
+    bare = entry.rstrip('/')
+    return value == entry or value == bare or value.startswith(bare + '/') or f'/{bare}/' in value or value.endswith('/' + bare)
+
+
+def test_only_the_owning_package_tests_read_a_package_input():
+    '''PACKAGE_INPUTS lets a change to alembic/ run only discord_db's tests, which is only true while no
+    OTHER package's tests read it. Fails when one starts to: move the path to CENTRAL_INPUTS if only the
+    always-running files read it, or widen the mapping.'''
+    problems = []
+    for entry, owner in PACKAGE_INPUTS.items():
+        for tests_dir in sorted(PINS_REPO_ROOT.glob('discord_*/tests')):
+            if tests_dir.parent.name == owner:
+                continue
+            for source in sorted(tests_dir.rglob('*.py')):
+                for node in ast.walk(ast.parse(source.read_text(encoding='utf-8'))):
+                    if (isinstance(node, ast.Constant) and isinstance(node.value, str) and len(node.value) < 200
+                            and _names_a_package_input(node.value, entry)):
+                        problems.append(f'{source.relative_to(PINS_REPO_ROOT).as_posix()}: names {node.value!r}')
+    assert not problems, 'a package other than the owner reads a package input:\n' + '\n'.join(problems)
+
+
+def test_the_package_input_guard_can_tell_a_read_from_a_word():
+    '''The guard above is vacuous if it flags nothing, and useless if it flags the library name.'''
+    assert _names_a_package_input('alembic.ini', 'alembic.ini')
+    assert _names_a_package_input('alembic/versions/x.py', 'alembic/')
+    assert _names_a_package_input('/repo/alembic/env.py', 'alembic/')
+    assert _names_a_package_input('alembic', 'alembic/')
+    assert not _names_a_package_input('alembicx', 'alembic/')
+    assert not _names_a_package_input('not alembic enough', 'alembic.ini')
