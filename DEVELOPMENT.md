@@ -102,10 +102,11 @@ Config schema is in README.md; full per-cog config keys are in each
 `dappertable` that causes ~27 false failures.
 
 Each package has its own `tests/` tree, mirroring its own layout
-(`discord_core/tests/`, `discord_gateway/tests/`, …); only genuinely
-cross-package tests (a real HTTP client in one package tested against a real
-server in another, the CI import-boundary/build-filter checks) live in the
-central `tests/` at repo root. **Run pytest with no path argument** — passing
+(`discord_core/tests/`, `discord_gateway/tests/`, …). A package's tests may use that package, the
+pinned `discord_core` and the shared fakes and helpers under `tests/`, but not another pod's production
+code, and core's tests import no pod at all. Anything that needs two pods (a real HTTP client in one
+pod tested against a real server in another, the CI import-boundary/build-filter checks) is an integration
+test and lives in the central `tests/` at repo root; `tests/cli/test_package_test_imports.py` enforces it. **Run pytest with no path argument** — passing
 `tests/` explicitly collects only the central tree and silently skips the
 other seven (this broke CI once, PR #1005, before the invocation was fixed):
 
