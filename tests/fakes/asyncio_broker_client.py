@@ -15,7 +15,7 @@ meaning out of every test built on it rather than failing them.
 The guild queue half is NOT a second implementation. It delegates to the real
 GuildQueueBroker (Lua scripts and all, on fakeredis), so a test of the gateway
 exercises the same queue the broker pod runs, and only the HTTP hop is missing.
-That hop is what tests/clients/test_asyncio_guild_queue_contract.py checks: the same
+That hop is what tests/fakes/test_asyncio_guild_queue_contract.py checks: the same
 scenario through this class and through HttpBrokerClient -> BrokerHttpServer must give
 identical answers.
 '''
