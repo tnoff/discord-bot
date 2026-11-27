@@ -14,7 +14,6 @@ import pytest
 from discord_core.types.player_session import PlayerSession
 from discord_core.utils.common import return_loop_runner
 
-from discord_broker.workers.guild_queue_registry import GPLAYING_KEY_PREFIX
 
 from discord_gateway.cogs import music as music_module
 from discord_gateway.cogs.music import Music
@@ -25,7 +24,7 @@ from discord_gateway.tests.cogs.music_cog_support import prepared_cog
 from discord_gateway.tests.cogs.test_music import BASE_MUSIC_CONFIG
 from tests.helpers import FakeChannel, FakeGuild, FakeVoiceClient, fake_context, fake_media_download  #pylint:disable=unused-import
 from tests.db_helpers import fake_engine  #pylint:disable=unused-import
-from tests.fakes.in_process_stack import attach_in_process_broker, attach_in_process_download, attach_in_process_search
+from tests.fakes.in_process_stack import attach_in_process_broker, attach_in_process_download, attach_in_process_search, GPLAYING_KEY_PREFIX
 
 
 class _StopsOnDisconnect(FakeVoiceClient):

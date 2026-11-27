@@ -7,10 +7,13 @@ and db pods' test doubles, so only the tests that attach those stacks should hav
 from functools import partial
 from typing import Any, Optional
 
+from unittest.mock import patch
+
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from discord_core.utils.failure_queue import FailureQueue
 
+from discord_broker.workers.guild_queue_registry import GPLAYING_KEY_PREFIX
 from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
@@ -193,3 +196,35 @@ def attach_in_process_search(cog: Any, client: Optional[Any] = None) -> YoutubeM
         queue_priority={int(item.server_id): item.priority
                         for item in config.download.server_queue_priority},
     )
+
+
+# What the in-process stacks above are built from lives in the downloader and the broker, so the tests that need
+# to reach into it do it from here and not by naming those pods' modules themselves.
+_DOWNLOAD_PROTOCOLS = 'discord_downloader.interfaces.download_protocols'
+_BROKER_PROTOCOLS = 'discord_broker.interfaces.broker_protocols'
+
+
+def patch_download_waits(mocker) -> None:
+    '''Make the in-process download worker's backoff instant: its jitter is fixed and its sleeps are skipped.'''
+    mocker.patch(f'{_DOWNLOAD_PROTOCOLS}.random.randint', return_value=5000)
+    mocker.patch(f'{_DOWNLOAD_PROTOCOLS}.sleep', return_value=None)
+
+
+def patch_download_ytdl():
+    '''Patch the yt-dlp class the in-process download worker constructs; a context manager yielding the mock.'''
+    return patch(f'{_DOWNLOAD_PROTOCOLS}.YoutubeDL')
+
+
+def patch_in_process_upload(mocker, return_value=True):
+    '''Patch the S3 upload the in-process download worker calls; returns the mock.'''
+    return mocker.patch(f'{_DOWNLOAD_PROTOCOLS}.upload_file', return_value=return_value)
+
+
+def patch_in_process_delete(mocker, return_value=True):
+    '''Patch the S3 delete the in-process broker calls; returns the mock.'''
+    return mocker.patch(f'{_BROKER_PROTOCOLS}.delete_file_async', return_value=return_value)
+
+
+__all__ = ['GPLAYING_KEY_PREFIX', 'attach_in_process_broker', 'attach_in_process_download',
+           'attach_in_process_search', 'patch_download_waits', 'patch_download_ytdl', 'patch_in_process_delete',
+           'patch_in_process_upload', 'play_through_in_broker', 'queue_in_broker']

@@ -8,11 +8,10 @@ from sqlalchemy.sql.functions import count as sql_count
 
 from discord_core.types.playlist import PlaylistItemWrite
 
-from discord_db.database import Playlist, PlaylistItem
 
 from discord_commands.command_logic.playlist import PlaylistCommands
 
-from tests.db_helpers import async_mock_session
+from tests.db_helpers import async_mock_session, Playlist, PlaylistItem
 from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
 
 DELETE_AFTER = 300

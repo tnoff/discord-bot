@@ -106,7 +106,8 @@ Each package has its own `tests/` tree, mirroring its own layout
 pinned `discord_core` and the shared fakes and helpers under `tests/`, but not another pod's production
 code, and core's tests import no pod at all. Anything that needs two pods (a real HTTP client in one
 pod tested against a real server in another, the CI import-boundary/build-filter checks) is an integration
-test and lives in the central `tests/` at repo root; `tests/cli/test_package_test_imports.py` enforces it. **Run pytest with no path argument** — passing
+test and lives in the central `tests/` at repo root; `tests/cli/test_package_test_imports.py` enforces it, with no exceptions; the integration tests are in
+`tests/integration/`, one directory per seam. **Run pytest with no path argument** — passing
 `tests/` explicitly collects only the central tree and silently skips the
 other seven (this broke CI once, PR #1005, before the invocation was fixed):
 

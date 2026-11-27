@@ -18,7 +18,7 @@ from discord_core.utils.common import GeneralConfig
 from discord_db.cli._lib.db import setup_db
 from discord_db.clients.markov_client import MarkovClient
 from discord_db.clients.playlist_client import PlaylistClient
-from discord_db.database import BASE
+from discord_db.database import BASE, MarkovChannel, MarkovRelation, Playlist, PlaylistItem, VideoCache
 
 
 @pytest_asyncio.fixture(scope="function")
@@ -76,3 +76,9 @@ async def async_mock_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession
     session_factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
     async with session_factory() as session:
         yield session
+
+
+# The row models are re-exported so a pod's tests can read rows back through the shared test
+# infrastructure instead of importing `discord_db` themselves (tests/cli/test_package_test_imports.py).
+__all__ = ['FakeStores', 'MarkovChannel', 'MarkovRelation', 'Playlist', 'PlaylistItem', 'VideoCache',
+           'async_mock_session', 'fake_engine', 'fake_markov_store', 'fake_stores']

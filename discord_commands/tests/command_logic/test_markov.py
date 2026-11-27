@@ -4,11 +4,10 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy import select
 
-from discord_db.database import MarkovChannel, MarkovRelation
 
 from discord_commands.command_logic.markov import MarkovCommands
 
-from tests.db_helpers import fake_engine, fake_markov_store  #pylint:disable=unused-import
+from tests.db_helpers import fake_engine, fake_markov_store, MarkovChannel, MarkovRelation  #pylint:disable=unused-import
 from tests.db_helpers import async_mock_session
 
 

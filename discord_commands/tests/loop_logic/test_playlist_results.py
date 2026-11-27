@@ -10,12 +10,11 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist import PlaylistItemWrite
 from discord_core.types.search import SearchResult
 
-from discord_db.database import Playlist, PlaylistItem
 
 from tests.fakes.pipeline_fakes import (fake_envelope, yield_download_worker_download_exception,
                                         yield_fake_download_worker, yield_fake_search_client)
 from tests.helpers import fake_media_download, fake_source_dict
-from tests.db_helpers import async_mock_session
+from tests.db_helpers import async_mock_session, Playlist, PlaylistItem
 from tests.helpers import fake_context  #pylint:disable=unused-import
 from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
 from tests.results_pod import ResultsPod

@@ -11,13 +11,13 @@ from tests.helpers import fake_media_download, fake_source_dict
 from tests.helpers import fake_context  #pylint:disable=unused-import
 from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
 from tests.results_pod import ResultsPod
+from tests.fakes.in_process_stack import patch_download_waits
 
 
 @pytest.fixture(autouse=True)
 def no_download_sleeps(mocker):
     '''The backoff is computed from the clock; the waits themselves are not under test.'''
-    mocker.patch('discord_downloader.interfaces.download_protocols.random.randint', return_value=5000)
-    mocker.patch('discord_downloader.interfaces.download_protocols.sleep', return_value=None)
+    patch_download_waits(mocker)
 
 
 async def fail_one(pod, fake_context):  #pylint:disable=redefined-outer-name
