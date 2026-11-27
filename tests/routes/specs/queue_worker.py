@@ -19,8 +19,8 @@ from discord_downloader.workers.redis_download_worker import RedisDownloadWorker
 from discord_search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
 from discord_search.workers.redis_youtube_music_search_worker import RedisYoutubeMusicSearchWorker
 
-from tests.fakes.stub_youtube_music_client import StubYoutubeMusicClient
-from tests.fakes.worker_requests import queue_request
+from testing.fakes.stub_youtube_music_client import StubYoutubeMusicClient
+from testing.fakes.worker_requests import queue_request
 from tests.routes.specs._model import Call, Operation, reply, serving
 
 GUILD = 7

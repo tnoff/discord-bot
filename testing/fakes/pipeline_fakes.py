@@ -15,7 +15,7 @@ from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchCollection, SearchResult
 
-from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
+from testing.fakes.asyncio_download_worker import AsyncioDownloadWorker
 
 
 def yield_fake_search_client(media_request: MediaRequest = None):

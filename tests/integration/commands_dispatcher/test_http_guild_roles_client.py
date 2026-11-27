@@ -18,7 +18,7 @@ from discord_dispatcher.servers.dispatch_server import DispatchHttpServer
 from discord_dispatcher.tests.workers.test_guild_roles import make_guild, make_member
 from discord_dispatcher.workers.guild_roles import GuildRolesCalls
 
-from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue
+from testing.helpers import FakeDispatchServer, FakeRedisDispatchQueue
 
 
 class RunningDispatcher(FakeDispatchServer):

@@ -9,12 +9,12 @@ from discord_core.exceptions import ExitEarlyException, YoutubeMusicRetryExcepti
 from discord_core.types.queue import PutsBlocked
 from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
-from tests.fakes.search_pipeline_fakes import (MockYoutubeMusicClient, create_test_media_request,
+from testing.fakes.search_pipeline_fakes import (MockYoutubeMusicClient, create_test_media_request,
                                                create_test_playlist_add_request, make_broker_bundle)
-from tests.helpers import fake_media_download
-from tests.helpers import fake_context  #pylint:disable=unused-import
-from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
-from tests.results_pod import ResultsPod
+from testing.helpers import fake_media_download
+from testing.helpers import fake_context  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
+from testing.results_pod import ResultsPod
 
 
 def build_pod(fake_context, fake_stores, client=None, **kwargs):  #pylint:disable=redefined-outer-name

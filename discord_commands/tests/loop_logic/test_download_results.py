@@ -10,18 +10,18 @@ from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
-from tests.tracing_support import record_spans
-from tests.fakes.pipeline_fakes import (yield_download_worker_bot_flagged,
+from testing.tracing_support import record_spans
+from testing.fakes.pipeline_fakes import (yield_download_worker_bot_flagged,
                                         yield_download_worker_download_error,
                                         yield_download_worker_download_exception,
                                         yield_download_worker_retry_limit_exceeded,
                                         yield_download_worker_success_no_data,
                                         yield_download_worker_video_too_long,
                                         yield_fake_download_worker)
-from tests.helpers import fake_media_download, fake_source_dict, random_string
-from tests.helpers import fake_context  #pylint:disable=unused-import
-from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
-from tests.results_pod import ResultsPod, music_settings
+from testing.helpers import fake_media_download, fake_source_dict, random_string
+from testing.helpers import fake_context  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
+from testing.results_pod import ResultsPod, music_settings
 
 CACHE_MUSIC = music_settings({
     'download': {
@@ -63,7 +63,7 @@ async def test_download_result_reaches_the_players_queue(fake_context, fake_stor
 async def test_download_result_hits_cache(fake_context, fake_stores, mocker):  #pylint:disable=redefined-outer-name
     with TemporaryDirectory() as tmp_dir:
         with fake_media_download(tmp_dir, fake_context=fake_context, is_direct_search=True) as sd:
-            mocker.patch('tests.fakes.asyncio_broker.get_file_async', return_value=True)
+            mocker.patch('testing.fakes.asyncio_broker.get_file_async', return_value=True)
             pod = ResultsPod(fake_context, fake_stores, music=CACHE_MUSIC,
                              download_worker_cls=yield_fake_download_worker(sd))
             guild_id = fake_context['guild'].id

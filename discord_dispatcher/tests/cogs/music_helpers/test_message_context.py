@@ -8,8 +8,8 @@ from discord.errors import NotFound
 
 from discord_dispatcher.workers.message_dispatcher import MessageContext, MessageMutableBundle
 
-from tests.helpers import fake_context #pylint: disable=unused-import
-from tests.helpers import FakeMessage, FakeResponse, make_get_channel_func, make_send_func
+from testing.helpers import fake_context #pylint: disable=unused-import
+from testing.helpers import FakeMessage, FakeResponse, make_get_channel_func, make_send_func
 
 
 @pytest.fixture

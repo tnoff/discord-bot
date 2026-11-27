@@ -31,8 +31,8 @@ from discord_downloader.workers.redis_download_worker import (
     youtube_failures_key, youtube_wait_until_key,
 )
 
-from tests.fakes.worker_requests import queue_request
-from tests.guild_queue_worker_suite import GuildQueueWorkerSuite, spy_redis_writes
+from testing.fakes.worker_requests import queue_request
+from testing.guild_queue_worker_suite import GuildQueueWorkerSuite, spy_redis_writes
 
 
 def _manager() -> RedisManager:

@@ -58,7 +58,7 @@ def rules_fixture():
 
 
 @pytest.mark.parametrize('path, expected', [
-    ('tests', True), ('tests/helpers.py', True), ('conftest.py', True),
+    ('tests', True), ('tests/checks/test_catalog_apis.py', True), ('conftest.py', True),
     ('discord_gateway/tests', True), ('discord_gateway/tests/cogs/test_music.py', True),
     ('discord_gateway', False), ('discord_gateway/cogs/music.py', False),
     # `*` stops at a slash and `tests` must be a whole segment.

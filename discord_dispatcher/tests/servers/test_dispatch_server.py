@@ -11,8 +11,8 @@ from discord_core.servers.base import AiohttpServerBase
 
 from discord_dispatcher.servers.dispatch_server import DispatchHttpServer
 
-from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue
-from tests.net_support import cancel_task, wait_for_port
+from testing.helpers import FakeDispatchServer, FakeRedisDispatchQueue
+from testing.net_support import cancel_task, wait_for_port
 
 
 # ---------------------------------------------------------------------------

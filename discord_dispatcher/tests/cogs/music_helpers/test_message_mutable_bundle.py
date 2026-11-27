@@ -4,8 +4,8 @@ import pytest
 
 from discord_dispatcher.workers.message_dispatcher import MessageMutableBundle
 
-from tests.helpers import fake_context, generate_fake_context  # pylint: disable=unused-import
-from tests.helpers import make_check_func, make_get_channel_func, make_send_func
+from testing.helpers import fake_context, generate_fake_context  # pylint: disable=unused-import
+from testing.helpers import make_check_func, make_get_channel_func, make_send_func
 
 
 def update_message_references(bundle, messages):

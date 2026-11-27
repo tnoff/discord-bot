@@ -25,8 +25,8 @@ from discord_search.workers.redis_youtube_music_search_worker import (
     RedisYoutubeMusicSearchWorker, FAILURES_KEY, GUILDS_KEY, POP_LOCK_KEY, WAIT_UNTIL_KEY,
 )
 
-from tests.fakes.worker_requests import queue_request
-from tests.guild_queue_worker_suite import GuildQueueWorkerSuite, spy_redis_writes
+from testing.fakes.worker_requests import queue_request
+from testing.guild_queue_worker_suite import GuildQueueWorkerSuite, spy_redis_writes
 
 
 class _FakeYoutubeMusicClient:

@@ -12,10 +12,10 @@ from discord_commands.types.playlist_add_result import PlaylistAddResult
 from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
 
-from tests.db_helpers import async_mock_session, Playlist, PlaylistItem
-from tests.helpers import fake_context  #pylint:disable=unused-import
-from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
-from tests.results_pod import ResultsPod, music_settings
+from testing.db_helpers import async_mock_session, Playlist, PlaylistItem
+from testing.helpers import fake_context  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
+from testing.results_pod import ResultsPod, music_settings
 
 
 async def saved_playlist(fake_engine, fake_context, name, item_url):  #pylint:disable=redefined-outer-name

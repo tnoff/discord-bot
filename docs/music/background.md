@@ -315,7 +315,7 @@ side in `guild_queue_registry.py`). The gateway reaches it through
 ### Per-Guild Fair-Distribution Queue
 
 There is no `DistributedQueue` class any more — it survives only as a test
-double (`tests/fakes/distributed_queue.py`). The real implementation is
+double (`testing/fakes/distributed_queue.py`). The real implementation is
 `discord_core/workers/redis_guild_queue.py` plus pod-specific
 Asyncio/Redis worker variants in `discord_downloader`/`discord_search` (see
 [terminology.md](terminology.md#distributedqueue--retired)). The

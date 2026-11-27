@@ -21,7 +21,7 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist_add_request import PlaylistAddRequest
 from discord_core.types.search import SearchResult
 
-from tests.queue_status import status_snapshot
+from testing.queue_status import status_snapshot
 
 UNREACHABLE_URL = 'http://localhost:9999'
 

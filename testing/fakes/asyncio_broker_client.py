@@ -4,7 +4,7 @@ Asyncio BrokerClient: a thin wrapper around a MediaBrokerBase.
 A test double only.
 The pod-facing implementation is HttpBrokerClient (clients/http_broker_client.py);
 music.broker_client is required config, so nothing a deployment can be
-configured with reaches this class. tests.helpers.attach_in_process_broker
+configured with reaches this class. testing.helpers.attach_in_process_broker
 builds this stack so the suite can drive real broker behaviour without
 standing up a pod behind an aiohttp server.
 
@@ -36,7 +36,7 @@ from discord_broker.interfaces.broker_protocols import (
     SearchResultQueue,
     MediaBrokerBase,
 )
-from tests.fakes.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
+from testing.fakes.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
 logger = logging.getLogger(__name__)
 
@@ -212,7 +212,7 @@ class AsyncioBrokerClient: #pylint:disable=too-many-public-methods
     def _queue(self):
         if self._guild_queue is None:
             raise RuntimeError('This AsyncioBrokerClient was built without a guild_queue; '
-                               'pass one (tests.helpers.attach_in_process_broker does)')
+                               'pass one (testing.helpers.attach_in_process_broker does)')
         return self._guild_queue
 
     async def enqueue_track(self, guild_id: int, uuid: str, max_size: int = 0) -> str:

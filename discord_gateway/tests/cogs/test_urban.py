@@ -7,7 +7,7 @@ from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException
 from discord_gateway.cogs.common import envelope_from_ctx
 from discord_gateway.cogs.urban import UrbanDictionary
 
-from tests.helpers import  fake_context #pylint:disable=unused-import
+from testing.helpers import  fake_context #pylint:disable=unused-import
 
 URBAN_CONFIG = {
     'general': {

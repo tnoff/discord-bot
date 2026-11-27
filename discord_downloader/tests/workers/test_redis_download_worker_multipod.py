@@ -23,8 +23,8 @@ from discord_core.clients.redis_client import RedisManager
 
 from discord_downloader.workers.redis_download_worker import RedisDownloadWorker
 
-from tests.fakes.worker_requests import queue_request
-from tests.fakes.yielding_redis import two_pod_clients
+from testing.fakes.worker_requests import queue_request
+from testing.fakes.yielding_redis import two_pod_clients
 
 
 def _two_pods(*, egress_a='default', egress_b='default'):

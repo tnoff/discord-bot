@@ -2,7 +2,7 @@
 Shared pytest fixtures.
 
 The database tests run on SQLite: `fake_db_dsn` hands each test a fresh file, and
-`fake_engine` (tests/helpers.py) builds the engine over it through the same
+`fake_engine` (testing/helpers.py) builds the engine over it through the same
 `setup_db` the db pod uses. Nothing here starts or needs a database server.
 '''
 import fakeredis.aioredis
@@ -11,7 +11,7 @@ import pytest
 from discord_core.clients.http_client_base import SEAM_CLIENTS
 from discord_core.utils.loop_health import LOOP_HEALTH
 
-from tests.helpers import fake_context #pylint:disable=unused-import,wrong-import-position
+from testing.helpers import fake_context #pylint:disable=unused-import,wrong-import-position
 
 
 @pytest.fixture(scope="function")

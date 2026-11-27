@@ -20,8 +20,8 @@ from discord_commands.clients.http_download_client import HttpDownloadClient
 from discord_commands.clients.http_queue_worker_client import _exception_detail
 from discord_downloader.servers.download_server import DownloadHttpServer
 
-from tests.http_queue_client_suite import FakeQueueWorker, QueueClientSuite, QueueServerSuite, media_request
-from tests.tracing_support import recording_tracer
+from testing.http_queue_client_suite import FakeQueueWorker, QueueClientSuite, QueueServerSuite, media_request
+from testing.tracing_support import recording_tracer
 
 
 def _make_server(worker=None):

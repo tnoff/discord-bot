@@ -20,7 +20,7 @@ from discord_core.types.media_request import MediaRequest
 from discord_downloader.interfaces.download_protocols import (
     DownloadWorkerBase, DirectItemAvailableException,
 )
-from tests.fakes.distributed_queue import DistributedQueue
+from testing.fakes.distributed_queue import DistributedQueue
 
 
 class AsyncioDownloadWorker(DownloadWorkerBase):

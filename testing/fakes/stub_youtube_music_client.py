@@ -1,7 +1,7 @@
 '''
 A YouTube-Music client that answers without leaving the process.
 
-`tests/helpers.attach_in_process_search` used to default to a REAL
+`testing/helpers.attach_in_process_search` used to default to a REAL
 `youtube_music.YoutubeMusicClient()`, so every one of its 65 call sites built a
 worker holding a live client, and any test that reached `driver.run_once` issued
 a genuine search against YouTube Music. That passes while YouTube answers and

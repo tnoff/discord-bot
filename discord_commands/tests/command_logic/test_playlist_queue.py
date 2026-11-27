@@ -8,7 +8,7 @@ from discord_core.types.playlist import PlaylistItemWrite
 
 from discord_commands.command_logic.playlist import PlaylistCommands
 
-from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
 
 DELETE_AFTER = 300
 YOUTUBE_URL = 'https://www.youtube.com/watch?v=abcdefghijk'

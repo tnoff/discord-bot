@@ -9,7 +9,7 @@ from discord_db.cogs.music_helpers.database_functions import (
 )
 from discord_db.database import VideoCache, Playlist, PlaylistItem
 
-from tests.db_helpers import fake_engine, async_mock_session  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine, async_mock_session  #pylint:disable=unused-import
 
 
 async def _make_cache_entry(session, file_size_bytes, offset_seconds=0):

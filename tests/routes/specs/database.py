@@ -28,7 +28,7 @@ from discord_core.types.video_cache import VideoCacheEntry
 
 from discord_db.servers.database_server import DatabaseHttpServer
 
-from tests.fakes.worker_requests import direct_request
+from testing.fakes.worker_requests import direct_request
 from tests.routes.specs._model import Call, Operation, reply, serving
 
 GUILD = 5

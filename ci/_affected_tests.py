@@ -17,8 +17,8 @@ WHY NOT "THE PACKAGES THE PR TOUCHED"
 Package test trees are not self-contained. Measured on the tree this was written
 against: gateway's tests import broker, db and downloader; broker's import gateway;
 commands' import broker, db, downloader and search. Worse, most of that goes through
-the SHARED fakes and suites in the central `tests/` tree (`tests.fakes.*`,
-`tests.helpers`, ...), and those import other pods in turn, so a package's real
+the SHARED fakes and suites in the test-infrastructure package `testing/` (`testing.fakes.*`,
+`testing.helpers`, ...), and those import other pods in turn, so a package's real
 dependencies are two hops away from its own files. A root-level import scan would
 miss them and under-select, silently.
 
@@ -26,8 +26,8 @@ So the graph is built by parsing every first-party file with `ast`:
 
   ('root', R)    the source of package R (everything under R/ except R/tests/)
   ('tests', R)   R's own test tree
-  ('file', P)    one file outside the packages that tests can import: `conftest.py`, `tests/**.py`, and the
-                 CI tooling in `ci/**.py`
+  ('file', P)    one file outside the packages that tests can import: `conftest.py`, `tests/**.py`, the shared
+                 test infrastructure in `testing/**.py`, and the CI tooling in `ci/**.py`
 
 Edges are the modules a node imports -- `import`, `from ... import`, relative
 imports, and string literals that look like a dotted first-party path (the targets
@@ -59,7 +59,7 @@ tests/ci/test_affected_tests.py checks the other premise (every pod pins core).
 AN ALLOW-LIST, AND EVERYTHING ELSE IS EVERYTHING
 ------------------------------------------------
 Only these map to a node: a file inside a package, `conftest.py`, and a `.py`
-under `tests/` or `ci/`. Documentation no test reads, and `renovate.json`, are ignored
+under `tests/`, `testing/` or `ci/`. Documentation no test reads, and `renovate.json`, are ignored
 (`_skippable_changes` owns that list). ANY other path -- `pyproject.toml`,
 `tox.ini`, `.pylintrc*`, `docker/`, `alembic/`, `.github/`, a data file under
 `tests/` -- selects everything, because nothing here can say who reads it. So does
@@ -70,7 +70,7 @@ documentation is as harmless as editing it, and is ignored.)
 THE CENTRAL tests/ TREE IS SELECTED PER FILE, AND SOME OF IT ALWAYS RUNS
 ------------------------------------------------------------------------
 Each central test file is a unit of its own, with its own reach (the file, the shared
-`tests.*` modules it imports, and the pods those import). It runs when something in that
+`testing.*` modules it imports, and the pods those import). It runs when something in that
 reach changed, exactly as a package's tree does -- except a file that READS THE REPO,
 which always runs. Those are the import-boundary, pin, catalog, census and OpenAPI-doc
 checks: they look at files by path (docs, workflows, Dockerfiles, other packages'
@@ -114,9 +114,10 @@ PACKAGES = (CORE_ROOT, *sorted(SERVICE_ROOTS.values()))
 
 CONFTEST = 'conftest.py'
 CENTRAL_TESTS = 'tests'
-#: Top-level folders whose `.py` files are graph nodes of their own: the central tests, and the CI tooling that
-#: they (and only they) import. Neither ships, and neither belongs to a package.
-SHARED_TREES = (CENTRAL_TESTS, 'ci')
+#: Top-level folders whose `.py` files are graph nodes of their own: the central tests, the shared test
+#: infrastructure the pods' tests import (`testing/`), and the CI tooling the central tests import (`ci/`).
+#: None of them ships, and none belongs to a package.
+SHARED_TREES = (CENTRAL_TESTS, 'testing', 'ci')
 
 # A string that reads as a dotted module path, e.g. a patch() target. Deliberately generic:
 # anything that does not resolve to a first-party node is dropped by `_modules_to_nodes`.
@@ -153,9 +154,9 @@ PACKAGE_INPUTS = {
 
 # A string constant that names a path inside the repo. Generous on purpose: see `repo_reads`.
 _REPO_PATH = re.compile(
-    r'^(?:docs|docker|alembic|\.github|tests|ci|catalog-info\.yaml|pyproject\.toml|tox\.ini|renovate\.json'
+    r'^(?:docs|docker|alembic|\.github|tests|catalog-info\.yaml|pyproject\.toml|tox\.ini|renovate\.json'
     r'|VERSION|CHANGELOG\.md|README\.md|AGENTS\.md|CONTRIBUTING\.md|DEVELOPMENT\.md|\.pylintrc(?:\.test)?)'
-    r'(?:/|\.|$)|^discord_[a-z]+/|(?:^|/)image-closure\.json$|/(?:docs|docker|alembic|\.github)(?:/|$)')
+    r'(?:/|\.|$)|^(?:ci|testing)/|^discord_[a-z]+/|(?:^|/)image-closure\.json$|/(?:docs|docker|alembic|\.github)(?:/|$)')
 
 # Calls that read the working tree, as (module, attribute).
 _TREE_CALLS = {('os', 'walk'), ('os', 'getcwd'), ('os', 'listdir'), ('os', 'scandir'), ('Path', 'cwd')}

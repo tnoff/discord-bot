@@ -29,9 +29,9 @@ from discord_downloader.utils.integrations.egress_pool import (
     DownloadEgress, HttpProxyEgress, PoolEgress, ExitPool, ExitClients, MullvadSocks5Resolver,
     ClusterSocks5Resolver)
 
-from tests.tracing_support import record_spans
-from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
-from tests.helpers import fake_source_dict, generate_fake_context
+from testing.tracing_support import record_spans
+from testing.fakes.asyncio_download_worker import AsyncioDownloadWorker
+from testing.helpers import fake_source_dict, generate_fake_context
 
 
 def make_pcm(source: Path, payload: bytes = b'pcm data') -> Path:

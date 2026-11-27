@@ -103,15 +103,16 @@ Config schema is in README.md; full per-cog config keys are in each
 
 Each package has its own `tests/` tree, mirroring its own layout
 (`discord_core/tests/`, `discord_gateway/tests/`, …). A package's tests may use that package, the
-pinned `discord_core` and the shared fakes and helpers under `tests/`, but not another pod's production
+pinned `discord_core` and the shared test infrastructure in `testing/` (fakes, helpers, suites), but not another pod's production
 code, and core's tests import no pod at all. Anything that needs two pods (a real HTTP client in one
 pod tested against a real server in another, the CI import-boundary/build-filter checks) is an integration
 test and lives in the central `tests/` at repo root; `tests/checks/test_package_test_imports.py` enforces it, with no exceptions; the integration tests are in
 `tests/integration/`, one directory per seam.
 
-The repo-root folders besides the packages: `tests/` (`routes/` the pods' OpenAPI contracts, `integration/` the
-two-pod tests, `checks/` repo-wide conventions and the generated-doc checks, `fakes/` the shared test doubles, `ci/`
-the tests of the CI tooling) and `ci/`, the CI and doc tooling itself (change selection, the image build filter,
+The repo-root folders besides the packages: `testing/` (the shared test infrastructure the pods' tests import: `helpers`,
+`db_helpers`, the `*_suite` bases, and `fakes/`, the test doubles; it holds no tests), `tests/` (the tests that belong
+to no single pod: `routes/` the pods' OpenAPI contracts, `integration/` the two-pod tests, `checks/` repo-wide
+conventions and the generated-doc checks, `fakes/` the tests of the doubles, `ci/` the tests of the CI tooling) and `ci/`, the CI and doc tooling itself (change selection, the image build filter,
 version and pin checks, the generators behind the generated doc blocks). `ci/` is not a package and ships in no
 image; it is run as `python -m ci._<name>`. **Run pytest with no path argument** — passing
 `tests/` explicitly collects only the central tree and silently skips the
@@ -133,7 +134,7 @@ not a single package. All async tests must be marked `@pytest.mark.asyncio`
 ```bash
 venv/bin/pylint --ignore=tests discord_core/ discord_gateway/ discord_broker/ \
     discord_db/ discord_dispatcher/ discord_downloader/ discord_search/   # production code
-venv/bin/pylint --rcfile .pylintrc.test tests/ ci/ discord_core/tests/ discord_gateway/tests/ \
+venv/bin/pylint --rcfile .pylintrc.test tests/ testing/ ci/ discord_core/tests/ discord_gateway/tests/ \
     discord_broker/tests/ discord_db/tests/ discord_dispatcher/tests/ \
     discord_downloader/tests/ discord_search/tests/                       # test code, all eight locations
 ```
@@ -184,7 +185,7 @@ is invoked now, so its docstring is where the two-pass structure and the coverag
 
 How it decides, from `ci/_affected_tests.py`: it parses every first-party file and builds
 the import graph (imports, relative imports, and dotted strings such as `monkeypatch` targets,
-followed through the shared `tests.*` fakes). A package's `tests/` tree runs when something it can
+followed through the shared `testing.*` fakes). A package's `tests/` tree runs when something it can
 reach changed, and so does each file of the central `tests/` tree, one at a time. Rules worth knowing:
 
 - **A `discord_core` change selects only `discord_core`'s tests.** Core is a released, versioned
@@ -237,12 +238,12 @@ venv/bin/python -m ci._run_tests --base origin/main            # run them
 
 **What keeps it narrow.** The savings exist because a test does not import pods it does not
 use, and does not read the repo. Importing a pod from the root `conftest.py` or from
-`tests/helpers.py` puts that pod on *every* test's path and silently turns the narrowing back into a
+`testing/helpers.py` puts that pod on *every* test's path and silently turns the narrowing back into a
 full run; that coupling once made most PRs select all eight packages.
 `test_root_conftest_reaches_no_pod` fails if it comes back, and
 `test_the_root_conftest_and_shared_helpers_read_nothing_from_the_repo` is the same guard for a
 repo read, which would mark every central file as always-run. Put fixtures that need a pod in a
-module only the tests that need them import, as `tests/db_helpers.py` does.
+module only the tests that need them import, as `testing/db_helpers.py` does.
 
 ## Alembic migrations
 
@@ -463,24 +464,24 @@ outside that pod opens a database connection to retry against.
 Shared fixtures and fakes live in three modules, split by what they need to import
 (see [Which tests CI runs](#which-tests-ci-runs) for why the split matters):
 
-- `tests/helpers.py` — pure helpers and fakes. Imports `discord_core` and discord.py
+- `testing/helpers.py` — pure helpers and fakes. Imports `discord_core` and discord.py
   only, because the root `conftest.py` imports it and so does every package's test run.
-- `tests/db_helpers.py` — `fake_engine`, `fake_stores`, `fake_markov_store` and
+- `testing/db_helpers.py` — `fake_engine`, `fake_stores`, `fake_markov_store` and
   `async_mock_session`. Needs `discord_db`; import it only from tests that use a real engine.
-- `tests/fakes/in_process_stack.py` — `attach_in_process_broker`, `_download` and `_search`,
+- `testing/fakes/in_process_stack.py` — `attach_in_process_broker`, `_download` and `_search`,
   `queue_in_broker`, `play_through_in_broker`. Needs the broker, downloader, search and db fakes.
 
 | Name | Module | Kind | What it provides |
 |------|--------|------|------------------|
-| `fake_context` | `tests.helpers` | fixture | dict with `bot/guild/author/channel/context` |
-| `fake_engine` | `tests.db_helpers` | fixture | SQLite `AsyncEngine` built by `setup_db` over a fresh temp file, schema from `create_all` |
-| `async_mock_session` | `tests.db_helpers` | async ctx mgr | `AsyncSession` bound to `fake_engine` |
-| `fake_bot_yielder` | `tests.helpers` | factory | `fake_bot_yielder(channels=[...])() → FakeBot` |
-| `generate_fake_context` | `tests.helpers` | non-fixture | inline equivalent of `fake_context` |
-| `fake_source_dict` | `tests.helpers` | helper | constructs a `MediaRequest` for music tests |
-| `fake_media_download` | `tests.helpers` | ctx mgr | yields a `MediaDownload` with a temp audio file |
-| `random_id`, `random_string` | `tests.helpers` | helpers | test data generators |
-| `FakeBot`, `FakeGuild`, `FakeAuthor`, `FakeChannel`, `FakeMessage`, `FakeVoiceClient`, `FakeContext` | `tests.helpers` | fakes | drop-in substitutes for discord.py objects |
+| `fake_context` | `testing.helpers` | fixture | dict with `bot/guild/author/channel/context` |
+| `fake_engine` | `testing.db_helpers` | fixture | SQLite `AsyncEngine` built by `setup_db` over a fresh temp file, schema from `create_all` |
+| `async_mock_session` | `testing.db_helpers` | async ctx mgr | `AsyncSession` bound to `fake_engine` |
+| `fake_bot_yielder` | `testing.helpers` | factory | `fake_bot_yielder(channels=[...])() → FakeBot` |
+| `generate_fake_context` | `testing.helpers` | non-fixture | inline equivalent of `fake_context` |
+| `fake_source_dict` | `testing.helpers` | helper | constructs a `MediaRequest` for music tests |
+| `fake_media_download` | `testing.helpers` | ctx mgr | yields a `MediaDownload` with a temp audio file |
+| `random_id`, `random_string` | `testing.helpers` | helpers | test data generators |
+| `FakeBot`, `FakeGuild`, `FakeAuthor`, `FakeChannel`, `FakeMessage`, `FakeVoiceClient`, `FakeContext` | `testing.helpers` | fakes | drop-in substitutes for discord.py objects |
 
 `FakeChannel.send()` records every message in `channel.messages`, so tests
 assert against the list directly.

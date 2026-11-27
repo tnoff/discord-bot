@@ -523,7 +523,7 @@ def test_the_all_images_set_is_exactly_declared():
     # the move, and anything outside a declared root.
     (LEGACY_ROOT, None),
     (f'{LEGACY_ROOT}.seams', None),
-    ('tests.helpers', None),
+    ('testing.helpers', None),
 ])
 def test_home_of_reads_both_spellings(module, home):
     '''A module's folder is readable before and after its root is hoisted.'''

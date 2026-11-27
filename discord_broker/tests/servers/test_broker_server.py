@@ -16,12 +16,12 @@ from discord_core.types.playlist_add_request import PlaylistAddRequest
 
 from discord_broker.servers.broker_server import BrokerHttpServer
 
-from tests.tracing_support import record_spans
-from tests.fakes.asyncio_queues import make_broker_http_server
-from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
-from tests.fakes.broker_setup import broker_and_request, broker_with_result_queue
-from tests.net_support import cancel_task, wait_for_port
-from tests.helpers import downloaded_request, successful_download_result, fake_source_dict, generate_fake_context
+from testing.tracing_support import record_spans
+from testing.fakes.asyncio_queues import make_broker_http_server
+from testing.fakes.asyncio_broker import AsyncioBroker as MediaBroker
+from testing.fakes.broker_setup import broker_and_request, broker_with_result_queue
+from testing.net_support import cancel_task, wait_for_port
+from testing.helpers import downloaded_request, successful_download_result, fake_source_dict, generate_fake_context
 
 
 def _make_broker() -> MediaBroker:

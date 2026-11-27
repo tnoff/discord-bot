@@ -9,7 +9,7 @@ from discord_core.clients.redis_client import RedisManager
 
 from discord_dispatcher.servers.dispatch_health_server import DispatchHealthServer
 
-from tests.net_support import cancel_task, raw_request, wait_for_port
+from testing.net_support import cancel_task, raw_request, wait_for_port
 
 
 class TestDispatchHealthServerInit:

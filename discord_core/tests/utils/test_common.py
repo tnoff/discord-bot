@@ -18,7 +18,7 @@ from discord_core.utils.discord_utils import discord_format_string_embed
 from discord_core.utils.loop_health import LoopHealth
 
 
-from tests.helpers import fake_bot_yielder
+from testing.helpers import fake_bot_yielder
 
 class CommonException(Exception):
     pass

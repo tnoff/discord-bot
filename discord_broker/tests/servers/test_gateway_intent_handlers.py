@@ -5,8 +5,8 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from discord_core.routes import gateway_intents as intent_routes
 
-from tests.fakes.asyncio_broker import AsyncioBroker
-from tests.fakes.asyncio_queues import make_broker_http_server
+from testing.fakes.asyncio_broker import AsyncioBroker
+from testing.fakes.asyncio_queues import make_broker_http_server
 
 
 async def _client(server):

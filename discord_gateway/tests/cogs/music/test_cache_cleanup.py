@@ -8,11 +8,11 @@ from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.tests.cogs.test_music import music_config
 
-from tests.helpers import downloaded_from_context
-from tests.db_helpers import async_mock_session, VideoCache
-from tests.helpers import fake_context  #pylint:disable=unused-import
-from tests.db_helpers import fake_engine  #pylint:disable=unused-import
-from tests.fakes.in_process_stack import attach_in_process_broker, patch_in_process_delete, patch_in_process_upload
+from testing.helpers import downloaded_from_context
+from testing.db_helpers import async_mock_session, VideoCache
+from testing.helpers import fake_context  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine  #pylint:disable=unused-import
+from testing.fakes.in_process_stack import attach_in_process_broker, patch_in_process_delete, patch_in_process_upload
 
 
 @pytest.mark.asyncio

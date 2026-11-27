@@ -15,7 +15,7 @@ from discord_core.types.queue_worker_responses import (
     SubmitRejectedResponse,
 )
 
-from tests.helpers import fake_source_dict, generate_fake_context
+from testing.helpers import fake_source_dict, generate_fake_context
 
 
 def test_catalog_response_defaults_and_round_trip():

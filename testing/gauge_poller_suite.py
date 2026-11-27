@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from tests.queue_status import status_snapshot
+from testing.queue_status import status_snapshot
 
 
 class GaugePollerSuite:

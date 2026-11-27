@@ -1,9 +1,9 @@
 '''Setups the broker server and client tests share: a broker with a request, and its download.'''
 import asyncio
 
-from tests.fakes.asyncio_broker import AsyncioBroker
-from tests.fakes.asyncio_queues import make_broker_http_server
-from tests.helpers import fake_source_dict, generate_fake_context
+from testing.fakes.asyncio_broker import AsyncioBroker
+from testing.fakes.asyncio_queues import make_broker_http_server
+from testing.helpers import fake_source_dict, generate_fake_context
 
 
 def broker_and_request():

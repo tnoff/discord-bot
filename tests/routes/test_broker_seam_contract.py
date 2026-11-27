@@ -34,8 +34,8 @@ from discord_core.routes import guild_queue as guild_queue_routes
 
 from discord_broker.servers.broker_server import BrokerHttpServer
 
-from tests.fakes.asyncio_queues import make_broker_http_server
-from tests.fakes.asyncio_broker import AsyncioBroker
+from testing.fakes.asyncio_queues import make_broker_http_server
+from testing.fakes.asyncio_broker import AsyncioBroker
 
 
 def _server() -> BrokerHttpServer:

@@ -5,14 +5,14 @@ import pytest
 
 from discord_core.types.search_resolution import SearchResolution
 
-from tests.fakes.asyncio_queues import (
+from testing.fakes.asyncio_queues import (
     AsyncioBundleStore,
     AsyncioDownloadResultQueue,
     AsyncioSearchResultQueue,
     AsyncioWorkQueue,
 )
-from tests.download_result_queue_suite import DownloadResultQueueSuite
-from tests.helpers import fake_source_dict, generate_fake_context, minimal_download_result
+from testing.download_result_queue_suite import DownloadResultQueueSuite
+from testing.helpers import fake_source_dict, generate_fake_context, minimal_download_result
 
 
 # ---------------------------------------------------------------------------

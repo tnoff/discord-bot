@@ -121,6 +121,8 @@ omit = [
     # The CI tooling. Its own tests are under tests/ci/ and run in the same pass, but it is
     # not production code and was never part of the gate (it used to sit under tests/cli/).
     "ci/*",
+    # The shared test infrastructure (fakes, helpers, suites): test support, like tests/ itself.
+    "testing/*",
     # Criterion 8 step 5 nested each package's own test tree at
     # discord_core/tests/, discord_gateway/tests/, etc., mirroring the source
     # layout -- so "tests/*" alone (matching only the central location) no

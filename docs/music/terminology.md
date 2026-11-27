@@ -104,7 +104,7 @@ This document defines all key components, types, and concepts used throughout th
 ### **`DistributedQueue`** — retired
 
 No longer exists in production code; it survives only as a test double
-(`tests/fakes/distributed_queue.py`). Download and YouTube Music search
+(`testing/fakes/distributed_queue.py`). Download and YouTube Music search
 queueing is now per-guild Redis work, implemented by
 `discord_core/workers/redis_guild_queue.py` plus the pod-specific workers
 (`AsyncioDownloadWorker`/`RedisDownloadWorker` in `discord_downloader`,

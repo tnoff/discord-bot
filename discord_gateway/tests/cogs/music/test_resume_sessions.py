@@ -22,9 +22,9 @@ from discord_gateway.types.cleanup_reason import CleanupReason
 
 from discord_gateway.tests.cogs.music_cog_support import prepared_cog
 from discord_gateway.tests.cogs.test_music import BASE_MUSIC_CONFIG
-from tests.helpers import FakeChannel, FakeGuild, FakeVoiceClient, fake_context, fake_media_download  #pylint:disable=unused-import
-from tests.db_helpers import fake_engine  #pylint:disable=unused-import
-from tests.fakes.in_process_stack import attach_in_process_broker, attach_in_process_download, attach_in_process_search, GPLAYING_KEY_PREFIX
+from testing.helpers import FakeChannel, FakeGuild, FakeVoiceClient, fake_context, fake_media_download  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine  #pylint:disable=unused-import
+from testing.fakes.in_process_stack import attach_in_process_broker, attach_in_process_download, attach_in_process_search, GPLAYING_KEY_PREFIX
 
 
 class _StopsOnDisconnect(FakeVoiceClient):

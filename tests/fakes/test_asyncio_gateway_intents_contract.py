@@ -19,9 +19,9 @@ from discord_core.clients.http_broker_client import HttpBrokerClient
 from discord_core.interfaces.gateway_intent_client import GatewayIntentClient
 from discord_core.types.gateway_intents import IntentKind
 
-from tests.fakes.asyncio_broker import AsyncioBroker
-from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
-from tests.fakes.asyncio_queues import make_broker_http_server, make_gateway_intents
+from testing.fakes.asyncio_broker import AsyncioBroker
+from testing.fakes.asyncio_broker_client import AsyncioBrokerClient
+from testing.fakes.asyncio_queues import make_broker_http_server, make_gateway_intents
 
 GUILD = 77
 OTHER = 78

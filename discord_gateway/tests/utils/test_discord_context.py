@@ -8,7 +8,7 @@ existed to protect were never actually read.
 from discord_core.utils.discord_context import DiscordContextNaming
 from discord_gateway.utils.otel_command import command_span_attributes
 
-from tests.fakes.command_context import make_command_context
+from testing.fakes.command_context import make_command_context
 
 
 def test_command_span_attributes_reads_every_field_off_the_context():

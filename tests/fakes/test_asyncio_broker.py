@@ -19,8 +19,8 @@ from discord_core.types.player_session import PlayerSession
 
 from discord_broker.interfaces.broker_protocols import BrokerEntry, Zone
 
-from tests.fakes.asyncio_broker import AsyncioBroker
-from tests.helpers import fake_context, fake_media_download, fake_source_dict  # pylint: disable=unused-import
+from testing.fakes.asyncio_broker import AsyncioBroker
+from testing.helpers import fake_context, fake_media_download, fake_source_dict  # pylint: disable=unused-import
 
 
 async def _register(broker, fake_ctx):

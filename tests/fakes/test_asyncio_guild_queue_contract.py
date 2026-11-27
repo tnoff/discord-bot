@@ -18,12 +18,12 @@ from aiohttp.test_utils import TestServer
 from discord_core.clients.http_broker_client import HttpBrokerClient
 from discord_core.interfaces.guild_queue_client import GuildQueueClient
 
-from tests.fakes.worker_requests import register_track
-from tests.fakes.asyncio_broker import AsyncioBroker
-from tests.fakes.asyncio_queues import (
+from testing.fakes.worker_requests import register_track
+from testing.fakes.asyncio_broker import AsyncioBroker
+from testing.fakes.asyncio_queues import (
     make_broker_http_server, make_guild_queue_broker, make_guild_queue_for,
 )
-from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
+from testing.fakes.asyncio_broker_client import AsyncioBrokerClient
 
 GUILD = 77
 BUCKET = 'contract-bucket'

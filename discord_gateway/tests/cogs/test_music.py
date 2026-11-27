@@ -21,13 +21,13 @@ from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.types.cleanup_reason import CleanupReason
 from discord_gateway.utils.bot_metrics import BotMetricNaming
 
-from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
-from tests.helpers import downloaded_from_context
-from tests.helpers import fake_context  #pylint:disable=unused-import
-from tests.db_helpers import fake_engine, async_mock_session  #pylint:disable=unused-import
-from tests.helpers import FakeChannel
-from tests.helpers import merge_config_blocks
-from tests.fakes.in_process_stack import attach_in_process_broker, attach_in_process_download, queue_in_broker, patch_download_ytdl
+from testing.fakes.asyncio_broker_client import AsyncioBrokerClient
+from testing.helpers import downloaded_from_context
+from testing.helpers import fake_context  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine, async_mock_session  #pylint:disable=unused-import
+from testing.helpers import FakeChannel
+from testing.helpers import merge_config_blocks
+from testing.fakes.in_process_stack import attach_in_process_broker, attach_in_process_download, queue_in_broker, patch_download_ytdl
 
 
 BASE_MUSIC_CONFIG = {

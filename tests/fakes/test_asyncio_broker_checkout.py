@@ -4,8 +4,8 @@ from tempfile import TemporaryDirectory
 import pytest
 
 
-from tests.fakes.asyncio_broker import AsyncioBroker
-from tests.helpers import fake_media_download, generate_fake_context
+from testing.fakes.asyncio_broker import AsyncioBroker
+from testing.helpers import fake_media_download, generate_fake_context
 
 @pytest.mark.asyncio
 async def test_media_download_checkout_copies_to_guild_path():

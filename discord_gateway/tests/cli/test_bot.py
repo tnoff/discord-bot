@@ -12,8 +12,8 @@ from yaml import dump
 
 from discord_gateway.cli.bot import main, main_loop
 
-from tests.helpers import fake_bot_yielder, FakeGuild
-from tests.pod_cli_support import invoke_main_with_health_server, invoke_with_config
+from testing.helpers import fake_bot_yielder, FakeGuild
+from testing.pod_cli_support import invoke_main_with_health_server, invoke_with_config
 
 
 def test_run_with_no_args():

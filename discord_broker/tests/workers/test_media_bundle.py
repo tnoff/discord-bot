@@ -13,7 +13,7 @@ from discord_broker.workers.media_bundle import (
     BundledRequestState,
 )
 
-from tests.helpers import fake_context, fake_source_dict  # pylint: disable=unused-import
+from testing.helpers import fake_context, fake_source_dict  # pylint: disable=unused-import
 
 
 # ---------------------------------------------------------------------------

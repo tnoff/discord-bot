@@ -3,8 +3,8 @@ import pytest
 from discord_core.cogs.music_helpers.common import MediaRequestLifecycleStage
 from discord_core.types.media_request import MediaRequestStateMachine, RetryInformation, chunk_list
 
-from tests.helpers import fake_source_dict
-from tests.helpers import fake_context #pylint:disable=unused-import
+from testing.helpers import fake_source_dict
+from testing.helpers import fake_context #pylint:disable=unused-import
 
 @pytest.mark.asyncio
 async def test_media_request_basics(fake_context): #pylint:disable=redefined-outer-name

@@ -12,7 +12,7 @@ from discord_broker.workers.broker_registry import RedisBrokerRegistry
 from discord_broker.workers.corrupt_object import evict_corrupt_object
 from discord_broker.workers.redis_broker import RedisBroker
 
-from tests.fakes.worker_requests import direct_request
+from testing.fakes.worker_requests import direct_request
 
 
 def _make_broker(video_cache=None, bucket_name=None, cache_bucket_name=None) -> RedisBroker:

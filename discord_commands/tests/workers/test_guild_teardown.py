@@ -11,9 +11,9 @@ from discord_core.types.search import SearchResult
 
 from discord_commands.workers.guild_teardown import GuildTeardown
 
-from tests.helpers import FakeGuild, fake_context, fake_source_dict  #pylint:disable=unused-import
-from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
-from tests.results_pod import ResultsPod
+from testing.helpers import FakeGuild, fake_context, fake_source_dict  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
+from testing.results_pod import ResultsPod
 
 
 def make_teardown(pod, **kwargs):

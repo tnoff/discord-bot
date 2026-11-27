@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 from click.testing import CliRunner
 from yaml import dump
 
-from tests.helpers import fake_bot_yielder
+from testing.helpers import fake_bot_yielder
 
 
 async def invoke_main_with_health_server(mocker, main, config_file, health_server_target, extra_patches=()):

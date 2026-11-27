@@ -24,8 +24,8 @@ from discord_dispatcher.workers.message_dispatcher import (
     LOOP_MESSAGE_DISPATCHER,
 )
 
-from tests.fakes.asyncio_queues import AsyncioBundleStore, AsyncioDeleteSchedule, AsyncioWorkQueue
-from tests.helpers import (
+from testing.fakes.asyncio_queues import AsyncioBundleStore, AsyncioDeleteSchedule, AsyncioWorkQueue
+from testing.helpers import (
     fake_bot_yielder, FakeChannel, FakeGuild, FakeMessage, FakeResponse,
     generate_fake_context,
 )

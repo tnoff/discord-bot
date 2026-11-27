@@ -11,7 +11,7 @@ from discord_dispatcher.cli.dispatcher import main as dispatcher_main
 from discord_dispatcher.cli.dispatcher import main_loop as dispatcher_main_loop
 from discord_dispatcher.cli.dispatcher import run_bot as dispatcher_run_bot
 
-from tests.pod_cli_support import invoke_main_with_health_server, invoke_with_config
+from testing.pod_cli_support import invoke_main_with_health_server, invoke_with_config
 
 
 class _FakeDispatcher:

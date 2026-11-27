@@ -18,7 +18,7 @@ from discord_core.types.media_download import MediaDownload
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchResult
 
-from tests.fakes.asyncio_queues import make_broker_http_server, make_guild_queue_broker
+from testing.fakes.asyncio_queues import make_broker_http_server, make_guild_queue_broker
 
 GUILD = 31
 BUCKET = 'test-bucket'

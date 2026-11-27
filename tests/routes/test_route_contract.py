@@ -20,8 +20,8 @@ from discord_core.servers.base import AiohttpServerBase
 from discord_db.servers.database_server import DatabaseHttpServer
 from discord_search.servers.composite_server import CompositeHttpServer
 
-from tests.fakes.asyncio_queues import make_broker_http_server
-from tests.fakes.asyncio_broker import AsyncioBroker
+from testing.fakes.asyncio_queues import make_broker_http_server
+from testing.fakes.asyncio_broker import AsyncioBroker
 
 CONTRACT_ENTRY = (contract.CONTRACT_ROUTE.method, contract.CONTRACT_ROUTE.template)
 

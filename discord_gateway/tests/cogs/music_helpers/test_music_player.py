@@ -17,10 +17,10 @@ from discord_gateway.cogs.music_helpers import music_player as music_player_modu
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer, cleanup_source
 from discord_gateway.types.cleanup_reason import CleanupReason
 
-from tests.fakes.asyncio_broker import AsyncioBroker
-from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
-from tests.fakes.asyncio_queues import make_guild_queue_for
-from tests.helpers import FakeChannel, fake_context, fake_media_download, FakeVoiceClient #pylint:disable=unused-import
+from testing.fakes.asyncio_broker import AsyncioBroker
+from testing.fakes.asyncio_broker_client import AsyncioBrokerClient
+from testing.fakes.asyncio_queues import make_guild_queue_for
+from testing.helpers import FakeChannel, fake_context, fake_media_download, FakeVoiceClient #pylint:disable=unused-import
 
 GATEWAY_ID = 'gw-test'
 

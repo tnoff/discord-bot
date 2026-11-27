@@ -29,8 +29,8 @@ from discord_db.clients.guild_analytics_client import GuildAnalyticsClient
 from discord_db.clients.playlist_client import PlaylistClient
 from discord_db.servers.database_server import DatabaseHttpServer
 
-from tests.db_helpers import async_mock_session
-from tests.db_helpers import fake_engine  # pylint:disable=unused-import
+from testing.db_helpers import async_mock_session
+from testing.db_helpers import fake_engine  # pylint:disable=unused-import
 
 GUILD = 4242
 MAX_SIZE = 3

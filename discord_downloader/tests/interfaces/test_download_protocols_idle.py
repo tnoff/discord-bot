@@ -7,7 +7,7 @@ import pytest
 
 from discord_downloader.interfaces import download_protocols
 
-from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
+from testing.fakes.asyncio_download_worker import AsyncioDownloadWorker
 
 
 @pytest.mark.asyncio()

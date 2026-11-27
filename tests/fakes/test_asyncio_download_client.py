@@ -12,8 +12,8 @@ import pytest
 
 from discord_downloader.interfaces.download_protocols import ClearGuildResult
 
-from tests.fakes.asyncio_download_client import AsyncioDownloadClient
-from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
+from testing.fakes.asyncio_download_client import AsyncioDownloadClient
+from testing.fakes.asyncio_download_worker import AsyncioDownloadWorker
 
 
 
