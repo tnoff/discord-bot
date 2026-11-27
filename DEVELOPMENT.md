@@ -59,7 +59,7 @@ A PR that touches a package bumps that package's own `VERSION`. A change confine
 the package's own `tests/` directory does not count — test code ships in no image or
 distribution, so it would only cut an empty release — but source next to it does.
 `ci.yml`'s "Detect package version bumps" job
-(`tests/cli/_package_versions.py`) fails a PR that changes a package without
+(`ci/_package_versions.py`) fails a PR that changes a package without
 also changing that package's `VERSION`. Renovate's `dev-` PRs are bumped for
 you: the `bump-version` job runs the same module with `--list` to find the
 touched packages, bumps each one's `VERSION` (patch) and adds a fragment under
@@ -106,8 +106,14 @@ Each package has its own `tests/` tree, mirroring its own layout
 pinned `discord_core` and the shared fakes and helpers under `tests/`, but not another pod's production
 code, and core's tests import no pod at all. Anything that needs two pods (a real HTTP client in one
 pod tested against a real server in another, the CI import-boundary/build-filter checks) is an integration
-test and lives in the central `tests/` at repo root; `tests/cli/test_package_test_imports.py` enforces it, with no exceptions; the integration tests are in
-`tests/integration/`, one directory per seam. **Run pytest with no path argument** — passing
+test and lives in the central `tests/` at repo root; `tests/checks/test_package_test_imports.py` enforces it, with no exceptions; the integration tests are in
+`tests/integration/`, one directory per seam.
+
+The repo-root folders besides the packages: `tests/` (`routes/` the pods' OpenAPI contracts, `integration/` the
+two-pod tests, `checks/` repo-wide conventions and the generated-doc checks, `fakes/` the shared test doubles, `ci/`
+the tests of the CI tooling) and `ci/`, the CI and doc tooling itself (change selection, the image build filter,
+version and pin checks, the generators behind the generated doc blocks). `ci/` is not a package and ships in no
+image; it is run as `python -m ci._<name>`. **Run pytest with no path argument** — passing
 `tests/` explicitly collects only the central tree and silently skips the
 other seven (this broke CI once, PR #1005, before the invocation was fixed):
 
@@ -127,7 +133,7 @@ not a single package. All async tests must be marked `@pytest.mark.asyncio`
 ```bash
 venv/bin/pylint --ignore=tests discord_core/ discord_gateway/ discord_broker/ \
     discord_db/ discord_dispatcher/ discord_downloader/ discord_search/   # production code
-venv/bin/pylint --rcfile .pylintrc.test tests/ discord_core/tests/ discord_gateway/tests/ \
+venv/bin/pylint --rcfile .pylintrc.test tests/ ci/ discord_core/tests/ discord_gateway/tests/ \
     discord_broker/tests/ discord_db/tests/ discord_dispatcher/tests/ \
     discord_downloader/tests/ discord_search/tests/                       # test code, all eight locations
 ```
@@ -146,7 +152,7 @@ tox
 
 ## What CI skips
 
-`ci.yml`'s `metadata` job runs `tests/cli/_skippable_changes.py` over the PR's
+`ci.yml`'s `metadata` job runs `ci/_skippable_changes.py` over the PR's
 diff and skips work a change cannot affect:
 
 | The PR changes only | Skipped |
@@ -172,11 +178,11 @@ reading a doc that is on the list. Prose inside a package, including its
 
 ## Which tests CI runs
 
-`ci.yml`'s `tox` job runs `tests/cli/_run_tests.py` (called from `tox.ini`), which narrows
+`ci.yml`'s `tox` job runs `ci/_run_tests.py` (called from `tox.ini`), which narrows
 pytest to the packages and central test files a pull request can affect. The same module is the only place pytest
 is invoked now, so its docstring is where the two-pass structure and the coverage rules live.
 
-How it decides, from `tests/cli/_affected_tests.py`: it parses every first-party file and builds
+How it decides, from `ci/_affected_tests.py`: it parses every first-party file and builds
 the import graph (imports, relative imports, and dotted strings such as `monkeypatch` targets,
 followed through the shared `tests.*` fakes). A package's `tests/` tree runs when something it can
 reach changed, and so does each file of the central `tests/` tree, one at a time. Rules worth knowing:
@@ -185,7 +191,7 @@ reach changed, and so does each file of the central `tests/` tree, one at a time
   artifact: every pod pins a tag, and the pods' tests (and the central ones) run against that pin, not this
   checkout. The pods meet a new core in the PR that bumps their pin, which is where a break shows up.
   That only holds because pytest is told not to put the repo root first on `sys.path`
-  (`--import-mode=append`, and `python -P` in CI); `tests/cli/_run_tests.py` checks the installed core
+  (`--import-mode=append`, and `python -P` in CI); `ci/_run_tests.py` checks the installed core
   against the pin before a run and refuses to narrow if it is not the pin. `test_every_pod_pins_core`
   guards the pins.
 - **A central test file that reads the repo always runs.** The import graph cannot see a dependency
@@ -224,9 +230,9 @@ on its own terms. A core change needs core tests; a pod test no longer carries i
 Try it before pushing, from a venv with the packages installed:
 
 ```bash
-venv/bin/python -m tests.cli._affected_tests --base origin/main      # what would run
-venv/bin/python -m tests.cli._run_tests --base origin/main --dry-run  # the commands
-venv/bin/python -m tests.cli._run_tests --base origin/main            # run them
+venv/bin/python -m ci._affected_tests --base origin/main      # what would run
+venv/bin/python -m ci._run_tests --base origin/main --dry-run  # the commands
+venv/bin/python -m ci._run_tests --base origin/main            # run them
 ```
 
 **What keeps it narrow.** The savings exist because a test does not import pods it does not

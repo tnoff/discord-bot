@@ -13,12 +13,12 @@ No package gets an exception: core's tests import no pod, and neither do any pod
 lives in the central `tests/` (`tests/integration/`, one directory per seam).
 
 What counts as an import: a real `import` / `from ... import`, and a dotted string naming a pod's module
-(the target of a `patch(...)`), the same two things `tests/cli/_affected_tests.py` follows, so the two cannot
+(the target of a `patch(...)`), the same two things `ci/_affected_tests.py` follows, so the two cannot
 disagree about what a test depends on.
 '''
-from tests.cli._affected_tests import referenced_modules
-from tests.cli._git_diff import REPO_ROOT
-from tests.cli._roots import CORE_ROOT, SERVICE_ROOTS
+from ci._affected_tests import referenced_modules
+from ci._git_diff import REPO_ROOT
+from ci._roots import CORE_ROOT, SERVICE_ROOTS
 
 PODS = frozenset(SERVICE_ROOTS.values())
 

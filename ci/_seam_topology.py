@@ -41,16 +41,16 @@ carry a ``ROUTES`` group whose prefix matches the client's exactly.
 '''
 import json
 
-from tests.cli._doc_blocks import replace_block
-from tests.cli._image_deps import IMAGE_NAMES, REPO_ROOT, run_probe
-from tests.cli._roots import MODULE_PREFIXES
+from ci._doc_blocks import replace_block
+from ci._image_deps import IMAGE_NAMES, REPO_ROOT, run_probe
+from ci._roots import MODULE_PREFIXES
 
 ARCHITECTURE_DOC = REPO_ROOT / 'docs' / 'architecture.md'
 
 _BEGIN = (
-    '<!-- BEGIN GENERATED(seam-topology) by tests/cli/test_seam_topology.py. '
+    '<!-- BEGIN GENERATED(seam-topology) by tests/checks/test_seam_topology.py. '
     'Do not edit this block by hand.\n     '
-    'Regenerate with: UPDATE_SEAM_TOPOLOGY=1 pytest tests/cli/test_seam_topology.py -->'
+    'Regenerate with: UPDATE_SEAM_TOPOLOGY=1 pytest tests/checks/test_seam_topology.py -->'
 )
 _END = '<!-- END GENERATED(seam-topology) -->'
 

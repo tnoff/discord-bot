@@ -15,9 +15,9 @@ splices it in verbatim, so the doc cannot drift from the docstring the way a
 hand-copied one has drifted before (see project_docs_ci_scope_decisions and
 every other generator in this package).
 
-**No hardcoded pod -> entrypoint-module map.** ``tests.cli._roots.SERVICE_ROOTS``
+**No hardcoded pod -> entrypoint-module map.** ``ci._roots.SERVICE_ROOTS``
 gives pod name -> package root (``'bot': 'discord_gateway'``); combined with
-``tests.cli._image_deps.declared_scripts()``, which reads every package's own
+``ci._image_deps.declared_scripts()``, which reads every package's own
 ``pyproject.toml`` live, the entrypoint module for a root is whichever console
 script's target lives under it. A root with no declared script, or a docstring
 that lost its "Configure with:" marker, fails the generator loudly rather than
@@ -33,16 +33,16 @@ case, not an expression inside a function.
 import ast
 from pathlib import Path
 
-from tests.cli._doc_blocks import replace_block
-from tests.cli._image_deps import IMAGE_NAMES, REPO_ROOT, declared_scripts
-from tests.cli._roots import SERVICE_ROOTS
+from ci._doc_blocks import replace_block
+from ci._image_deps import IMAGE_NAMES, REPO_ROOT, declared_scripts
+from ci._roots import SERVICE_ROOTS
 
 CONFIGURATION_DOC = REPO_ROOT / 'docs' / 'configuration.md'
 
 _BEGIN = (
-    '<!-- BEGIN GENERATED(config-reference) by tests/cli/test_config_reference.py. '
+    '<!-- BEGIN GENERATED(config-reference) by tests/checks/test_config_reference.py. '
     'Do not edit this block by hand.\n     '
-    'Regenerate with: UPDATE_CONFIG_REFERENCE=1 pytest tests/cli/test_config_reference.py -->'
+    'Regenerate with: UPDATE_CONFIG_REFERENCE=1 pytest tests/checks/test_config_reference.py -->'
 )
 _END = '<!-- END GENERATED(config-reference) -->'
 

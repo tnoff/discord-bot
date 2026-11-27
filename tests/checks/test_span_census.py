@@ -1,5 +1,5 @@
 '''
-Tests for the span census (`tests/cli/_span_census.py`): that the generated
+Tests for the span census (`ci/_span_census.py`): that the generated
 blocks in docs/monitoring/trace_linking.md match a live measurement, and a
 few resolver spot-checks against known, hand-verified call sites so a future
 change to the resolution engine can't silently start producing wrong answers
@@ -7,8 +7,8 @@ that still happen to round-trip.
 '''
 import os
 
-from tests.cli._otel_resolve import Corpus
-from tests.cli._span_census import (
+from ci._otel_resolve import Corpus
+from ci._span_census import (
     TRACE_LINKING_DOC, measure, render_trace_linking_doc,
 )
 
@@ -28,7 +28,7 @@ def test_trace_linking_doc_is_current():
         original = rendered
     assert original == rendered, (
         'docs/monitoring/trace_linking.md is out of date. Regenerate with:\n'
-        '    UPDATE_SPAN_CENSUS=1 pytest tests/cli/test_span_census.py'
+        '    UPDATE_SPAN_CENSUS=1 pytest tests/checks/test_span_census.py'
     )
 
 

@@ -1,6 +1,6 @@
 '''A throwaway git repo for the tests of the scripts that read a diff.'''
-from tests.cli import _git_diff
-from tests.cli._git_diff import git_output
+from ci import _git_diff
+from ci._git_diff import git_output
 
 
 def git(cwd, *args):

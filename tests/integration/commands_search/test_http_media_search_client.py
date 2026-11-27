@@ -22,7 +22,7 @@ from discord_core.types.catalog import CatalogResponse, CatalogItem
 from discord_commands.clients.http_media_search_client import HttpMediaSearchClient
 from discord_search.servers.media_search_server import MediaSearchHttpServer
 
-from tests.cli._image_deps import measure
+from ci._image_deps import measure
 
 
 class _FakeProviders:

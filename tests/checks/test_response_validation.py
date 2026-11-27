@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from tests.cli._roots import TESTS_DIR, package_dirs
+from ci._roots import TESTS_DIR, package_dirs
 
 from discord_core.clients.http_client_base import HttpClientMixin
 from discord_core.exceptions import SeamResponseInvalid

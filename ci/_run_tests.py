@@ -3,7 +3,7 @@ Run tox's pytest passes, narrowed to the packages a pull request can affect.
 
 tox.ini's `commands` calls this instead of spelling the pytest invocations out:
 
-    python -m tests.cli._run_tests
+    python -m ci._run_tests
 
 WHAT IT DECIDES, AND FROM WHAT
 ------------------------------
@@ -84,10 +84,10 @@ import tomllib
 from pathlib import Path
 from typing import Optional
 
-from tests.cli._affected_tests import CORE_ROOT, ImportGraph, Selection, select
-from tests.cli._git_diff import REPO_ROOT, base_head_parser, diff_paths, git_output
-from tests.cli._package_pins import declared_core_pin
-from tests.cli._roots import SERVICE_ROOTS
+from ci._affected_tests import CORE_ROOT, ImportGraph, Selection, select
+from ci._git_diff import REPO_ROOT, base_head_parser, diff_paths, git_output
+from ci._package_pins import declared_core_pin
+from ci._roots import SERVICE_ROOTS
 
 #: Pass 1: no working directory on sys.path, so the pinned core in site-packages wins.
 PASS_1 = ['-P', '-m', 'pytest']

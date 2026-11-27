@@ -12,13 +12,13 @@ Every `create_observable_gauge(...)` call site in the tree, resolved
 statically rather than re-typed by hand — this is what re-verifies claims
 like `message_dispatcher_queue_depth` being unemitted and which pods emit
 `heartbeat`, by measurement instead of a one-off grep. See
-`tests/cli/_metric_census.py`. The per-metric sections below this one are
+`ci/_metric_census.py`. The per-metric sections below this one are
 still hand-written for the narrative (`Usage`, historical notes); this table
 is the cross-check that they haven't drifted on the facts a measurement can
 see — name, description, unit, and which pod.
 
-<!-- BEGIN GENERATED(metric-census) by tests/cli/test_metric_census.py. Do not edit this block by hand.
-     Regenerate with: UPDATE_METRIC_CENSUS=1 pytest tests/cli/test_metric_census.py -->
+<!-- BEGIN GENERATED(metric-census) by tests/checks/test_metric_census.py. Do not edit this block by hand.
+     Regenerate with: UPDATE_METRIC_CENSUS=1 pytest tests/checks/test_metric_census.py -->
 
 | Name | Description | Unit | Pod | Source |
 |---|---|---|---|---|
@@ -46,14 +46,14 @@ see — name, description, unit, and which pod.
 
 ### Not statically determinable
 
-<!-- BEGIN GENERATED(metric-exempt-appendix) by tests/cli/test_metric_census.py. Do not edit this block by hand.
-     Regenerate with: UPDATE_METRIC_CENSUS=1 pytest tests/cli/test_metric_census.py -->
+<!-- BEGIN GENERATED(metric-exempt-appendix) by tests/checks/test_metric_census.py. Do not edit this block by hand.
+     Regenerate with: UPDATE_METRIC_CENSUS=1 pytest tests/checks/test_metric_census.py -->
 
 Every `create_observable_gauge(...)` call site this census can't
 reduce every argument of to a literal, repo-wide. Each one is a
 genuine runtime value (a pod label interpolated into a description,
 a for-loop binding `description` across four literal strings), not a
-gap in the resolver: see `tests/cli/_otel_resolve.py`.
+gap in the resolver: see `ci/_otel_resolve.py`.
 
 | Source | Why | Expression |
 |---|---|---|

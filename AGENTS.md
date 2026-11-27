@@ -32,6 +32,7 @@ assumptions about this repo, it's stale; check the current tree instead.
 | DB models (`BASE`-inheriting) | `discord_db/database.py` |
 | Async retry helpers | `discord_core/utils/common.py`; `discord_db/utils/sql_retry.py` (db pod only — the bot holds no DB connection) |
 | Test fixtures and fakes | `tests/helpers.py` (pure), `tests/db_helpers.py` (needs `discord_db`), `tests/fakes/in_process_stack.py` (needs the broker/downloader/search fakes) — central; see "Tests are per-package now" below |
+| CI and doc tooling (change selection, image filter, version/pin checks, doc generators) | `ci/` (not a package, ships in no image; run as `python -m ci._<name>`); its tests are `tests/ci/` and the generated-doc checks `tests/checks/` |
 
 ## Non-obvious internals
 
@@ -43,8 +44,8 @@ through the project venv. Same goes for pylint.
 
 ### Keep the root `conftest.py` and `tests/helpers.py` light
 
-CI narrows pytest to the packages a PR can reach through imports (`tests/cli/_affected_tests.py`,
-run by `tests/cli/_run_tests.py`; see DEVELOPMENT.md's "Which tests CI runs"). Anything imported
+CI narrows pytest to the packages a PR can reach through imports (`ci/_affected_tests.py`,
+run by `ci/_run_tests.py`; see DEVELOPMENT.md's "Which tests CI runs"). Anything imported
 by the root `conftest.py` or `tests/helpers.py` is on every test's path, so importing a pod there,
 or reading a repo file there (`REPO_ROOT`, `__file__`, a `docs/…` path), turns every PR back into a full run. Fixtures that need a pod go in their own module
 (`tests/db_helpers.py`, `tests/fakes/in_process_stack.py`). `test_root_conftest_reaches_no_pod`
@@ -61,7 +62,7 @@ depend on, so core's tests import no pod at all. Anything that needs two pods
 (a real HTTP client in one pod tested against a real server in another, a default
 two pods each copy, the import-boundary/CI-build-filter checks) is an integration
 test and lives in the central `tests/` at repo root.
-`tests/cli/test_package_test_imports.py` enforces it, with no exceptions. A test that needs
+`tests/checks/test_package_test_imports.py` enforces it, with no exceptions. A test that needs
 only a model class or a patch target of another pod reaches it through the shared
 helpers (`tests/db_helpers.py`, `tests/fakes/in_process_stack.py`); one that needs two pods
 goes in `tests/integration/<seam>/`. Run pytest with **no path argument** — bare `pytest --cov ...`

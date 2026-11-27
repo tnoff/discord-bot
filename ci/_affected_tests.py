@@ -6,7 +6,7 @@ packages with a test tree each, so most PRs touch one and need not run the rest 
 but only if "the rest" really cannot see the change. This module answers that from
 the code, not from a hand-kept table:
 
-    python -m tests.cli._affected_tests --base origin/main
+    python -m ci._affected_tests --base origin/main
 
 prints `scope=all` or `scope=packages discord_db discord_gateway` on stdout
 (diagnostics on stderr). `_run_tests.py` is the real consumer; this is the same
@@ -26,7 +26,8 @@ So the graph is built by parsing every first-party file with `ast`:
 
   ('root', R)    the source of package R (everything under R/ except R/tests/)
   ('tests', R)   R's own test tree
-  ('file', P)    one file of the central tree: `conftest.py` or `tests/**.py`
+  ('file', P)    one file outside the packages that tests can import: `conftest.py`, `tests/**.py`, and the
+                 CI tooling in `ci/**.py`
 
 Edges are the modules a node imports -- `import`, `from ... import`, relative
 imports, and string literals that look like a dotted first-party path (the targets
@@ -35,7 +36,7 @@ without ever naming it in an import statement, and so does the argument of
 `_image_deps.measure('discord_x.y')`). A package's test tree needs to run when any
 node in its transitive closure changed.
 
-One exemption: string literals in `tests/cli/_*.py` are not read. Those are CI
+One exemption: string literals in `ci/*.py` are not read. Those are CI
 tooling, not test code, and `_image_deps.py` is a table naming every image's
 entrypoint as a string. Counting those as edges made every test that merely calls
 `measure(...)` look like it depends on all six pods. The test that calls it names
@@ -51,14 +52,14 @@ of change. The edge is dropped for every package but core itself.
 
 This is only true if the tests really import the pinned copy, and for a long time they did not: pytest puts
 the repo root first on `sys.path`, so `import discord_core` resolved to the checkout and shadowed the pin.
-tests/cli/_run_tests.py explains how that is now prevented (`--import-mode=append`, `python -P`, no editable
+ci/_run_tests.py explains how that is now prevented (`--import-mode=append`, `python -P`, no editable
 core install) and verifies it before a run; when it cannot be verified the run is not narrowed at all.
-tests/cli/test_affected_tests.py checks the other premise (every pod pins core).
+tests/ci/test_affected_tests.py checks the other premise (every pod pins core).
 
 AN ALLOW-LIST, AND EVERYTHING ELSE IS EVERYTHING
 ------------------------------------------------
 Only these map to a node: a file inside a package, `conftest.py`, and a `.py`
-under `tests/`. Documentation no test reads, and `renovate.json`, are ignored
+under `tests/` or `ci/`. Documentation no test reads, and `renovate.json`, are ignored
 (`_skippable_changes` owns that list). ANY other path -- `pyproject.toml`,
 `tox.ini`, `.pylintrc*`, `docker/`, `alembic/`, `.github/`, a data file under
 `tests/` -- selects everything, because nothing here can say who reads it. So does
@@ -104,22 +105,25 @@ import sys
 from pathlib import Path
 from typing import NamedTuple
 
-from tests.cli._git_diff import REPO_ROOT, base_head_parser, diff_paths, report_changed
-from tests.cli._roots import CORE_ROOT, SERVICE_ROOTS
-from tests.cli._skippable_changes import METADATA_ONLY, is_documentation
+from ci._git_diff import REPO_ROOT, base_head_parser, diff_paths, report_changed
+from ci._roots import CORE_ROOT, SERVICE_ROOTS
+from ci._skippable_changes import METADATA_ONLY, is_documentation
 
 #: Every package, core first. The test run is keyed on these names.
 PACKAGES = (CORE_ROOT, *sorted(SERVICE_ROOTS.values()))
 
 CONFTEST = 'conftest.py'
 CENTRAL_TESTS = 'tests'
+#: Top-level folders whose `.py` files are graph nodes of their own: the central tests, and the CI tooling that
+#: they (and only they) import. Neither ships, and neither belongs to a package.
+SHARED_TREES = (CENTRAL_TESTS, 'ci')
 
 # A string that reads as a dotted module path, e.g. a patch() target. Deliberately generic:
 # anything that does not resolve to a first-party node is dropped by `_modules_to_nodes`.
 _DOTTED = re.compile(r'[A-Za-z_]\w*(?:\.\w+)+')
 
 # CI tooling whose string constants are data, not module references; see the module doc.
-_TOOLING_PREFIX = 'tests/cli/_'
+_TOOLING_PREFIX = 'ci/'
 
 #: Paths read only by the central tests that always run (see "CENTRAL INPUTS"). Prefixes end in
 #: '/'; the rest are exact files. Deliberately short: a path belongs here only if the guard in
@@ -135,7 +139,7 @@ CENTRAL_INPUTS = (
     '.dockerignore',
     '.pylintrc',
     '.pylintrc.test',
-    'tests/cli/image-closure.json',
+    'ci/image-closure.json',
 )
 
 #: Paths read by exactly one package's own tests (and by the always-running central ones), mapped to
@@ -149,7 +153,7 @@ PACKAGE_INPUTS = {
 
 # A string constant that names a path inside the repo. Generous on purpose: see `repo_reads`.
 _REPO_PATH = re.compile(
-    r'^(?:docs|docker|alembic|\.github|tests|catalog-info\.yaml|pyproject\.toml|tox\.ini|renovate\.json'
+    r'^(?:docs|docker|alembic|\.github|tests|ci|catalog-info\.yaml|pyproject\.toml|tox\.ini|renovate\.json'
     r'|VERSION|CHANGELOG\.md|README\.md|AGENTS\.md|CONTRIBUTING\.md|DEVELOPMENT\.md|\.pylintrc(?:\.test)?)'
     r'(?:/|\.|$)|^discord_[a-z]+/|(?:^|/)image-closure\.json$|/(?:docs|docker|alembic|\.github)(?:/|$)')
 
@@ -279,7 +283,7 @@ class ImportGraph:
             if len(parts) > 1 and parts[1] == CENTRAL_TESTS:
                 nodes.add(('tests', parts[0]))
             return nodes
-        if parts[0] != CENTRAL_TESTS:
+        if parts[0] not in SHARED_TREES:
             return set()
         nodes = set()
         for end in range(1, len(parts) + 1):
@@ -380,7 +384,7 @@ def changed_node(path: str, graph: ImportGraph):
     parts = path.split('/')
     if len(parts) > 1 and parts[0] in graph.packages:
         return ('tests', parts[0]) if len(parts) > 2 and parts[1] == CENTRAL_TESTS else ('root', parts[0])
-    if path == CONFTEST or (parts[0] == CENTRAL_TESTS and path.endswith('.py')):
+    if path == CONFTEST or (parts[0] in SHARED_TREES and path.endswith('.py')):
         return ('file', path)
     return ''
 

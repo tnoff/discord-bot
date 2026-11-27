@@ -2,7 +2,7 @@
 Measure what each published image actually imports.
 
 Shared by the import-boundary enforcement tests (what each image is and is not
-allowed to reach) and by the generated tests/cli/image-closure.json, so both
+allowed to reach) and by the generated ci/image-closure.json, so both
 come from one measurement rather than two hand-maintained copies that agree
 only while someone keeps them in step.
 
@@ -17,13 +17,13 @@ import sys
 import tomllib
 from pathlib import Path
 
-from tests.cli._roots import (
+from ci._roots import (
     CORE_DIR, LEGACY_ROOT, MODULE_PREFIXES, ROOTS, SEAMS_DIR, SERVICES_DIR,
     folder_of, home_of,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-CLOSURE_DOC = REPO_ROOT / 'tests' / 'cli' / 'image-closure.json'
+REPO_ROOT = Path(__file__).resolve().parents[1]
+CLOSURE_DOC = REPO_ROOT / 'ci' / 'image-closure.json'
 
 # The tier-defining third-party packages: heavy, tier-specific, or both. Base
 # dependencies (aiohttp, pydantic, redis, the otel stack) are deliberately out of
@@ -238,8 +238,8 @@ def render_closure() -> str:
         })
     images.sort(key=lambda i: i['image'])
     doc = {
-        '_generated_by': 'tests/cli/test_import_boundaries.py '
-                         '(UPDATE_IMAGE_DEPS=1 pytest tests/cli/test_import_boundaries.py)',
+        '_generated_by': 'tests/checks/test_import_boundaries.py '
+                         '(UPDATE_IMAGE_DEPS=1 pytest tests/checks/test_import_boundaries.py)',
         '_do_not_edit': 'Regenerate rather than editing. ci.yml reads this to pick which images to build.',
         'images': images,
     }

@@ -30,7 +30,7 @@
       "datasourceTemplate": "github-tags"
     },
     {
-      "description": "Track the discord-core pin shared by all six pods (pep621 cannot version a plain archive URL). The repo carries one tag series per package (core-v, gateway-v, ...), so extractVersionTemplate keeps only core-v tags. Every pod carries the identical URL, so Renovate raises ONE PR touching all of them, which is what tests/cli/_package_pins.py requires.",
+      "description": "Track the discord-core pin shared by all six pods (pep621 cannot version a plain archive URL). The repo carries one tag series per package (core-v, gateway-v, ...), so extractVersionTemplate keeps only core-v tags. Every pod carries the identical URL, so Renovate raises ONE PR touching all of them, which is what ci/_package_pins.py requires.",
       "customType": "regex",
       "fileMatch": ["(^|/)pyproject\\.toml$"],
       "matchStrings": [

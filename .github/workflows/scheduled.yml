@@ -32,11 +32,11 @@ jobs:
   # The full test suite, every week and on demand.
   #
   # Pull requests run only the packages they can affect (tox.ini ->
-  # tests/cli/_run_tests.py), and gate 100% coverage only on the packages whose
+  # ci/_run_tests.py), and gate 100% coverage only on the packages whose
   # SOURCE changed. A test-only edit that quietly lowers some other package's coverage,
   # or a break only reachable through a path the import graph cannot see, would
   # otherwise wait for the next PR that happens to run everything. This run is that
-  # backstop: no pull request is in play, so tests/cli/_run_tests.py runs the whole suite
+  # backstop: no pull request is in play, so ci/_run_tests.py runs the whole suite
   # and gates the combined total, exactly as before narrowing existed. A failure
   # reaches Discord through notify-failure.yml like any other scheduled job.
   #

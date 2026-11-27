@@ -10,8 +10,8 @@ not what its own tests should depend on the shape of.
 '''
 import pytest
 
-import tests.cli._package_pins as package_pins
-from tests.cli._package_pins import declared_core_pin, find_mismatches, main
+import ci._package_pins as package_pins
+from ci._package_pins import declared_core_pin, find_mismatches, main
 
 
 def _write_pyproject(root, name=None, dependencies=None):

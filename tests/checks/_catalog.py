@@ -10,7 +10,7 @@ existing.
 
 **Two measurements, joined on (peer image, seam).** The serving side comes from
 tests/routes/_seam_servers, which builds each server and reads its router; the
-calling side from tests/cli/_seam_topology, which imports each entrypoint and
+calling side from ci/_seam_topology, which imports each entrypoint and
 finds the clients that declare a SEAM. Neither knows about Backstage, and
 nothing here restates the topology -- the join is the only new thing, and it is
 one line.
@@ -21,7 +21,7 @@ That join is exact rather than heuristic. `discord-search` serves TWO surfaces
 is unique across all seven. A test asserts that, because the day it stops being
 true this would start attributing a dependency to the wrong pod silently.
 '''
-from tests.cli._seam_topology import _edges, measure_all as measure_topology, serving_images
+from ci._seam_topology import _edges, measure_all as measure_topology, serving_images
 from tests.routes._openapi import document_name
 from tests.routes._seam_servers import SEAMS
 

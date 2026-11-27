@@ -9,7 +9,7 @@ each individually reasonable, in the only enum anyone knew about. Nothing failed
 because nothing was looking -- a tier-local metric in a fanout-6 module is a
 rebuild cost, not an error.
 
-The check reads the MEASURED closure in tests/cli/image-closure.json rather than a
+The check reads the MEASURED closure in ci/image-closure.json rather than a
 static walk, for the same reason the CI build filter does: that file is what
 CI itself keys on, so a disagreement here is a disagreement with the build.
 '''
@@ -20,9 +20,9 @@ from pathlib import Path
 
 import pytest
 
-from tests.cli._image_deps import CLOSURE_DOC, REPO_ROOT
-from tests.cli._affected_images import module_for
-from tests.cli._roots import CORE_DIR, dirs_for, package_dirs, source_files
+from ci._image_deps import CLOSURE_DOC, REPO_ROOT
+from ci._affected_images import module_for
+from ci._roots import CORE_DIR, dirs_for, package_dirs, source_files
 
 #: Located rather than spelled out. This file has now been broken TWICE by a
 #: move, both times because it names paths with slashes: #972 caught the two

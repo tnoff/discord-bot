@@ -11,9 +11,9 @@ graph to fake, only a changed-file list and a VERSION-file convention.
 
 import pytest
 
-import tests.cli._package_versions as package_versions
-from tests.cli._package_versions import main, touched_packages
-from tests.cli._scratch_repo import commit, head_sha, init_scratch_repo
+import ci._package_versions as package_versions
+from ci._package_versions import main, touched_packages
+from ci._scratch_repo import commit, head_sha, init_scratch_repo
 
 
 @pytest.mark.parametrize('paths, expected', [

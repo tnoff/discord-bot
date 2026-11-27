@@ -1,5 +1,5 @@
 {
-  "_generated_by": "tests/cli/test_import_boundaries.py (UPDATE_IMAGE_DEPS=1 pytest tests/cli/test_import_boundaries.py)",
+  "_generated_by": "tests/checks/test_import_boundaries.py (UPDATE_IMAGE_DEPS=1 pytest tests/checks/test_import_boundaries.py)",
   "_do_not_edit": "Regenerate rather than editing. ci.yml reads this to pick which images to build.",
   "images": [
     {

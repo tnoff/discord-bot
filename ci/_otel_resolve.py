@@ -1,7 +1,7 @@
 '''
 Shared static-resolution engine for the span/metric census generators.
 
-`tests/cli/_span_census.py` and `tests/cli/_metric_census.py` both need the
+`ci/_span_census.py` and `ci/_metric_census.py` both need the
 same thing: given the AST expression passed as an argument to a call site
 (`otel_span_wrapper(NAME, ...)`, `create_observable_gauge(_, NAME, _, DESC,
 unit=UNIT)`), resolve it to a literal string if the source makes that
@@ -57,9 +57,9 @@ import itertools
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from tests.cli._roots import source_files
+from ci._roots import source_files
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Guard against a resolution cycle (two classes subclassing each other, or a
 # constant referencing itself) turning into infinite recursion. No real chain

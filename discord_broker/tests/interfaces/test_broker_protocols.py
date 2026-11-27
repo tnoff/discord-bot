@@ -19,7 +19,7 @@ from discord_broker.interfaces.broker_protocols import (
     Zone,
 )
 
-from tests.cli._image_deps import measure
+from ci._image_deps import measure
 from tests.fakes.bundle_attach import BundleAttachMixin
 from tests.helpers import fake_context, fake_source_dict  # pylint: disable=unused-import
 

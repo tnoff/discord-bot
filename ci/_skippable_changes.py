@@ -5,7 +5,7 @@ Run by ci.yml's `metadata` job, which has no installed package and no
 dependencies -- so everything here is standard library, the same shape as
 _affected_images and _package_versions:
 
-    python -m tests.cli._skippable_changes --base "origin/$BASE_REF"
+    python -m ci._skippable_changes --base "origin/$BASE_REF"
 
 It prints two GITHUB_OUTPUT lines on stdout (diagnostics go to stderr):
 
@@ -54,7 +54,7 @@ import re
 import sys
 from typing import Callable, NamedTuple, Optional
 
-from tests.cli._git_diff import base_head_parser, diff_paths, git_output, git_show, report_changed
+from ci._git_diff import base_head_parser, diff_paths, git_output, git_show, report_changed
 
 
 # Changes that no job inspects, named exactly and anchored. Not a prefix, not a
@@ -66,10 +66,10 @@ METADATA_ONLY = frozenset({'renovate.json'})
 
 # Documentation a test reads. These are inputs, not prose.
 DOCS_READ_BY_TESTS = frozenset({
-    'docs/architecture.md',                    # tests/cli/_seam_topology.py
-    'docs/configuration.md',                   # tests/cli/_config_reference.py
-    'docs/monitoring/metrics_reference.md',    # tests/cli/_metric_census.py
-    'docs/monitoring/trace_linking.md',        # tests/cli/_span_census.py
+    'docs/architecture.md',                    # ci/_seam_topology.py
+    'docs/configuration.md',                   # ci/_config_reference.py
+    'docs/monitoring/metrics_reference.md',    # ci/_metric_census.py
+    'docs/monitoring/trace_linking.md',        # ci/_span_census.py
 })
 # Whole directories a test reads: docs/openapi/*.yaml is generated and compared.
 DOC_DIRS_READ_BY_TESTS = ('docs/openapi/',)

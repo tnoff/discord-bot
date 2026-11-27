@@ -1,7 +1,7 @@
 '''
 Per-image import boundaries — what each published image is allowed to import.
 
-Each entry in ``IMAGE_IMPORTS`` (tests/cli/_image_deps.py) is a contract: importing
+Each entry in ``IMAGE_IMPORTS`` (ci/_image_deps.py) is a contract: importing
 that image's entrypoint must pull EXACTLY those tier-defining packages into
 ``sys.modules``. The check is the enforcement mechanism for the per-image
 dependency split (projects/discord-bot-ha-only) — a folder layout *on its own*
@@ -46,13 +46,13 @@ import tomllib
 
 import pytest
 
-from tests.cli._image_deps import (
+from ci._image_deps import (
     ALL_IMAGES, CLOSURE_DOC, IMAGE_DOCKERFILES, IMAGE_IMPORTS, IMAGE_NAMES, NOT_YET_SPLIT,
     REPO_ROOT, PACKAGE, VOCABULARY,
     codeless_inits, declared_home, declared_scripts, dockerfile_copy_roots, layout_violations,
     measure, measured_owners, render_closure,
 )
-from tests.cli._roots import (
+from ci._roots import (
     CORE_ROOT, LEGACY_ROOT, ROOTS, SERVICE_ROOTS, SHIPS_AHEAD_OF_CONSUMER,
     canonical, home_of, source_files,
 )
@@ -390,7 +390,7 @@ def test_dockerfile_copies_only_its_own_closure():
 
 def test_image_closure_is_current():
     '''
-    tests/cli/image-closure.json matches a live measurement.
+    ci/image-closure.json matches a live measurement.
 
     This one is load-bearing in a way the markdown table is not: ci.yml reads it
     to decide which images to build, so a stale copy does not merely misinform a
@@ -401,9 +401,9 @@ def test_image_closure_is_current():
     if os.environ.get('UPDATE_IMAGE_DEPS'):
         CLOSURE_DOC.write_text(rendered, encoding='utf-8')
     assert CLOSURE_DOC.read_text(encoding='utf-8') == rendered, (
-        'tests/cli/image-closure.json is out of date, and CI keys its build filter on it.\n'
+        'ci/image-closure.json is out of date, and CI keys its build filter on it.\n'
         'Regenerate with:\n'
-        '    UPDATE_IMAGE_DEPS=1 pytest tests/cli/test_import_boundaries.py'
+        '    UPDATE_IMAGE_DEPS=1 pytest tests/checks/test_import_boundaries.py'
     )
 
 
@@ -523,7 +523,7 @@ def test_the_all_images_set_is_exactly_declared():
     # the move, and anything outside a declared root.
     (LEGACY_ROOT, None),
     (f'{LEGACY_ROOT}.seams', None),
-    ('tests.cli.helpers', None),
+    ('tests.helpers', None),
 ])
 def test_home_of_reads_both_spellings(module, home):
     '''A module's folder is readable before and after its root is hoisted.'''
@@ -619,7 +619,7 @@ def test_every_dockerfile_copies_the_roots_its_image_reaches():
         # step 7: every image reaches it (every pod imports discord_core), but
         # no Dockerfile COPYs it any more -- it arrives through each pod's own
         # pinned `discord-core @ <tag>` dependency instead (see each pod's
-        # pyproject.toml and tests/cli/_package_pins.py), resolved by pip, not
+        # pyproject.toml and ci/_package_pins.py), resolved by pip, not
         # COPYd from this checkout. Folding it into `copy_checked` below (the
         # same set used for BOTH directions) means the converse check further
         # down still asserts discord_core/ is never COPYd, needed or not --

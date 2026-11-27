@@ -154,7 +154,7 @@ def test_pydantic_otlp_config_ignores_retired_span_filter_keys():
 
     Note this test would pass whether or not the keys were wired to anything —
     which is the point: pydantic ignores unknown keys, so absence of an
-    attribute is all it can prove. See tests/cli/test_tracing_wiring.py for the
+    attribute is all it can prove. See tests/checks/test_tracing_wiring.py for the
     assertions that the NEW keys are actually read.
     '''
     config_input = {

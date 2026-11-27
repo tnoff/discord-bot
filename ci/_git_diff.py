@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def base_head_parser(description: Optional[str], *, base_required: bool = True,

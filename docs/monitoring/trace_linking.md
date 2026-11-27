@@ -258,15 +258,15 @@ handler.
 Measured from the real `otel_span_wrapper`/`async_otel_span_wrapper` call
 sites, not hand-transcribed — this table went stale twice in one session
 before it was generated (a leftover `_redis` suffix on three names, then
-four real spans missing outright). See `tests/cli/_span_census.py`. **Pod**
+four real spans missing outright). See `ci/_span_census.py`. **Pod**
 is which package the span-creating code is *defined* in, not which pod
 necessarily emits it at runtime — `dispatch_client.*` lives in
 `discord_core` (`DispatchClientBase`) and is reachable from any pod that
 constructs an `HttpDispatchClient`; in practice only the bot pod's cogs
 call the history/emoji fetch path today (the commands pod only sends).
 
-<!-- BEGIN GENERATED(dispatcher-span-table) by tests/cli/test_span_census.py. Do not edit this block by hand.
-     Regenerate with: UPDATE_SPAN_CENSUS=1 pytest tests/cli/test_span_census.py -->
+<!-- BEGIN GENERATED(dispatcher-span-table) by tests/checks/test_span_census.py. Do not edit this block by hand.
+     Regenerate with: UPDATE_SPAN_CENSUS=1 pytest tests/checks/test_span_census.py -->
 
 | Span name | Kind | Pod | Source |
 |---|---|---|---|
@@ -315,14 +315,14 @@ any spans from it.
 
 ## Spans not statically determinable
 
-<!-- BEGIN GENERATED(exempt-span-appendix) by tests/cli/test_span_census.py. Do not edit this block by hand.
-     Regenerate with: UPDATE_SPAN_CENSUS=1 pytest tests/cli/test_span_census.py -->
+<!-- BEGIN GENERATED(exempt-span-appendix) by tests/checks/test_span_census.py. Do not edit this block by hand.
+     Regenerate with: UPDATE_SPAN_CENSUS=1 pytest tests/checks/test_span_census.py -->
 
 Every `otel_span_wrapper`/`async_otel_span_wrapper` call site this
 census can't reduce to a literal string, repo-wide -- not just the
 dispatcher. Each one is a genuine runtime value (a route name passed
 as a parameter, a Discord command name resolved from `ctx`), not a
-gap in the resolver: see `tests/cli/_otel_resolve.py` for exactly
+gap in the resolver: see `ci/_otel_resolve.py` for exactly
 which constructs it does and does not follow.
 
 | Source | Why | Expression |
