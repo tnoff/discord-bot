@@ -29,7 +29,7 @@ from tests.cli._skippable_changes import (DOC_DIRS_READ_BY_TESTS, DOCS_READ_BY_T
     ([], Skippable(everything=False, tests=False)),
     # The original rule, unchanged: these two skip every job.
     (['renovate.json'], Skippable(everything=True, tests=True)),
-    # catalog-info.yaml is read by tests/test_catalog_apis.py, so it runs everything.
+    # catalog-info.yaml is read by tests/checks/test_catalog_apis.py, so it runs everything.
     (['catalog-info.yaml'], Skippable(everything=False, tests=False)),
     (['renovate.json', 'catalog-info.yaml'], Skippable(everything=False, tests=False)),
     # Prose no test reads skips tox, but not the cheap checks.
@@ -341,7 +341,7 @@ def test_no_test_reads_a_file_that_skips_tox():
 
 
 def test_the_scan_would_have_caught_the_catalog():
-    '''catalog-info.yaml was exempt while tests/test_catalog_apis.py read it. Put it back in the set
+    '''catalog-info.yaml was exempt while tests/checks/test_catalog_apis.py read it. Put it back in the set
     and the guard must fail, which is the point of scanning for it.'''
     assert 'catalog-info.yaml' in _paths_built_from_repo_root()
     assert 'catalog-info.yaml' not in METADATA_ONLY
