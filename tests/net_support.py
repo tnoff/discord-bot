@@ -26,3 +26,16 @@ async def cancel_task(task: asyncio.Task) -> None:
         await task
     except asyncio.CancelledError:
         pass
+
+
+async def raw_request(port: int, path: str = '/health') -> str:
+    """Open a raw TCP connection and send a minimal HTTP GET, return the full response."""
+    reader, writer = await asyncio.open_connection('127.0.0.1', port)
+    writer.write(f'GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n'.encode())
+    await writer.drain()
+    response = b''
+    try:
+        response = await asyncio.wait_for(reader.read(4096), timeout=3)
+    finally:
+        await close_writer(writer)
+    return response.decode()

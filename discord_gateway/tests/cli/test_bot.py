@@ -1,5 +1,6 @@
-import asyncio
+'''Tests for the gateway's CLI entrypoint (discord_gateway.cli.bot).'''
 import logging as stdlib_logging
+import asyncio
 import signal
 from tempfile import NamedTemporaryFile
 from unittest.mock import MagicMock, AsyncMock
@@ -8,25 +9,12 @@ from click.testing import CliRunner
 import pytest
 from yaml import dump
 
-from discord_core.cli._lib.common import read_config
-from discord_core.utils.common import GeneralConfig
-
-from discord_db.cli._lib.db import managed_db, setup_db
 
 from discord_gateway.cli.bot import main, main_loop
-from discord_dispatcher.cli.dispatcher import main as dispatcher_main
-from discord_dispatcher.cli.dispatcher import main_loop as dispatcher_main_loop
-from discord_dispatcher.cli.dispatcher import run_bot as dispatcher_run_bot
 
 from tests.helpers import fake_bot_yielder, FakeGuild
+from tests.pod_cli_support import invoke_main_with_health_server, invoke_with_config
 
-
-class _FakeDispatcher:
-    '''Minimal dispatcher stand-in for cli main_loop tests.'''
-    async def start(self):
-        pass
-    async def stop(self):
-        pass
 
 def test_run_with_no_args():
     '''
@@ -36,6 +24,7 @@ def test_run_with_no_args():
     result = runner.invoke(main, [])
     assert "Error: Missing argument 'CONFIG_FILE'" in result.output
 
+
 def test_run_no_file():
     '''
     Test with no config file
@@ -44,6 +33,7 @@ def test_run_no_file():
         runner = CliRunner()
         result = runner.invoke(main, [temp_config.name])
         assert 'General config section required' in str(result.exception)
+
 
 def test_run_config_but_no_data():
     '''
@@ -61,6 +51,7 @@ def test_run_config_but_no_data():
         result = runner.invoke(main, [temp_config.name])
         assert result.exit_code == 1
         assert 'required' in str(result.exception)
+
 
 @pytest.mark.asyncio
 async def test_run_config_only_token(mocker):
@@ -83,6 +74,7 @@ async def test_run_config_only_token(mocker):
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
         assert result.exception is None
+
 
 @pytest.mark.asyncio
 async def test_run_config_reject_list(mocker):
@@ -112,6 +104,7 @@ async def test_run_config_reject_list(mocker):
         await asyncio.sleep(.01)
         assert guilds[0].left_guild is True
 
+
 @pytest.mark.asyncio
 async def test_run_config_no_reject_list(mocker):
     '''
@@ -134,6 +127,7 @@ async def test_run_config_no_reject_list(mocker):
         runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
         assert guilds[0].left_guild is False
+
 
 @pytest.mark.asyncio
 async def test_run_config_with_intents(mocker):
@@ -159,6 +153,7 @@ async def test_run_config_with_intents(mocker):
         result = runner.invoke(main, [temp_config.name])
         await asyncio.sleep(.01)
         assert result.exception is None
+
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_keyboard_interrupt_calls_cog_unload():
@@ -227,6 +222,7 @@ async def test_keyboard_interrupt_calls_cog_unload():
 
     # Verify bot.close() was called
     assert bot.close_called is True
+
 
 @pytest.mark.asyncio(loop_scope="session")
 async def test_sigterm_calls_cog_unload():
@@ -304,47 +300,6 @@ async def test_sigterm_calls_cog_unload():
 
     # Verify bot.close() was called
     assert bot.close_called is True
-
-
-# ---------------------------------------------------------------------------
-# read_config
-# ---------------------------------------------------------------------------
-
-def test_read_config_none():
-    '''read_config returns empty dict when config_file is None (line 99)'''
-    assert read_config(None) == {}
-
-
-# ---------------------------------------------------------------------------
-# main_loop edge cases
-# ---------------------------------------------------------------------------
-
-@pytest.mark.asyncio(loop_scope="session")
-async def test_main_loop_dispatch_gateway_false():
-    '''dispatcher_main_loop uses bot.login() and polls is_closed() (HTTP-only / HA mode)'''
-    class _FakeBotHttpOnly:
-        def __init__(self):
-            self._calls = 0
-            self.bot_closed = False
-        def is_closed(self):
-            self._calls += 1
-            return self._calls > 1  # False on first poll, True on second
-        async def login(self, _token):
-            pass
-        async def __aenter__(self):
-            return self
-        async def __aexit__(self, *_args):
-            pass
-        async def close(self):
-            self.bot_closed = True
-
-    mock_manager = MagicMock()
-    mock_manager.start = AsyncMock()
-    mock_manager.close = AsyncMock()
-
-    bot = _FakeBotHttpOnly()
-    await dispatcher_main_loop(bot, 'token', mock_manager, _FakeDispatcher())
-    assert bot._calls >= 2  # polled at least twice  #pylint:disable=protected-access
 
 
 @pytest.mark.asyncio(loop_scope="session")
@@ -428,133 +383,6 @@ async def test_main_loop_with_health_server():
 
 
 @pytest.mark.asyncio(loop_scope="session")
-async def test_main_loop_closes_redis_manager_on_shutdown():
-    '''dispatcher_main_loop calls redis_manager.close() after shutdown (KeyboardInterrupt).'''
-    class _FakeBotInterrupt:
-        def __init__(self):
-            self.bot_closed = False
-        def event(self, _func):
-            pass
-        def is_closed(self):
-            return self.bot_closed
-        async def login(self, _token):
-            raise KeyboardInterrupt()
-        async def __aenter__(self):
-            return self
-        async def __aexit__(self, *_args):
-            pass
-        async def close(self):
-            self.bot_closed = True
-
-    mock_manager = MagicMock()
-    mock_manager.start = AsyncMock()
-    mock_manager.close = AsyncMock()
-
-    await dispatcher_main_loop(_FakeBotInterrupt(), 'token', mock_manager, _FakeDispatcher())
-    mock_manager.start.assert_awaited_once()
-    mock_manager.close.assert_awaited_once()
-
-
-@pytest.mark.asyncio(loop_scope="session")
-async def test_dispatcher_main_loop_with_dispatch_http_server():
-    '''dispatcher_main_loop creates a task for dispatch_http_server.serve() when provided.'''
-    mock_dispatch_server = MagicMock()
-    mock_dispatch_server.serve = AsyncMock()
-
-    class _FakeBotQuick:
-        def __init__(self):
-            self._calls = 0
-            self.bot_closed = False
-        def is_closed(self):
-            self._calls += 1
-            return self._calls > 1  # False on first poll, True on second
-        async def login(self, _token):
-            pass
-        async def __aenter__(self):
-            return self
-        async def __aexit__(self, *_args):
-            pass
-        async def close(self):
-            self.bot_closed = True
-
-    mock_manager = MagicMock()
-    mock_manager.start = AsyncMock()
-    mock_manager.close = AsyncMock()
-
-    await dispatcher_main_loop(
-        _FakeBotQuick(), 'token', mock_manager, _FakeDispatcher(),
-        dispatch_http_server=mock_dispatch_server,
-    )
-    mock_dispatch_server.serve.assert_called_once()
-
-
-@pytest.mark.asyncio(loop_scope="session")
-async def test_dispatcher_main_loop_drains_http_server_before_closing_redis():
-    '''
-    On shutdown the dispatch server stops accepting BEFORE the Redis handle closes.
-
-    The reverse order left port 8082 listening through dispatcher.stop() and
-    redis_manager.close(), so a POST landing in that window got a 202 for work
-    that was never queued — send_message() fires its enqueue into a detached
-    task, so the failure never reached the caller.
-    '''
-    order = []
-
-    mock_dispatch_server = MagicMock()
-    mock_dispatch_server.serve = AsyncMock()
-    mock_dispatch_server.drain_and_stop = AsyncMock(side_effect=lambda: order.append('drain'))
-
-    class _FakeBotInterrupt:
-        def __init__(self):
-            self.bot_closed = False
-        def is_closed(self):
-            return self.bot_closed
-        async def login(self, _token):
-            raise KeyboardInterrupt()
-        async def __aenter__(self):
-            return self
-        async def __aexit__(self, *_args):
-            pass
-        async def close(self):
-            self.bot_closed = True
-
-    class _OrderedDispatcher:
-        async def start(self):
-            pass
-        async def stop(self):
-            order.append('dispatcher_stop')
-
-    mock_manager = MagicMock()
-    mock_manager.start = AsyncMock()
-    mock_manager.close = AsyncMock(side_effect=lambda: order.append('redis_close'))
-
-    await dispatcher_main_loop(
-        _FakeBotInterrupt(), 'token', mock_manager, _OrderedDispatcher(),
-        dispatch_http_server=mock_dispatch_server,
-    )
-
-    assert order == ['drain', 'dispatcher_stop', 'redis_close']
-
-
-def test_dispatcher_run_bot_schedules_main_loop(mocker):
-    '''dispatcher.run_bot schedules main_loop on the event loop via run_loop().'''
-    mock_run_loop = mocker.patch('discord_dispatcher.cli.dispatcher.run_loop')
-
-    general_config = MagicMock()
-    general_config.discord_token = 'token'
-    bot = MagicMock()
-    redis_manager = MagicMock()
-    dispatcher = MagicMock()
-
-    dispatcher_run_bot(general_config, bot, redis_manager, dispatcher)
-    mock_run_loop.assert_called_once()
-    # Ensure run_loop was passed the awaitable from main_loop
-    coro = mock_run_loop.call_args[0][0]
-    assert asyncio.iscoroutine(coro)
-    coro.close()
-
-
-@pytest.mark.asyncio(loop_scope="session")
 async def test_main_loop_second_signal_noop():
     '''Second signal while shutdown is already triggered hits the early return (line 121)'''
     class _FakeBotDoubleSignal:
@@ -591,10 +419,6 @@ async def test_main_loop_second_signal_noop():
     assert bot.close_called == 1
 
 
-# ---------------------------------------------------------------------------
-# main_runner — no running event loop path
-# ---------------------------------------------------------------------------
-
 def test_main_runner_no_event_loop(mocker):
     '''main_runner falls through to asyncio.run (lines 318-319, 325-326) when no loop is running'''
     with NamedTemporaryFile(suffix='.yml') as temp_config:
@@ -609,10 +433,6 @@ def test_main_runner_no_event_loop(mocker):
         assert result.exception is None
 
 
-# ---------------------------------------------------------------------------
-# monitoring config paths
-# ---------------------------------------------------------------------------
-
 def _patch_otlp(mocker):
     '''Patch all OpenTelemetry symbols to avoid real network connections'''
     for name in [
@@ -623,8 +443,6 @@ def _patch_otlp(mocker):
         'OTLPLogExporter', 'BatchLogRecordProcessor',
     ]:
         mocker.patch(f'discord_core.cli._lib.common.{name}')
-    mocker.patch('discord_db.cli._lib.db.SQLAlchemyInstrumentor')
-    mocker.patch('discord_db.cli._lib.db.trace')
     mocker.patch('discord_core.cli._lib.common.trace')
     # LoggingHandler mock is added to the root logger; .level must be an int or
     # callHandlers() raises TypeError on "record.levelno >= hdlr.level"
@@ -800,93 +618,15 @@ async def test_main_with_health_server_monitoring(mocker):
         }
         with open(temp_config.name, 'w', encoding='utf-8') as writer:
             dump(config_data, writer)
-        mock_hs = MagicMock()
-        mock_hs.serve = AsyncMock()
-        mocker.patch('discord_gateway.cli.health.HealthServer', return_value=mock_hs)
-        mocker.patch('discord_core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
-        runner = CliRunner()
-        result = runner.invoke(main, [temp_config.name])
-        await asyncio.sleep(.01)
+        result = await invoke_main_with_health_server(
+            mocker, main, temp_config.name, 'discord_gateway.cli.health.HealthServer')
         assert result.exception is None
-
-
-@pytest.mark.asyncio
-async def test_dispatcher_main_with_health_server(mocker):
-    '''DispatchHealthServer is instantiated by the dispatcher entry-point when health_server.enabled is true.'''
-    with NamedTemporaryFile(suffix='.yml') as temp_config:
-        config_data = {
-            'general': {
-                'discord_token': 'foo',
-                'redis_url': 'redis://localhost:6379/0',
-                'monitoring': {
-                    'otlp': {'enabled': False},
-                    'health_server': {'enabled': True},
-                },
-            }
-        }
-        with open(temp_config.name, 'w', encoding='utf-8') as writer:
-            dump(config_data, writer)
-        mock_hs = MagicMock()
-        mock_hs.serve = AsyncMock()
-        mocker.patch('discord_dispatcher.cli.dispatcher.DispatchHealthServer', return_value=mock_hs)
-        mocker.patch('discord_core.cli._lib.gateway.Bot', side_effect=fake_bot_yielder(guilds=[]))
-        mocker.patch('discord_dispatcher.cli.dispatcher.run_bot')
-        runner = CliRunner()
-        result = runner.invoke(dispatcher_main, [temp_config.name])
-        await asyncio.sleep(.01)
-        assert result.exception is None
-
-
-def test_managed_db_rewrites_the_url_and_disposes_without_a_loop(mocker):
-    '''postgresql:// is rewritten to postgresql+asyncpg, and dispose runs with no loop.
-
-    Both halves used to be reached through the bot entrypoint, which built an
-    engine of its own. It does not any more -- the bot holds HTTP stores and the
-    db pod is the only process that opens a connection -- so this drives
-    managed_db directly rather than through an entrypoint that would no longer
-    touch it.
-
-    Deliberately synchronous: dispose_db_engine's no-running-loop branch is the
-    one that runs on a pod roll (managed_db's finally fires after run_loop's
-    asyncio.run has already returned), and it is only reachable from a test with
-    no loop of its own. close=False is asserted because passing close=True there
-    is what logged a traceback per pooled connection on every shutdown.
-    '''
-
-    mock_async_engine = AsyncMock()
-    mock_async_engine.sync_engine = MagicMock()
-    create_async_engine_mock = mocker.patch('discord_db.cli._lib.db.create_async_engine',
-                                            return_value=mock_async_engine)
-
-    general_config = GeneralConfig(
-        discord_token='foo',
-        sql_connection_statement='postgresql://user:pass@localhost/testdb')
-
-    with managed_db(general_config) as engine:
-        assert engine is mock_async_engine
-
-    called_url = create_async_engine_mock.call_args[0][0]
-    assert 'asyncpg' in str(called_url)
-    mock_async_engine.dispose.assert_awaited_once_with(close=False)
-
-
-def test_setup_db_rejects_unsupported_backends():
-    '''Only postgresql and sqlite are supported; everything else raises.'''
-    with pytest.raises(ValueError, match='Unsupported database driver'):
-        setup_db(GeneralConfig(discord_token='foo', sql_connection_statement='mysql://u:p@h/db'))
-    with pytest.raises(ValueError, match='Unsupported database driver'):
-        setup_db(GeneralConfig(discord_token='foo', sql_connection_statement='oracle://u:p@h/db'))
 
 
 def test_bot_run_raises_when_dispatch_http_url_missing():
     '''cli/bot.py run() raises DiscordBotException when dispatch_http_url is absent.'''
-    with NamedTemporaryFile(suffix='.yml') as temp_config:
-        config_data = {'general': {'discord_token': 'foo'}}
-        with open(temp_config.name, 'w', encoding='utf-8') as writer:
-            dump(config_data, writer)
-        runner = CliRunner()
-        result = runner.invoke(main, [temp_config.name])
-        assert 'dispatch_http_url required' in str(result.exception)
+    result = invoke_with_config(main, {'general': {'discord_token': 'foo'}})
+    assert 'dispatch_http_url required' in str(result.exception)
 
 
 def test_bot_run_needs_no_database_url(mocker):
@@ -915,22 +655,6 @@ def test_bot_run_raises_when_commands_http_url_missing():
     The command stubs only forward, so a bot with nowhere to forward to would come up and answer
     every command with "unavailable"; better to fail at startup.
     '''
-    with NamedTemporaryFile(suffix='.yml') as temp_config:
-        config_data = {'general': {'discord_token': 'foo',
-                                   'dispatch_http_url': 'http://localhost:8082'}}
-        with open(temp_config.name, 'w', encoding='utf-8') as writer:
-            dump(config_data, writer)
-        runner = CliRunner()
-        result = runner.invoke(main, [temp_config.name])
-        assert 'commands_http_url required' in str(result.exception)
-
-
-def test_dispatcher_run_raises_when_redis_url_missing():
-    '''cli/dispatcher.py run() raises DiscordBotException when redis_url is absent.'''
-    with NamedTemporaryFile(suffix='.yml') as temp_config:
-        config_data = {'general': {'discord_token': 'foo'}}
-        with open(temp_config.name, 'w', encoding='utf-8') as writer:
-            dump(config_data, writer)
-        runner = CliRunner()
-        result = runner.invoke(dispatcher_main, [temp_config.name])
-        assert 'Redis required' in str(result.exception)
+    result = invoke_with_config(main, {'general': {'discord_token': 'foo',
+                                                   'dispatch_http_url': 'http://localhost:8082'}})
+    assert 'commands_http_url required' in str(result.exception)

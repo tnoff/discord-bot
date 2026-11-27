@@ -3,7 +3,7 @@ Tests for the AsyncioDownloadClient wrapper.
 
 The wrapper is a thin delegator around a DownloadWorkerBase engine
 (the in-memory AsyncioDownloadWorker); these tests assert every method and
-property forwards to the wrapped worker, mirroring tests/clients/test_broker_client.py.
+property forwards to the wrapped worker, mirroring discord_broker/tests/clients/test_broker_client.py.
 '''
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
