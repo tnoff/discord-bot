@@ -15,29 +15,10 @@ from typing import Any
 from aiohttp.test_utils import TestClient, TestServer
 from pydantic import BaseModel
 
-
-@dataclass(frozen=True)
-class Reply:
-    '''One documented answer. ``models`` is empty for a bodyless status and holds several for a
-    route that answers one status with different bodies (a hit and a miss, say), which the
-    document states as ``oneOf``.'''
-    status: int
-    models: tuple[type[BaseModel], ...] = ()
-    description: str = ''
+from testing.contracts.model import Contract, Query, Reply, reply
 
 
-def reply(status: int, *models: type[BaseModel], doc: str = '') -> Reply:
-    '''A ``Reply`` with the models given positionally.'''
-    return Reply(status, tuple(models), doc)
-
-
-@dataclass(frozen=True)
-class Query:
-    '''One query-string parameter.'''
-    name: str
-    type: type = str
-    required: bool = False
-    description: str = ''
+__all__ = ['Call', 'Contract', 'Env', 'Operation', 'Query', 'Reply', 'Surface', 'operation', 'reply', 'serving']
 
 
 @dataclass(frozen=True)
@@ -60,14 +41,15 @@ class Call:
 
 
 @dataclass(frozen=True)
-class Operation:
-    '''What one route takes, what it answers, and the calls that show it.'''
-    summary: str
-    replies: tuple[Reply, ...]
-    calls: tuple[Call, ...]
-    request: type[BaseModel] | None = None
-    path: Mapping[str, type] = field(default_factory=dict)
-    query: tuple[Query, ...] = ()
+class Operation(Contract):
+    '''A route's contract plus the calls that show it against the real handler.'''
+    calls: tuple[Call, ...] = ()
+
+
+def operation(contract: Contract, calls: tuple) -> Operation:
+    '''``contract`` with the calls that prove it.'''
+    return Operation(contract.summary, replies=contract.replies, request=contract.request,
+                     path=contract.path, query=contract.query, calls=calls)
 
 
 @dataclass

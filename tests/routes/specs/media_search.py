@@ -1,12 +1,11 @@
 '''
-The media-search seam: expanding a Spotify or YouTube URL into a list of searches.
+The media-search seam, proved against the search pod's real server.
 
-A provider that says "no such playlist" is an answer, so it comes back as a 200 with ``error``
-set; only a malformed request is a 4xx.
+What each route takes and answers is the shared contract (`testing/contracts/media_search.py`, which the
+commands pod's client tests read too); this module adds what only the serving pod can: a live server over a
+provider fake, and the calls that make it produce every declared reply.
 '''
 from unittest.mock import AsyncMock
-
-from pydantic import BaseModel, model_validator
 
 from discord_core.exceptions import MediaSearchError
 from discord_core.routes import media_search as media_search_routes
@@ -15,27 +14,8 @@ from discord_core.types.media_search import MediaSearchResponse
 
 from discord_search.servers.media_search_server import MediaSearchHttpServer
 
-from tests.routes.specs._model import Call, Operation, reply, serving
-
-
-class SpotifyBody(BaseModel):
-    '''POST /search/spotify: exactly one of the three ids.'''
-    playlist_id: str | None = None
-    album_id: str | None = None
-    track_id: str | None = None
-
-    @model_validator(mode='after')
-    def exactly_one(self) -> 'SpotifyBody':
-        '''The pod refuses none and refuses several.'''
-        if sum(value is not None for value in (self.playlist_id, self.album_id, self.track_id)) != 1:
-            raise ValueError('give exactly one of playlist_id, album_id and track_id')
-        return self
-
-
-class YoutubeBody(BaseModel):
-    '''POST /search/youtube'''
-    playlist_id: str
-
+from testing.contracts.media_search import CONTRACTS
+from tests.routes.specs._model import Call, operation, serving
 
 CATALOG = CatalogResponse(items=[CatalogItem(search_string='a song', title='A Song')],
                           collection_name='a list')
@@ -64,14 +44,6 @@ def _calls(body: dict) -> tuple:
 
 
 OPERATIONS = {
-    media_search_routes.SPOTIFY: Operation(
-        'Expand a Spotify playlist, album or track.', request=SpotifyBody,
-        replies=(reply(200, MediaSearchResponse, doc='A `catalog`, or an `error` from the provider.'),
-                 reply(422, doc='Not exactly one id.')),
-        calls=_calls({'playlist_id': 'abc'})),
-    media_search_routes.YOUTUBE: Operation(
-        'Expand a YouTube playlist.', request=YoutubeBody,
-        replies=(reply(200, MediaSearchResponse, doc='A `catalog`, or an `error` from the provider.'),
-                 reply(422, doc='No playlist_id.')),
-        calls=_calls({'playlist_id': 'abc'})),
+    media_search_routes.SPOTIFY: operation(CONTRACTS[media_search_routes.SPOTIFY], _calls({'playlist_id': 'abc'})),
+    media_search_routes.YOUTUBE: operation(CONTRACTS[media_search_routes.YOUTUBE], _calls({'playlist_id': 'abc'})),
 }
