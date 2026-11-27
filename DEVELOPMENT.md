@@ -107,7 +107,8 @@ pinned `discord_core` and the shared test infrastructure in `testing/` (fakes, h
 code, and core's tests import no pod at all. Anything that needs two pods (a real HTTP client in one
 pod tested against a real server in another, the CI import-boundary/build-filter checks) is an integration
 test and lives in the central `tests/` at repo root; `tests/checks/test_package_test_imports.py` enforces it, with no exceptions; the integration tests are in
-`tests/integration/`, one directory per seam.
+`tests/integration/`, one directory per seam, named `<client>_to_<server>` (`commands_to_search`: the bot's commands pod
+calling the search pod).
 
 **Testing a seam: contract first, one round trip last.** A pod-to-pod seam is tested from each end against one
 description of it, so neither end needs the other pod. The description is a `Contract` per route
@@ -116,14 +117,14 @@ pod proves its handlers against it (`tests/routes/` runs every declared reply on
 `tests/servers/` cover the behaviour around that over raw HTTP). The *client* pod tests its client against a
 `ContractStub` (`testing/contracts/stub.py`) that serves the contract: the stub fails the test if the client sends a
 body the request model refuses, and refuses to play a reply the contract does not declare. What neither end can
-show alone is that a value *means* the same thing on both sides, so `tests/integration/<seam>/` keeps one round
+show alone is that a value *means* the same thing on both sides, so `tests/integration/<client>_to_<server>/` keeps one round
 trip per route against the real server. Media search is the first seam done this way; the rest still have the
 older wire tests in `tests/integration/` and are being converted.
 
 The repo-root folders besides the packages: `testing/` (the shared test infrastructure the pods' tests import: `helpers`,
 `db_helpers`, the `*_suite` bases, and `fakes/`, the test doubles; it holds no tests), `tests/` (the tests that belong
 to no single pod: `routes/` the pods' OpenAPI contracts, `integration/` the two-pod tests, `checks/` repo-wide
-conventions and the generated-doc checks, `fakes/` the tests of the doubles, `ci/` the tests of the CI tooling) and `ci/`, the CI and doc tooling itself (change selection, the image build filter,
+conventions, the generated-doc checks and the few tests that read two pods to pin a shared value or shape, `fakes/` the tests of the doubles, `ci/` the tests of the CI tooling) and `ci/`, the CI and doc tooling itself (change selection, the image build filter,
 version and pin checks, the generators behind the generated doc blocks). `ci/` is not a package and ships in no
 image; it is run as `python -m ci._<name>`. **Run pytest with no path argument** — passing
 `tests/` explicitly collects only the central tree and silently skips the

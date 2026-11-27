@@ -65,7 +65,7 @@ test and lives in the central `tests/` at repo root.
 `tests/checks/test_package_test_imports.py` enforces it, with no exceptions. A test that needs
 only a model class or a patch target of another pod reaches it through the shared
 helpers (`testing/db_helpers.py`, `testing/fakes/in_process_stack.py`); one that needs two pods
-goes in `tests/integration/<seam>/`. Run pytest with **no path argument** — bare `pytest --cov ...`
+goes in `tests/integration/<client>_to_<server>/` (or `tests/checks/` when it pins a shared value rather than exercising a seam). Run pytest with **no path argument** — bare `pytest --cov ...`
 from repo root, exactly as `tox.ini` does. Passing `tests/` explicitly
 collects only the central tree and silently skips the other seven; this
 already broke CI once (PR #1005) before the invocation was fixed.
