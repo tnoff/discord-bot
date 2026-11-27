@@ -136,6 +136,8 @@ async def test_malformed_json_is_refused(route):
     (routes.YOUTUBE, {}),
     (routes.YOUTUBE, {'playlist_id': 'a'}),
     (routes.YOUTUBE, {'playlist_id': 'a', 'extra': 1}),
+    (routes.YOUTUBE, {'playlist_id': ''}),
+    (routes.SPOTIFY, {'playlist_id': ''}),
 ])
 async def test_the_server_accepts_exactly_what_the_contract_accepts(route, body):
     '''The request model the commands pod's client is held to is the one this server enforces.'''

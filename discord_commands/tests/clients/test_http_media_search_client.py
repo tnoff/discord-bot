@@ -118,6 +118,16 @@ async def test_client_rejects_no_id_without_a_round_trip():
 
 
 @pytest.mark.asyncio
+async def test_client_rejects_two_ids_without_a_round_trip():
+    '''Two ids is refused by the shared request model before anything is sent, as a ValueError.'''
+    stub = ContractStub(CONTRACTS)
+    async with serving(stub) as tc:
+        with pytest.raises(ValueError):
+            await _client(tc).spotify_source(album_id='a', track_id='b')
+    assert not stub.calls
+
+
+@pytest.mark.asyncio
 async def test_the_stub_refuses_a_reply_the_contract_does_not_declare():
     '''The guard the other tests lean on: a test cannot make the pod say something it never says.'''
     stub = ContractStub(CONTRACTS)
