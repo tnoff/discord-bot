@@ -1,6 +1,6 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch, Mock, AsyncMock
+from unittest.mock import Mock, AsyncMock
 
 import asyncio
 
@@ -27,7 +27,7 @@ from tests.helpers import fake_context  #pylint:disable=unused-import
 from tests.db_helpers import fake_engine, async_mock_session  #pylint:disable=unused-import
 from tests.helpers import FakeChannel
 from tests.helpers import merge_config_blocks
-from tests.fakes.in_process_stack import attach_in_process_broker, attach_in_process_download, queue_in_broker
+from tests.fakes.in_process_stack import attach_in_process_broker, attach_in_process_download, queue_in_broker, patch_download_ytdl
 
 
 BASE_MUSIC_CONFIG = {
@@ -441,7 +441,7 @@ def test_music_init_with_custom_ytdl_options(fake_context):  #pylint:disable=red
         }
     })
 
-    with patch('discord_downloader.interfaces.download_protocols.YoutubeDL') as mock_ytdl:
+    with patch_download_ytdl() as mock_ytdl:
         cog = Music(fake_context['bot'], config, fake_context['dispatcher'])
         # The cog builds no worker any more, so the merge happens where the
         # downloader pod does it. attach_in_process_download stands in for the pod

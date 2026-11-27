@@ -11,9 +11,8 @@ from discord_core.types.search import SearchResult
 from discord_commands.types.playlist_add_result import PlaylistAddResult
 from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
-from discord_db.database import Playlist, PlaylistItem
 
-from tests.db_helpers import async_mock_session
+from tests.db_helpers import async_mock_session, Playlist, PlaylistItem
 from tests.helpers import fake_context  #pylint:disable=unused-import
 from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
 from tests.results_pod import ResultsPod, music_settings

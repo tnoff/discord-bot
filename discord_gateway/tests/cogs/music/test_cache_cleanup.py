@@ -7,13 +7,12 @@ from sqlalchemy.sql.functions import count as sql_count
 from discord_gateway.cogs.music import Music
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 from discord_gateway.tests.cogs.test_music import music_config
-from discord_db.database import VideoCache
 
 from tests.helpers import downloaded_from_context
-from tests.db_helpers import async_mock_session
+from tests.db_helpers import async_mock_session, VideoCache
 from tests.helpers import fake_context  #pylint:disable=unused-import
 from tests.db_helpers import fake_engine  #pylint:disable=unused-import
-from tests.fakes.in_process_stack import attach_in_process_broker
+from tests.fakes.in_process_stack import attach_in_process_broker, patch_in_process_delete, patch_in_process_upload
 
 
 @pytest.mark.asyncio
@@ -37,7 +36,7 @@ async def test_cache_cleanup_s3_upload_in_download_client(fake_engine, mocker, f
     mocker.patch('discord_gateway.cogs.music.sleep', return_value=True)
     mocker.patch.object(MusicPlayer, 'start_tasks')
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
-    upload_mock = mocker.patch('discord_downloader.interfaces.download_protocols.upload_file', return_value=True)
+    upload_mock = patch_in_process_upload(mocker)
     with downloaded_from_context(fake_context) as sd:
         # Simulate what AsyncioDownloadClient does: upload then register with S3 key
         s3_key = f'cache/{sd.media_request.uuid}.mp3'
@@ -73,7 +72,7 @@ async def test_cache_cleanup_removes(fake_engine, mocker, fake_context):  #pylin
     await cog.get_player(fake_context['guild'].id, ctx=fake_context['context'])
     with downloaded_from_context(fake_context) as sd:
         with downloaded_from_context(fake_context) as sd2:
-            delete_mock = mocker.patch('discord_broker.interfaces.broker_protocols.delete_file_async', return_value=True)
+            delete_mock = patch_in_process_delete(mocker)
             # Register via iterate_file only (no S3 upload — simulates pre-existing cache rows)
             await broker.video_cache.iterate_file(sd)
             await broker.video_cache.iterate_file(sd2)
