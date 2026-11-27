@@ -7,6 +7,11 @@ on:
   schedule:
     - cron: '24 4 * * 1'
   workflow_dispatch:
+    inputs:
+      run_tests:
+        description: 'Also run the full tox suite (the weekly schedule always does)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -46,6 +51,9 @@ jobs:
   # Same pin and inputs as ci.yml's `tox` job; keep them in step.
   tox:
     name: Tox (full suite)
+    # A manual run is usually just to kick Renovate, so it skips this unless asked;
+    # the weekly schedule has no inputs and always runs it.
+    if: github.event_name == 'schedule' || inputs.run_tests
     uses: tnoff/github-workflows/.github/workflows/tox.yml@fd3bbf52e18c2edfa3d6fe015bed6f7056cfa777  # tox-v1.0.2
     with:
       extra_apt: 'ffmpeg'
