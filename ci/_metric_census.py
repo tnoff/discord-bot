@@ -20,11 +20,11 @@ import ast
 from dataclasses import dataclass
 from pathlib import Path
 
-from tests.cli._doc_blocks import exempt_table, replace_block
-from tests.cli._otel_resolve import CallSiteVisitor, Corpus, pod_of, unparse
-from tests.cli._roots import SERVICE_ROOTS, CORE_ROOT
+from ci._doc_blocks import exempt_table, replace_block
+from ci._otel_resolve import CallSiteVisitor, Corpus, pod_of, unparse
+from ci._roots import SERVICE_ROOTS, CORE_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 METRICS_REFERENCE_DOC = REPO_ROOT / 'docs' / 'monitoring' / 'metrics_reference.md'
 
 _CALL_NAME = 'create_observable_gauge'
@@ -34,16 +34,16 @@ _POD_LABELS = {root: name for name, root in SERVICE_ROOTS.items()}
 _POD_LABELS[CORE_ROOT] = 'core (shared)'
 
 _BEGIN_CENSUS = (
-    '<!-- BEGIN GENERATED(metric-census) by tests/cli/test_metric_census.py. '
+    '<!-- BEGIN GENERATED(metric-census) by tests/checks/test_metric_census.py. '
     'Do not edit this block by hand.\n     '
-    'Regenerate with: UPDATE_METRIC_CENSUS=1 pytest tests/cli/test_metric_census.py -->'
+    'Regenerate with: UPDATE_METRIC_CENSUS=1 pytest tests/checks/test_metric_census.py -->'
 )
 _END_CENSUS = '<!-- END GENERATED(metric-census) -->'
 
 _BEGIN_EXEMPT = (
-    '<!-- BEGIN GENERATED(metric-exempt-appendix) by tests/cli/test_metric_census.py. '
+    '<!-- BEGIN GENERATED(metric-exempt-appendix) by tests/checks/test_metric_census.py. '
     'Do not edit this block by hand.\n     '
-    'Regenerate with: UPDATE_METRIC_CENSUS=1 pytest tests/cli/test_metric_census.py -->'
+    'Regenerate with: UPDATE_METRIC_CENSUS=1 pytest tests/checks/test_metric_census.py -->'
 )
 _END_EXEMPT = '<!-- END GENERATED(metric-exempt-appendix) -->'
 
@@ -174,7 +174,7 @@ def _exempt_appendix(exempt: list) -> str:
         'reduce every argument of to a literal, repo-wide. Each one is a',
         'genuine runtime value (a pod label interpolated into a description,',
         'a for-loop binding `description` across four literal strings), not a',
-        'gap in the resolver: see `tests/cli/_otel_resolve.py`.',
+        'gap in the resolver: see `ci/_otel_resolve.py`.',
         '',
         *exempt_table(rows),
     ]

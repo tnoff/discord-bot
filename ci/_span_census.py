@@ -23,11 +23,11 @@ import ast
 from dataclasses import dataclass
 from pathlib import Path
 
-from tests.cli._doc_blocks import exempt_table, replace_block
-from tests.cli._otel_resolve import CallSiteVisitor, Corpus, pod_of, unparse
-from tests.cli._roots import SERVICE_ROOTS, CORE_ROOT
+from ci._doc_blocks import exempt_table, replace_block
+from ci._otel_resolve import CallSiteVisitor, Corpus, pod_of, unparse
+from ci._roots import SERVICE_ROOTS, CORE_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 TRACE_LINKING_DOC = REPO_ROOT / 'docs' / 'monitoring' / 'trace_linking.md'
 
 _WRAPPER_NAMES = ('otel_span_wrapper', 'async_otel_span_wrapper')
@@ -40,16 +40,16 @@ _POD_LABELS[CORE_ROOT] = 'core (shared)'
 _DISPATCHER_PREFIXES = ('dispatch.', 'dispatch_client.', 'message_dispatcher.')
 
 _BEGIN_DISPATCHER = (
-    '<!-- BEGIN GENERATED(dispatcher-span-table) by tests/cli/test_span_census.py. '
+    '<!-- BEGIN GENERATED(dispatcher-span-table) by tests/checks/test_span_census.py. '
     'Do not edit this block by hand.\n     '
-    'Regenerate with: UPDATE_SPAN_CENSUS=1 pytest tests/cli/test_span_census.py -->'
+    'Regenerate with: UPDATE_SPAN_CENSUS=1 pytest tests/checks/test_span_census.py -->'
 )
 _END_DISPATCHER = '<!-- END GENERATED(dispatcher-span-table) -->'
 
 _BEGIN_EXEMPT = (
-    '<!-- BEGIN GENERATED(exempt-span-appendix) by tests/cli/test_span_census.py. '
+    '<!-- BEGIN GENERATED(exempt-span-appendix) by tests/checks/test_span_census.py. '
     'Do not edit this block by hand.\n     '
-    'Regenerate with: UPDATE_SPAN_CENSUS=1 pytest tests/cli/test_span_census.py -->'
+    'Regenerate with: UPDATE_SPAN_CENSUS=1 pytest tests/checks/test_span_census.py -->'
 )
 _END_EXEMPT = '<!-- END GENERATED(exempt-span-appendix) -->'
 
@@ -159,7 +159,7 @@ def _exempt_appendix(exempt: list) -> str:
         "census can't reduce to a literal string, repo-wide -- not just the",
         'dispatcher. Each one is a genuine runtime value (a route name passed',
         'as a parameter, a Discord command name resolved from `ctx`), not a',
-        'gap in the resolver: see `tests/cli/_otel_resolve.py` for exactly',
+        'gap in the resolver: see `ci/_otel_resolve.py` for exactly',
         'which constructs it does and does not follow.',
         '',
         *exempt_table(rows),

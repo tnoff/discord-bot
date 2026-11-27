@@ -29,7 +29,7 @@ from pydantic.json_schema import models_json_schema
 
 from discord_core.routes.route import Route
 
-from tests.cli._image_deps import REPO_ROOT
+from ci._image_deps import REPO_ROOT
 from tests.routes._seam_servers import SEAMS, served
 from tests.routes.specs import SURFACES
 

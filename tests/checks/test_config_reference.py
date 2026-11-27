@@ -4,20 +4,20 @@ and the assertions that keep it honest.
 
 Generated straight from each pod's own `cli/<entrypoint>.py` module docstring
 via `ast`, rather than a second hand-maintained copy -- this project's
-documented reason every other `tests/cli/_*.py` generator exists (see
+documented reason every other `ci/_*.py` generator exists (see
 _seam_topology.py, _span_census.py).
 '''
 import os
 
 import pytest
 
-import tests.cli._config_reference as config_reference
-from tests.cli._config_reference import (
+import ci._config_reference as config_reference
+from ci._config_reference import (
     CONFIGURATION_DOC, POD_ORDER, configure_with_block, entrypoint_module,
     render_configuration_doc,
 )
-from tests.cli._image_deps import IMAGE_NAMES
-from tests.cli._roots import SERVICE_ROOTS
+from ci._image_deps import IMAGE_NAMES
+from ci._roots import SERVICE_ROOTS
 
 
 def test_pod_order_covers_exactly_the_six_pods():
@@ -80,7 +80,7 @@ def test_config_reference_doc_is_current():
     '''The generated per-pod block in docs/configuration.md matches a live
     read of every entrypoint's own docstring.
 
-    Regenerate with: UPDATE_CONFIG_REFERENCE=1 pytest tests/cli/test_config_reference.py
+    Regenerate with: UPDATE_CONFIG_REFERENCE=1 pytest tests/checks/test_config_reference.py
     '''
     original = CONFIGURATION_DOC.read_text(encoding='utf-8')
     rendered = render_configuration_doc(original)
@@ -89,5 +89,5 @@ def test_config_reference_doc_is_current():
         original = rendered
     assert original == rendered, (
         'docs/configuration.md\'s per-pod config reference is out of date. Regenerate with:\n'
-        '    UPDATE_CONFIG_REFERENCE=1 pytest tests/cli/test_config_reference.py'
+        '    UPDATE_CONFIG_REFERENCE=1 pytest tests/checks/test_config_reference.py'
     )

@@ -19,7 +19,7 @@ from discord_core.interfaces.database_protocols import (
 )
 from discord_core.types.markov import MarkovChannelEntry, MarkovMessageWrite
 
-from tests.cli._image_deps import measure
+from ci._image_deps import measure
 
 
 def test_database_protocols_imports_no_third_party_package():

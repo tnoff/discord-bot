@@ -48,8 +48,8 @@ jobs:
   # per-image answer; this one was never wired to it, so the saving stopped at
   # the PR and the merge rebuilt everything anyway.
   #
-  # The mapping is tests/cli/_affected_images.py against the measured closure in
-  # tests/cli/image-closure.json -- the same call ci.yml makes, so a PR cannot
+  # The mapping is ci/_affected_images.py against the measured closure in
+  # ci/image-closure.json -- the same call ci.yml makes, so a PR cannot
   # build one set of images and its own merge release another.
   #
   # Differences from ci.yml, both forced by the event: the base is
@@ -81,7 +81,7 @@ jobs:
           set -euo pipefail
           ZERO=0000000000000000000000000000000000000000
           # Every image the closure knows about: the fail-open answer.
-          ALL="$(python3 -c "import json; print(json.dumps(sorted(i['image'] for i in json.load(open('tests/cli/image-closure.json'))['images'])))")"
+          ALL="$(python3 -c "import json; print(json.dumps(sorted(i['image'] for i in json.load(open('ci/image-closure.json'))['images'])))")"
           if [ -z "${BEFORE}" ] || [ "${BEFORE}" = "${ZERO}" ] \
              || ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
             echo "no usable base ref (${BEFORE:-empty}) -- building all"
@@ -89,7 +89,7 @@ jobs:
             exit 0
           fi
           # Diagnostics go to stderr (the job log), `images=...` to stdout.
-          if OUT="$(python3 -m tests.cli._affected_images --base "${BEFORE}" --head "${AFTER}")"; then
+          if OUT="$(python3 -m ci._affected_images --base "${BEFORE}" --head "${AFTER}")"; then
             IMAGES="$(printf '%s\n' "${OUT}" | sed -n 's/^images=//p')"
           else
             echo "::warning::_affected_images failed -- building all"
@@ -100,7 +100,7 @@ jobs:
 
   # Folds every package's own changelog.d/ into that package's CHANGELOG.md, in
   # ONE commit and one push -- seven folds would be seven pushes and seven
-  # follow-up runs. The package list is tests/cli/_package_versions.py's
+  # follow-up runs. The package list is ci/_package_versions.py's
   # `--list-all`, the same declared set `package-tags` below and the PR-side
   # `bump-version` read. There is no repo-wide VERSION or CHANGELOG to fold into
   # any more: root CHANGELOG.md is history through 3.0.0.
@@ -110,7 +110,7 @@ jobs:
       contents: write
     uses: tnoff/github-workflows/.github/workflows/assemble-changelog.yml@c804443f159eee3ebaece0dc57174cfc3387f4b3  # assemble-changelog-v1.1.1
     with:
-      version_files_command: python3 -m tests.cli._package_versions --list-all
+      version_files_command: python3 -m ci._package_versions --list-all
     secrets:
       app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
       app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
@@ -125,7 +125,7 @@ jobs:
   # exact failure mode a per-package copy-paste here would repeat, and the
   # lesson this repo already paid for is "loop over one declared source",
   # not "copy carefully". The short-name table is PACKAGE_ROOTS in
-  # tests/cli/_package_versions.py, the same module the `package-versions`
+  # ci/_package_versions.py, the same module the `package-versions`
   # job in ci.yml imports -- not a second table hand-written here.
   #
   # Cannot reuse the shared tag.yml workflow: its tag format is hardcoded to a
@@ -178,11 +178,11 @@ jobs:
             exit 0
           fi
           # short-name -> import-root, read straight from the one place this
-          # repo declares it (PACKAGE_ROOTS in tests/cli/_package_versions.py)
+          # repo declares it (PACKAGE_ROOTS in ci/_package_versions.py)
           # rather than a second copy here. Standard library only, no install
           # step needed, same property _package_versions.py itself relies on.
           python3 <<'PY' > /tmp/package-roots.txt
-          from tests.cli._package_versions import PACKAGE_ROOTS
+          from ci._package_versions import PACKAGE_ROOTS
           for short, root in sorted(PACKAGE_ROOTS.items()):
               print(f'{short} {root}')
           PY

@@ -31,7 +31,7 @@ Run by ci.yml's "Detect discord_core pin drift" job, which has no installed
 package and no dependencies -- so, like `_affected_images.py` and
 `_package_versions.py`, everything here is standard library:
 
-    python3 -m tests.cli._package_pins
+    python3 -m ci._package_pins
 
 NO VERSION-COMPARISON LOGIC
 ----------------------------
@@ -48,9 +48,9 @@ import sys
 import tomllib
 from pathlib import Path
 
-from tests.cli._roots import CORE_ROOT, SERVICE_ROOTS
+from ci._roots import CORE_ROOT, SERVICE_ROOTS
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 #: Every pod this convention covers. CORE_ROOT itself is excluded -- there is
 #: nothing for discord_core to pin against its own name, and its
@@ -148,7 +148,7 @@ def main(argv=None) -> int:
             print(f'  {root}: {shown}', file=sys.stderr)
         print(
             '\nAll six pods must pin the IDENTICAL discord-core tag -- see '
-            'tests/cli/_package_pins.py. Bump every pod\'s pin together, in one '
+            'ci/_package_pins.py. Bump every pod\'s pin together, in one '
             'coordinated PR, whenever discord_core releases a new tag.',
             file=sys.stderr)
         return 1

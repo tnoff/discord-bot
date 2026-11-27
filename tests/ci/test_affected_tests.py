@@ -24,13 +24,13 @@ import re
 
 import pytest
 
-from tests.cli import _affected_tests as affected_tests
-from tests.cli._affected_tests import (CENTRAL_INPUTS, CONFTEST, PACKAGE_INPUTS, PACKAGES, ImportGraph,
+from ci import _affected_tests as affected_tests
+from ci._affected_tests import (CENTRAL_INPUTS, CONFTEST, PACKAGE_INPUTS, PACKAGES, ImportGraph,
                                        Selection, changed_node, is_central_input, main, package_input_owner,
                                        referenced_modules, repo_reads, select)
-from tests.cli._package_pins import REPO_ROOT as PINS_REPO_ROOT, POD_ROOTS, declared_core_pin
-from tests.cli._roots import CORE_ROOT, SERVICE_ROOTS
-from tests.cli._scratch_repo import commit, init_scratch_repo
+from ci._package_pins import REPO_ROOT as PINS_REPO_ROOT, POD_ROOTS, declared_core_pin
+from ci._roots import CORE_ROOT, SERVICE_ROOTS
+from ci._scratch_repo import commit, init_scratch_repo
 
 SYNTHETIC = ('pkg_core', 'pod_a', 'pod_b', 'pod_c', 'pod_d')
 
@@ -161,19 +161,19 @@ def test_no_changes_runs_everything(tree):  # pylint: disable=redefined-outer-na
 
 
 def test_literals_in_ci_tooling_are_not_edges(tree):  # pylint: disable=redefined-outer-name
-    '''tests/cli/_*.py holds tables of module names as DATA. Counting them would make every test that
+    '''ci/_*.py holds tables of module names as DATA. Counting them would make every test that
     merely calls the tooling depend on every pod.'''
-    _write(tree.repo_root, 'tests/cli/__init__.py')
-    _write(tree.repo_root, 'tests/cli/_table.py', 'IMAGES = {"a": "pod_a.mod"}\n')
-    _write(tree.repo_root, 'pod_d/tests/test_patches.py', 'from tests.cli._table import IMAGES\n')
+    _write(tree.repo_root, 'ci/__init__.py')
+    _write(tree.repo_root, 'ci/_table.py', 'IMAGES = {"a": "pod_a.mod"}\n')
+    _write(tree.repo_root, 'pod_d/tests/test_patches.py', 'from ci._table import IMAGES\n')
     assert _packages(tree, 'pod_a/mod.py') == ('pod_a', 'pod_b', 'pod_c')
 
 
 def test_real_imports_in_ci_tooling_are_still_edges(tree):  # pylint: disable=redefined-outer-name
     '''The exemption is for string constants only.'''
-    _write(tree.repo_root, 'tests/cli/__init__.py')
-    _write(tree.repo_root, 'tests/cli/_table.py', 'import pod_a.mod\n')
-    _write(tree.repo_root, 'pod_d/tests/test_patches.py', 'from tests.cli._table import x\n')
+    _write(tree.repo_root, 'ci/__init__.py')
+    _write(tree.repo_root, 'ci/_table.py', 'import pod_a.mod\n')
+    _write(tree.repo_root, 'pod_d/tests/test_patches.py', 'from ci._table import x\n')
     assert 'pod_d' in _packages(tree, 'pod_a/mod.py')
 
 
@@ -253,7 +253,7 @@ def test_central_inputs_select_no_package_and_only_the_files_that_always_run(tre
     ('docs/architecture.md', True), ('docs/configuration.md', True), ('.github/workflows/ci.yml', True),
     ('docker/Dockerfile.db', True), ('catalog-info.yaml', True), ('.dockerignore', True),
     ('.pylintrc', True), ('.pylintrc.test', True), ('.pylintrc.bak', False),
-    ('tests/cli/image-closure.json', True),
+    ('ci/image-closure.json', True),
     # Close but not on the list: a prefix needs its slash, a file is exact.
     ('docs/openapi', False), ('docker', False), ('.github', False), ('docs/music.md', False),
     ('catalog-info.yaml.bak', False), ('alembic/env.py', False), ('pyproject.toml', False),
@@ -261,6 +261,19 @@ def test_central_inputs_select_no_package_and_only_the_files_that_always_run(tre
 def test_is_central_input(path, expected):
     '''Prefixes end in a slash, files are exact.'''
     assert is_central_input(path) is expected
+
+
+def test_a_change_to_the_ci_tooling_is_a_node_and_reaches_the_central_files_that_import_it(tree):  # pylint: disable=redefined-outer-name
+    '''ci/ is CI tooling, not a package: a .py change in it is an ordinary graph node (not "everything"), and what it
+    reaches is the central test that imports it, plus the files that read the repo.'''
+    _write(tree.repo_root, 'ci/__init__.py')
+    _write(tree.repo_root, 'ci/_tool.py', 'VALUE = 1\n')
+    _write(tree.repo_root, 'tests/test_uses_tool.py', 'from ci._tool import VALUE\n\n\ndef test_x():\n    assert VALUE\n')
+    assert changed_node('ci/_tool.py', tree) == ('file', 'ci/_tool.py')
+    selection = select(['ci/_tool.py'], tree)
+    assert not selection.everything
+    assert selection.packages == ()
+    assert selection.central == ('tests/test_reads_docs.py', 'tests/test_reads_via_helper.py', 'tests/test_uses_tool.py')
 
 
 def test_a_pod_change_runs_the_central_files_that_import_it_plus_the_readers(tree):  # pylint: disable=redefined-outer-name
@@ -445,7 +458,7 @@ def test_the_known_repo_readers_always_run_and_plenty_still_narrow():
     must not have swallowed everything.'''
     graph = ImportGraph()
     always = {path for path in graph.central_tests() if graph.reads_repo(path)}
-    for reader in ('tests/cli/test_import_boundaries.py', 'tests/cli/test_package_pins.py',
+    for reader in ('tests/checks/test_import_boundaries.py', 'tests/checks/test_package_pins.py',
                    'tests/checks/test_catalog_apis.py', 'tests/routes/test_openapi_docs.py'):
         assert reader in always, f'{reader} reads the repo but would be skipped'
     selectable = set(graph.central_tests()) - always
@@ -466,7 +479,7 @@ def test_every_central_input_exists():
 
 # Package test code may import these from a central module that otherwise reads the repo: the one call
 # made there does not.
-_ALLOWED_READER_IMPORTS = {'tests.cli._image_deps': {'measure'}}
+_ALLOWED_READER_IMPORTS = {'ci._image_deps': {'measure'}}
 _INPUT_WORDS = ('docs', 'docker', '.github', 'catalog-info.yaml', '.dockerignore', '.pylintrc', '.pylintrc.test',
                 'image-closure.json')
 

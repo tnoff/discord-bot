@@ -6,7 +6,7 @@ so the cases that matter -- a deletion, a test-only dependency bump, a file no
 image claims -- are stated directly instead of being staged as commits.
 
 The closure fixtures are deliberately tiny and hand-written. Using the real
-tests/cli/image-closure.json would make these tests restate whatever the tree
+ci/image-closure.json would make these tests restate whatever the tree
 happens to look like today, so a regression would change the fixture and the
 expectation together and assert nothing.
 '''
@@ -14,14 +14,16 @@ import json
 
 import pytest
 
-import tests.cli._run_tests as run_tests
-from tests.cli._affected_images import (
+import ci._run_tests as run_tests
+from ci._affected_images import (
     affected, images_for_pyproject, module_for,
 )
-from tests.cli._affected_tests import Selection
-from tests.cli._image_deps import CLOSURE_DOC, REPO_ROOT
-from tests.cli._roots import LEGACY_ROOT, ROOTS, SHIPS_AHEAD_OF_CONSUMER
+from ci._affected_tests import Selection
+from ci._image_deps import CLOSURE_DOC, REPO_ROOT
+from ci._roots import LEGACY_ROOT, ROOTS, SHIPS_AHEAD_OF_CONSUMER
 
+
+NOT_PACKAGES = frozenset({'ci'})
 
 CLOSURE = {'images': [
     {'image': 'bot', 'entrypoint': 'discord_bot.cli.bot', 'dockerfile': 'docker/Dockerfile.gateway',
@@ -331,7 +333,7 @@ def test_release_yml_gates_each_push_on_its_own_image():
     an image to the closure without a gated `push-<image>` job fails.
     """
     workflow = (REPO_ROOT / '.github/workflows/release.yml').read_text(encoding='utf-8')
-    assert 'tests.cli._affected_images' in workflow, 'release.yml no longer uses the shared filter'
+    assert 'ci._affected_images' in workflow, 'release.yml no longer uses the shared filter'
     assert "outputs.image ==" not in workflow, 'a single all-six boolean gate is back'
     closure = json.loads(CLOSURE_DOC.read_text(encoding='utf-8'))
     for image in (i['image'] for i in closure['images']):
@@ -363,9 +365,10 @@ def test_the_declared_roots_are_exactly_the_packages_on_disk():
     removing the recognition itself is not required by any move, only by a
     choice to stop supporting it.
     """
+    # `ci/` is importable (`python -m ci._run_tests`) but is the CI tooling, not a package that ships.
     on_disk = {entry.name for entry in REPO_ROOT.iterdir()
                if entry.is_dir() and (entry / '__init__.py').is_file()
-               and not entry.name.startswith(('.', 'test'))}
+               and not entry.name.startswith(('.', 'test')) and entry.name not in NOT_PACKAGES}
     undeclared = on_disk - ROOTS
     assert not undeclared, (
         f'these importable top-level packages are not declared in _roots.py: '
@@ -424,11 +427,11 @@ def test_the_tox_gates_cover_every_root_on_disk():
     # testing each <source>, and a name under several roots resolves to the
     # first that exists. Measured at the media_search move: four names collided
     # and coverage.xml held one entry for each instead of three.
-    # The pytest invocations moved out of tox.ini into tests/cli/_run_tests.py, so the checks on
+    # The pytest invocations moved out of tox.ini into ci/_run_tests.py, so the checks on
     # them follow: tox.ini must still CALL that driver (or no test would run at all), and every
     # command it can issue must use bare --cov.
-    assert 'python -m tests.cli._run_tests' in tox, (
-        'tox.ini no longer runs tests/cli/_run_tests.py, which is where pytest is invoked now.'
+    assert 'python -m ci._run_tests' in tox, (
+        'tox.ini no longer runs ci/_run_tests.py, which is where pytest is invoked now.'
     )
     commands = [
         *run_tests.full_plan('python'),

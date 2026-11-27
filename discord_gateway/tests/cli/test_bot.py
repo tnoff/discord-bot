@@ -514,7 +514,7 @@ async def test_main_with_tracing_block(mocker):
     A ConfigMap carrying the monitoring.tracing block starts clean.
 
     The counterpart to the retired-keys test above, over the same yaml -> click ->
-    pydantic path the deployed ConfigMap actually takes. tests/cli/test_tracing_wiring.py
+    pydantic path the deployed ConfigMap actually takes. tests/checks/test_tracing_wiring.py
     proves the values reach the objects that read them; this proves the block
     parses where it is really written, with every toggle in its non-default
     position so a typo in any field name would fail here.

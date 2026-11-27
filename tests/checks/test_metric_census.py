@@ -1,12 +1,12 @@
 '''
-Tests for the metric census (`tests/cli/_metric_census.py`): that the
+Tests for the metric census (`ci/_metric_census.py`): that the
 generated blocks in docs/monitoring/metrics_reference.md match a live
 measurement, and a few pins against known, hand-verified call sites.
 '''
 import os
 
-from tests.cli._otel_resolve import Corpus
-from tests.cli._metric_census import (
+from ci._otel_resolve import Corpus
+from ci._metric_census import (
     METRICS_REFERENCE_DOC, measure, render_metrics_reference_doc,
 )
 
@@ -23,7 +23,7 @@ def test_metrics_reference_doc_is_current():
         original = rendered
     assert original == rendered, (
         'docs/monitoring/metrics_reference.md is out of date. Regenerate with:\n'
-        '    UPDATE_METRIC_CENSUS=1 pytest tests/cli/test_metric_census.py'
+        '    UPDATE_METRIC_CENSUS=1 pytest tests/checks/test_metric_census.py'
     )
 
 

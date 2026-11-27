@@ -129,8 +129,8 @@ this diagram while writing it: the two agree on every edge.
 
 ### Which pod calls which
 
-<!-- BEGIN GENERATED(seam-topology) by tests/cli/test_seam_topology.py. Do not edit this block by hand.
-     Regenerate with: UPDATE_SEAM_TOPOLOGY=1 pytest tests/cli/test_seam_topology.py -->
+<!-- BEGIN GENERATED(seam-topology) by tests/checks/test_seam_topology.py. Do not edit this block by hand.
+     Regenerate with: UPDATE_SEAM_TOPOLOGY=1 pytest tests/checks/test_seam_topology.py -->
 
 The pod-to-pod HTTP topology, derived from the `SEAM` / `ROUTES_CALLED`
 declarations the runtime route check already reads and from the registry each

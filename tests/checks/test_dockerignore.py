@@ -14,8 +14,8 @@ import re
 
 import pytest
 
-from tests.cli._affected_tests import PACKAGES
-from tests.cli._git_diff import REPO_ROOT
+from ci._affected_tests import PACKAGES
+from ci._git_diff import REPO_ROOT
 
 DOCKERFILES = sorted((REPO_ROOT / 'docker').glob('Dockerfile.*'))
 

@@ -37,8 +37,8 @@ actually reads, required vs. optional, with real defaults. The block below is
 generated straight from those docstrings rather than retyped by hand, so it
 cannot drift the way a hand-copied reference has before.
 
-<!-- BEGIN GENERATED(config-reference) by tests/cli/test_config_reference.py. Do not edit this block by hand.
-     Regenerate with: UPDATE_CONFIG_REFERENCE=1 pytest tests/cli/test_config_reference.py -->
+<!-- BEGIN GENERATED(config-reference) by tests/checks/test_config_reference.py. Do not edit this block by hand.
+     Regenerate with: UPDATE_CONFIG_REFERENCE=1 pytest tests/checks/test_config_reference.py -->
 
 Generated from each pod's own `cli/<entrypoint>.py` module docstring --
 nothing here is retyped by hand, so it cannot drift from the code the way a

@@ -13,13 +13,13 @@ from pathlib import Path
 
 import pytest
 
-import tests.cli._metric_census as metric_census
-import tests.cli._git_diff as git_diff
-import tests.cli._span_census as span_census
-from tests.cli._config_reference import render_configuration_doc
-from tests.cli._scratch_repo import commit, git, head_sha, init_scratch_repo
-from tests.cli._seam_topology import render_architecture_doc
-from tests.cli._skippable_changes import (DOC_DIRS_READ_BY_TESTS, DOCS_READ_BY_TESTS, METADATA_ONLY,
+import ci._metric_census as metric_census
+import ci._git_diff as git_diff
+import ci._span_census as span_census
+from ci._config_reference import render_configuration_doc
+from ci._scratch_repo import commit, git, head_sha, init_scratch_repo
+from ci._seam_topology import render_architecture_doc
+from ci._skippable_changes import (DOC_DIRS_READ_BY_TESTS, DOCS_READ_BY_TESTS, METADATA_ONLY,
                                           ROOT_DOCS, Skippable, classify, edits_outside_generated_blocks,
                                           is_documentation, main)
 
@@ -278,9 +278,10 @@ def test_an_edit_inside_a_block_does_change_it(path):
 # ---------------------------------------------------------------------------
 
 def _test_sources():
-    '''Every python file under the central tests/ and each package's own tests/.'''
+    '''Every python file that can read the repo from a test: the central tests/, the CI tooling in ci/ that they
+    call, and each package's own tests/.'''
     root = git_diff.REPO_ROOT
-    for tests_dir in [root / 'tests', *sorted(root.glob('discord_*/tests'))]:
+    for tests_dir in [root / 'tests', root / 'ci', *sorted(root.glob('discord_*/tests'))]:
         yield from sorted(tests_dir.rglob('*.py'))
 
 
@@ -332,7 +333,7 @@ def test_the_scan_finds_the_reads_it_is_here_to_protect():
 
 def test_no_test_reads_a_file_that_skips_tox():
     '''Add a doc a test reads to DOCS_READ_BY_TESTS (or its directory to
-    DOC_DIRS_READ_BY_TESTS) in tests/cli/_skippable_changes.py, or CI will skip the
+    DOC_DIRS_READ_BY_TESTS) in ci/_skippable_changes.py, or CI will skip the
     test that checks it whenever only that file changes. A file in METADATA_ONLY skips
     everything, so no test may read one of those either.'''
     unprotected = sorted(path for path in _paths_built_from_repo_root()

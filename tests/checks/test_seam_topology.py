@@ -17,7 +17,7 @@ See docs/projects/http-seam-contract.md.
 '''
 import os
 
-from tests.cli._seam_topology import (
+from ci._seam_topology import (
     ARCHITECTURE_DOC, measure_all, render_architecture_doc, resolve_peer, serving_images,
 )
 
@@ -151,7 +151,7 @@ def test_topology_doc_is_current():
     '''The generated seam-topology block in docs/architecture.md matches a live
     measurement.
 
-    Regenerate with: UPDATE_SEAM_TOPOLOGY=1 pytest tests/cli/test_seam_topology.py
+    Regenerate with: UPDATE_SEAM_TOPOLOGY=1 pytest tests/checks/test_seam_topology.py
     '''
     original = ARCHITECTURE_DOC.read_text(encoding='utf-8')
     rendered = render_architecture_doc(original)
@@ -160,5 +160,5 @@ def test_topology_doc_is_current():
         original = rendered
     assert original == rendered, (
         'docs/architecture.md\'s seam-topology block is out of date. Regenerate with:\n'
-        '    UPDATE_SEAM_TOPOLOGY=1 pytest tests/cli/test_seam_topology.py'
+        '    UPDATE_SEAM_TOPOLOGY=1 pytest tests/checks/test_seam_topology.py'
     )

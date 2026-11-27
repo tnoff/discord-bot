@@ -13,12 +13,12 @@ import subprocess
 
 import pytest
 
-import tests.cli._git_diff as git_diff
-import tests.cli._run_tests as run_tests
-from tests.cli._affected_tests import Selection
-from tests.cli._run_tests import (changed_files, core_is_pinned, decide, ensure_pinned_core, full_plan, installed_core,
+import ci._git_diff as git_diff
+import ci._run_tests as run_tests
+from ci._affected_tests import Selection
+from ci._run_tests import (changed_files, core_is_pinned, decide, ensure_pinned_core, full_plan, installed_core,
                                   main, narrowed_plan, plan)
-from tests.cli._scratch_repo import commit, git, init_scratch_repo
+from ci._scratch_repo import commit, git, init_scratch_repo
 
 PY = 'python'
 real_core_dependencies = run_tests.core_dependencies   # the fixture below replaces the module's

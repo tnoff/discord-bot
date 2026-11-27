@@ -3,7 +3,7 @@ Database fixtures and helpers for tests that need a real (SQLite) engine.
 
 Split out of tests/helpers.py so that the pure helpers there -- and the root conftest.py,
 which every package's test run imports -- do not pull in `discord_db`. See
-tests/cli/_affected_tests.py for why that coupling mattered.
+ci/_affected_tests.py for why that coupling mattered.
 '''
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -79,6 +79,6 @@ async def async_mock_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession
 
 
 # The row models are re-exported so a pod's tests can read rows back through the shared test
-# infrastructure instead of importing `discord_db` themselves (tests/cli/test_package_test_imports.py).
+# infrastructure instead of importing `discord_db` themselves (tests/checks/test_package_test_imports.py).
 __all__ = ['FakeStores', 'MarkovChannel', 'MarkovRelation', 'Playlist', 'PlaylistItem', 'VideoCache',
            'async_mock_session', 'fake_engine', 'fake_markov_store', 'fake_stores']

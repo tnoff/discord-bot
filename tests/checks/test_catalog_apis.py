@@ -15,8 +15,8 @@ fields cannot silently go stale either way.
 '''
 import yaml
 
+from ci._image_deps import REPO_ROOT
 from tests.checks._catalog import api_by_peer_and_seam, api_ref, consumes, provides
-from tests.cli._image_deps import REPO_ROOT
 from tests.routes._openapi import OPENAPI_DIR, measure_all
 
 CATALOG = REPO_ROOT / 'catalog-info.yaml'

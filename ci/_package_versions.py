@@ -22,9 +22,9 @@ Neither has an installed package or dependencies to lean on -- so, like
 `_affected_images.py`, everything here is standard library and nothing imports
 `_image_deps` (which shells out to a real interpreter per entrypoint):
 
-    python3 -m tests.cli._package_versions --base "$BASE_SHA"
-    python3 -m tests.cli._package_versions --base "$BASE_SHA" --list
-    python3 -m tests.cli._package_versions --list-all
+    python3 -m ci._package_versions --base "$BASE_SHA"
+    python3 -m ci._package_versions --base "$BASE_SHA" --list
+    python3 -m ci._package_versions --list-all
 
 NO DEPENDENCY-PROPAGATION RULE
 -------------------------------
@@ -54,8 +54,8 @@ a `tests` file that is not under a package root, is unaffected by this.
 '''
 import sys
 
-from tests.cli._git_diff import base_head_parser, diff_paths, report_changed
-from tests.cli._roots import CORE_ROOT, SERVICE_ROOTS, TESTS_DIR, root_of
+from ci._git_diff import base_head_parser, diff_paths, report_changed
+from ci._roots import CORE_ROOT, SERVICE_ROOTS, TESTS_DIR, root_of
 
 
 #: Every package root this convention covers, keyed the same way a tag-name
