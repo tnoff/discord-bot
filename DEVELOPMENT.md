@@ -109,6 +109,17 @@ pod tested against a real server in another, the CI import-boundary/build-filter
 test and lives in the central `tests/` at repo root; `tests/checks/test_package_test_imports.py` enforces it, with no exceptions; the integration tests are in
 `tests/integration/`, one directory per seam.
 
+**Testing a seam: contract first, one round trip last.** A pod-to-pod seam is tested from each end against one
+description of it, so neither end needs the other pod. The description is a `Contract` per route
+(`testing/contracts/<seam>.py`: request model, declared replies, built from `discord_core` alone). The *server*
+pod proves its handlers against it (`tests/routes/` runs every declared reply on a live handler, and the pod's own
+`tests/servers/` cover the behaviour around that over raw HTTP). The *client* pod tests its client against a
+`ContractStub` (`testing/contracts/stub.py`) that serves the contract: the stub fails the test if the client sends a
+body the request model refuses, and refuses to play a reply the contract does not declare. What neither end can
+show alone is that a value *means* the same thing on both sides, so `tests/integration/<seam>/` keeps one round
+trip per route against the real server. Media search is the first seam done this way; the rest still have the
+older wire tests in `tests/integration/` and are being converted.
+
 The repo-root folders besides the packages: `testing/` (the shared test infrastructure the pods' tests import: `helpers`,
 `db_helpers`, the `*_suite` bases, and `fakes/`, the test doubles; it holds no tests), `tests/` (the tests that belong
 to no single pod: `routes/` the pods' OpenAPI contracts, `integration/` the two-pod tests, `checks/` repo-wide
