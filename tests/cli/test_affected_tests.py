@@ -446,7 +446,7 @@ def test_the_known_repo_readers_always_run_and_plenty_still_narrow():
     graph = ImportGraph()
     always = {path for path in graph.central_tests() if graph.reads_repo(path)}
     for reader in ('tests/cli/test_import_boundaries.py', 'tests/cli/test_package_pins.py',
-                   'tests/test_catalog_apis.py', 'tests/routes/test_openapi_docs.py'):
+                   'tests/checks/test_catalog_apis.py', 'tests/routes/test_openapi_docs.py'):
         assert reader in always, f'{reader} reads the repo but would be skipped'
     selectable = set(graph.central_tests()) - always
     assert len(selectable) >= 10, f'only {len(selectable)} central files can still narrow: {sorted(selectable)}'

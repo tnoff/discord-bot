@@ -58,7 +58,7 @@ from tests.cli._git_diff import base_head_parser, diff_paths, git_output, git_sh
 
 
 # Changes that no job inspects, named exactly and anchored. Not a prefix, not a
-# glob. catalog-info.yaml used to be here, but tests/test_catalog_apis.py reads it
+# glob. catalog-info.yaml used to be here, but tests/checks/test_catalog_apis.py reads it
 # (it checks the API wiring against the measured seams), so a catalog-only PR skipped
 # the test that would have caught a bad edit. test_no_test_reads_a_file_that_skips_tox
 # now covers this set as well as the documentation one.
