@@ -1,0 +1,1 @@
+Add the media-search request bodies (`SpotifySourceRequest`, `YoutubeSourceRequest`) to `discord_core.types.media_search`, so the client and the server share one definition of what the two routes accept.
