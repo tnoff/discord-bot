@@ -30,6 +30,7 @@ import logging
 
 from aiohttp import web
 from opentelemetry.trace import SpanKind
+from pydantic import ValidationError
 
 from discord_core.exceptions import MediaSearchError
 from discord_core.servers.base import AiohttpServerBase
@@ -37,7 +38,8 @@ from discord_core.utils.otel import otel_span_wrapper
 
 from discord_core.interfaces.media_search_protocols import MediaSearchClient
 from discord_core.routes import media_search as media_search_routes
-from discord_core.types.media_search import MediaSearchErrorBody, MediaSearchResponse
+from discord_core.types.media_search import (MediaSearchErrorBody, MediaSearchResponse, SpotifySourceRequest,
+                                             YoutubeSourceRequest)
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +47,6 @@ SPAN_PREFIX = 'media_search'
 # Single definition lives in the registry; see routes/media_search.py.
 ROUTE_PREFIX = media_search_routes.ROUTE_PREFIX
 DEFAULT_PORT = 8084
-
-SPOTIFY_ID_FIELDS = ('playlist_id', 'album_id', 'track_id')
 
 
 class MediaSearchHttpServer(AiohttpServerBase):
@@ -99,12 +99,11 @@ class MediaSearchHttpServer(AiohttpServerBase):
     async def _handle_spotify(self, request: web.Request) -> web.Response:
         '''POST /search/spotify — expand a Spotify playlist, album or track.'''
         ctx, body = await self._read_body(request)
-        ids = {field: body[field] for field in SPOTIFY_ID_FIELDS if body.get(field)}
-        if len(ids) != 1:
-            # Exactly one, not at least one: the in-process client picks by
-            # precedence when given several, and two callers disagreeing about
-            # that precedence is a bug worth failing on rather than guessing.
-            raise web.HTTPUnprocessableEntity()
+        try:
+            ids = SpotifySourceRequest.model_validate(body).ids()
+        except ValidationError as exc:
+            # Exactly one id, not at least one: see SpotifySourceRequest.
+            raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper(f'{SPAN_PREFIX}.spotify', context=ctx, kind=SpanKind.SERVER) as span:
             try:
                 catalog = await self._media_search_client.spotify_source(**ids)
@@ -115,9 +114,10 @@ class MediaSearchHttpServer(AiohttpServerBase):
     async def _handle_youtube(self, request: web.Request) -> web.Response:
         '''POST /search/youtube — expand a YouTube playlist.'''
         ctx, body = await self._read_body(request)
-        playlist_id = body.get('playlist_id')
-        if not playlist_id:
-            raise web.HTTPUnprocessableEntity()
+        try:
+            playlist_id = YoutubeSourceRequest.model_validate(body).playlist_id
+        except ValidationError as exc:
+            raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper(f'{SPAN_PREFIX}.youtube', context=ctx, kind=SpanKind.SERVER) as span:
             try:
                 catalog = await self._media_search_client.youtube_source(playlist_id)

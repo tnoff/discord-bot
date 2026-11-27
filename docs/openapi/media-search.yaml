@@ -17,7 +17,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SpotifyBody'
+              $ref: '#/components/schemas/SpotifySourceRequest'
       responses:
         '200':
           description: A `catalog`, or an `error` from the provider.
@@ -36,7 +36,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/YoutubeBody'
+              $ref: '#/components/schemas/YoutubeSourceRequest'
       responses:
         '200':
           description: A `catalog`, or an `error` from the provider.
@@ -128,36 +128,40 @@ components:
           default: null
       title: MediaSearchResponse
       type: object
-    SpotifyBody:
-      description: 'POST /search/spotify: exactly one of the three ids.'
+    SpotifySourceRequest:
+      description: 'POST /search/spotify: exactly one of a playlist, album or track id.'
       properties:
         playlist_id:
           anyOf:
-          - type: string
+          - minLength: 1
+            type: string
           - type: 'null'
           default: null
           title: Playlist Id
         album_id:
           anyOf:
-          - type: string
+          - minLength: 1
+            type: string
           - type: 'null'
           default: null
           title: Album Id
         track_id:
           anyOf:
-          - type: string
+          - minLength: 1
+            type: string
           - type: 'null'
           default: null
           title: Track Id
-      title: SpotifyBody
+      title: SpotifySourceRequest
       type: object
-    YoutubeBody:
-      description: POST /search/youtube
+    YoutubeSourceRequest:
+      description: 'POST /search/youtube: the playlist to expand.'
       properties:
         playlist_id:
+          minLength: 1
           title: Playlist Id
           type: string
       required:
       - playlist_id
-      title: YoutubeBody
+      title: YoutubeSourceRequest
       type: object
