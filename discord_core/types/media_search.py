@@ -55,13 +55,11 @@ class MediaSearchResponse(BaseModel):
     error: MediaSearchErrorBody | None = None
 
 
+# Exactly one id, not at least one: the in-process client picks by precedence when given several, and two
+# callers disagreeing about that precedence is a bug worth failing on rather than guessing. An empty id counts
+# as no id. (The docstrings below are one line each because they become the OpenAPI schema descriptions.)
 class SpotifySourceRequest(BaseModel):
-    '''POST /search/spotify: exactly one of a playlist, album or track id.
-
-    Exactly one, not at least one: the in-process client picks by precedence when given several, and two
-    callers disagreeing about that precedence is a bug worth failing on rather than guessing. An empty id
-    counts as no id.
-    '''
+    '''POST /search/spotify: exactly one of a playlist, album or track id.'''
     playlist_id: str | None = Field(default=None, min_length=1)
     album_id: str | None = Field(default=None, min_length=1)
     track_id: str | None = Field(default=None, min_length=1)
