@@ -1,7 +1,7 @@
 '''Tests for AsyncioBroker branches not exercised by the ported engine tests.
 
 The bulk of AsyncioBroker's registry / checkout / eviction behaviour is covered
-by tests/integration/broker_db/test_media_broker.py (converted from the legacy MediaBroker suite).  This file covers the remaining
+by tests/integration/broker_to_db/test_media_broker.py (converted from the legacy MediaBroker suite).  This file covers the remaining
 branches: the full update_request_status lifecycle ladder, the register_request
 bundle-attach path, get_cache_count with a cache, and the bundle-storage hooks.
 '''

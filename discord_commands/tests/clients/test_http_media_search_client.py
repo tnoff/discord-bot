@@ -7,7 +7,7 @@ every reply the contract declares. It does not need the search pod, and that is 
 
 That the pod does the right thing with a body it accepts is the pod's own tests
 (discord_search/tests/servers/test_media_search_server.py) plus the round trips in
-tests/integration/commands_search/test_media_search_round_trip.py.
+tests/integration/commands_to_search/test_media_search_round_trip.py.
 '''
 # NOTE: test names here deliberately avoid being exactly 40 characters long.
 # trufflehog's Lob detector matches `test_` + 35 chars, so a 40-char test
