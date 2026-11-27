@@ -111,9 +111,11 @@ jobs:
     uses: tnoff/github-workflows/.github/workflows/assemble-changelog.yml@c804443f159eee3ebaece0dc57174cfc3387f4b3  # assemble-changelog-v1.1.1
     with:
       version_files_command: python3 -m ci._package_versions --list-all
+    # The changelog App, not tnoff-ci: the only identity that may push the fold commit
+    # to a protected main (tnoff/terraform#341). tag and trigger-bump stay on tnoff-ci.
     secrets:
-      app_client_id: ${{ secrets.CI_APP_CLIENT_ID }}
-      app_private_key: ${{ secrets.CI_APP_PRIVATE_KEY }}
+      app_client_id: ${{ secrets.CHANGELOG_APP_CLIENT_ID }}
+      app_private_key: ${{ secrets.CHANGELOG_APP_PRIVATE_KEY }}
 
   # Per-package tags, one `<short>-v<version>` tag per package, driven off
   # each package's own VERSION file (criterion 8 step 6 -- see DEVELOPMENT.md's
