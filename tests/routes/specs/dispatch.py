@@ -23,7 +23,8 @@ from discord_core.utils.dispatch_queue import RedisDispatchQueue
 
 from discord_dispatcher.servers.dispatch_server import DispatchHttpServer
 
-from tests.routes.specs._model import Call, Operation, reply, serving
+from testing.contracts.dispatch_fetches import CONTRACTS
+from tests.routes.specs._model import Call, Operation, operation, reply, serving
 
 GUILD = 5
 CHANNEL = 2
@@ -70,6 +71,11 @@ def accepted(route, model, summary, response, body, status=202):
         calls=(Call(status, body=body), Call(422, body={})))
 
 
+def fetch(route, body):
+    """A fetch route: the shared contract, proved with a body it accepts and one it refuses."""
+    return route, operation(CONTRACTS[route], (Call(202, body=body), Call(422, body={})))
+
+
 OPERATIONS = dict([
     accepted(dispatch_routes.SEND, requests.SendRequestBody, 'Send a message.', out.SendResponse,
              {'guild_id': GUILD, 'channel_id': CHANNEL, 'content': 'hello'}),
@@ -83,31 +89,15 @@ OPERATIONS = dict([
     accepted(dispatch_routes.UPDATE_MUTABLE_CHANNEL, requests.UpdateMutableChannelRequestBody,
              'Move the message kept under a key to another channel.', out.UpdateMutableChannelResponse,
              {'key': 'k', 'guild_id': GUILD, 'new_channel_id': 8}),
-    accepted(dispatch_routes.FETCH_HISTORY, requests.FetchHistoryRequestBody,
-             "Ask for a channel's recent messages. Poll the result route with the `request_id`.",
-             out.FetchHistoryResponse, {'guild_id': GUILD, 'channel_id': CHANNEL, 'limit': 10}),
-    accepted(dispatch_routes.FETCH_EMOJIS, requests.FetchEmojisRequestBody,
-             "Ask for a guild's emoji. Poll the result route with the `request_id`.",
-             out.FetchEmojisResponse, {'guild_id': GUILD}),
-    accepted(guild_roles_routes.FETCH_ROLES, roles.FetchRolesRequestBody,
-             "Ask for a guild's roles. Poll the result route with the `request_id`.",
-             roles.FetchRolesResponse, {'guild_id': GUILD, 'call_id': 'c-1'}),
-    accepted(guild_roles_routes.FETCH_MEMBER, roles.FetchMemberRequestBody,
-             'Ask for one member and their roles. Poll the result route with the `request_id`.',
-             roles.FetchMemberResponse, {'guild_id': GUILD, 'user_id': 7, 'call_id': 'c-1'}),
-    accepted(guild_roles_routes.FETCH_ROLE_MEMBERS, roles.FetchRoleMembersRequestBody,
-             'Ask for the members holding a role. Poll the result route with the `request_id`.',
-             roles.FetchRoleMembersResponse, {'guild_id': GUILD, 'role_id': 6, 'call_id': 'c-1'}),
-    accepted(guild_roles_routes.CHANGE_MEMBER_ROLE, roles.ChangeMemberRoleRequestBody,
-             'Add a role to a member or take it away. Poll the result route with the `request_id`.',
-             roles.ChangeMemberRoleResponse,
-             {'guild_id': GUILD, 'user_id': 7, 'role_id': 6, 'action': 'add', 'call_id': 'c-1'}),
-    (dispatch_routes.GET_RESULT, Operation(
-        'The stored result of a fetch, or 202 while there is none yet.',
-        replies=(reply(200, *(type(body) for body in RESULTS),
-                       doc='The result as the worker stored it, whichever fetch it answers.'),
-                 reply(202, out.ResultPendingResponse, doc='No result yet; ask again.')),
-        calls=(*[Call(200, path={'request_id': REQUEST_ID}, arrange=stored(body), variant=type(body))
-                 for body in RESULTS],
-               Call(202, path={'request_id': REQUEST_ID})))),
+    fetch(dispatch_routes.FETCH_HISTORY, {'guild_id': GUILD, 'channel_id': CHANNEL, 'limit': 10}),
+    fetch(dispatch_routes.FETCH_EMOJIS, {'guild_id': GUILD}),
+    fetch(guild_roles_routes.FETCH_ROLES, {'guild_id': GUILD, 'call_id': 'c-1'}),
+    fetch(guild_roles_routes.FETCH_MEMBER, {'guild_id': GUILD, 'user_id': 7, 'call_id': 'c-1'}),
+    fetch(guild_roles_routes.FETCH_ROLE_MEMBERS, {'guild_id': GUILD, 'role_id': 6, 'call_id': 'c-1'}),
+    fetch(guild_roles_routes.CHANGE_MEMBER_ROLE,
+          {'guild_id': GUILD, 'user_id': 7, 'role_id': 6, 'action': 'add', 'call_id': 'c-1'}),
+    (dispatch_routes.GET_RESULT, operation(CONTRACTS[dispatch_routes.GET_RESULT], (
+        *[Call(200, path={'request_id': REQUEST_ID}, arrange=stored(body), variant=type(body))
+          for body in RESULTS],
+        Call(202, path={'request_id': REQUEST_ID})))),
 ])

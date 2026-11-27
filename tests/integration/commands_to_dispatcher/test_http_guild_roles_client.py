@@ -2,6 +2,11 @@
 HttpGuildRolesClient (the commands pod's RoleGateway over the dispatcher), tested over the wire:
 a real DispatchHttpServer in front of a dispatcher that runs the real GuildRolesCalls against a
 fake Discord, as MessageDispatcher does once it has dequeued the call.
+
+One round trip per route, and the failure path. What the client sends and how it reads each declared result is
+tested against the contract in discord_commands/tests/clients/test_http_guild_roles_client.py, so what is kept
+here is what only the two real pods can show: the dispatcher accepts what the client sends, stores the answer
+the client then reads, and treats a repeat of the same call as a new request.
 '''
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -44,13 +49,11 @@ def make_pod(guild):
 
 
 @pytest.mark.asyncio
-async def test_roles_and_one_role():
+async def test_roles():
     _, server = make_pod(make_guild())
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpGuildRolesClient(str(tc.make_url('')), session=tc.session)
         assert await client.list_roles(11) == [RoleInfo(id=5, name='dj'), RoleInfo(id=6, name='mod')]
-        assert await client.get_role(11, 6) == RoleInfo(id=6, name='mod')
-        assert await client.get_role(11, 99) is None
 
 
 @pytest.mark.asyncio
@@ -60,7 +63,6 @@ async def test_members():
     async with TestClient(TestServer(server.build_app())) as tc:
         client = HttpGuildRolesClient(str(tc.make_url('')), session=tc.session)
         assert await client.get_member(11, 2) == MemberInfo(id=2, display_name='Ann', role_ids=(5,))
-        assert await client.get_member(11, 9) is None
         assert await client.role_members(11, 6) == [MemberInfo(id=3, display_name='Bo', role_ids=(6,))]
 
 

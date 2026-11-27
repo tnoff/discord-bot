@@ -44,7 +44,18 @@ class ContractStub:
         self._scripts = {}
 
     def script(self, route, body=None, status: int = 200) -> None:
-        '''Set the one reply a route plays. It must be a declared status with a declared body.'''
+        '''Set the one reply a route plays, every time. It must be a declared status with a declared body.'''
+        self.script_sequence(route, (status, body))
+
+    def script_sequence(self, route, *replies) -> None:
+        '''Set the replies a route plays in turn, each a ``(status, body)``; the last one repeats.
+
+        For a route the client asks again, such as a poll that answers 202 until the result is there. Every reply
+        must be a declared status with a declared body, exactly as for ``script``.
+        '''
+        self._scripts[route] = [self._checked(route, body, status) for status, body in replies]
+
+    def _checked(self, route, body, status: int) -> tuple:
         declared = next((reply for reply in self.contracts[route].replies if reply.status == status), None)
         if declared is None:
             raise AssertionError(f'{route.method} {route.template} declares no {status} reply')
@@ -55,11 +66,15 @@ class ContractStub:
                                      f' for {route.method} {route.template} {status}')
         elif payload is not None:
             raise AssertionError(f'{route.method} {route.template} {status} declares no body, got {payload!r}')
-        self._scripts[route] = (status, payload)
+        return status, payload
 
     def calls_to(self, route) -> list:
         '''The bodies sent to a route, in order.'''
         return [call['body'] for call in self.calls if call['route'] == route]
+
+    def paths_to(self, route) -> list:
+        '''The path values a route was called with (``{'request_id': ...}``), in order.'''
+        return [call['path'] for call in self.calls if call['route'] == route]
 
     def _handler(self, route):
         contract = self.contracts[route]
@@ -78,11 +93,12 @@ class ContractStub:
                     self.violations.append(f'{label}: sent {body!r}, which {contract.request.__name__} refuses '
                                            f'({exc.error_count()} error(s))')
                     return web.Response(status=422)
-            self.calls.append({'route': route, 'body': body})
+            self.calls.append({'route': route, 'body': body, 'path': dict(request.match_info)})
             if route not in self._scripts:
                 self.violations.append(f'{label}: called, but the test scripted no reply')
                 return web.Response(status=500)
-            status, payload = self._scripts[route]
+            replies = self._scripts[route]
+            status, payload = replies.pop(0) if len(replies) > 1 else replies[0]
             return web.Response(status=status) if payload is None else web.json_response(payload, status=status)
         return handle
 
