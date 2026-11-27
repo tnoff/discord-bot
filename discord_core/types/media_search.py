@@ -1,6 +1,9 @@
 '''
 Wire types for the media-search HTTP surface.
 
+The request bodies are here too, so the client builds and the server reads the SAME model rather than each
+writing out the field names: a renamed or added field is then one edit, and the contract tests read these.
+
 One response model for both provider routes: either a catalog or an error, never
 both. The error half is a flattened MediaSearchError -- provider, reason and the
 provider's HTTP status -- and deliberately carries no user-facing text. The pod
@@ -11,7 +14,7 @@ Lives in types/ rather than next to the server because the cog-side client parse
 these and must not import a servers module, and because the search pod must be
 able to build one without importing anything the bot owns.
 '''
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, model_validator
 
 from discord_core.exceptions import MediaSearchError
 
@@ -50,3 +53,31 @@ class MediaSearchResponse(BaseModel):
     '''
     catalog: CatalogResponse | None = None
     error: MediaSearchErrorBody | None = None
+
+
+class SpotifySourceRequest(BaseModel):
+    '''POST /search/spotify: exactly one of a playlist, album or track id.
+
+    Exactly one, not at least one: the in-process client picks by precedence when given several, and two
+    callers disagreeing about that precedence is a bug worth failing on rather than guessing. An empty id
+    counts as no id.
+    '''
+    playlist_id: str | None = Field(default=None, min_length=1)
+    album_id: str | None = Field(default=None, min_length=1)
+    track_id: str | None = Field(default=None, min_length=1)
+
+    @model_validator(mode='after')
+    def exactly_one(self) -> 'SpotifySourceRequest':
+        '''Refuse none and refuse several.'''
+        if sum(value is not None for value in (self.playlist_id, self.album_id, self.track_id)) != 1:
+            raise ValueError('give exactly one of playlist_id, album_id and track_id')
+        return self
+
+    def ids(self) -> dict:
+        '''The one id that was given, as the keyword the provider call takes.'''
+        return self.model_dump(exclude_none=True)
+
+
+class YoutubeSourceRequest(BaseModel):
+    '''POST /search/youtube: the playlist to expand.'''
+    playlist_id: str = Field(min_length=1)
