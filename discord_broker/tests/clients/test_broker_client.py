@@ -27,13 +27,13 @@ from discord_core.types.player_session import PlayerSession
 # above and every other test here are unchanged.
 
 from discord_broker.interfaces.broker_protocols import Zone
-from tests.fakes.asyncio_queues import make_broker_http_server
-from tests.fakes.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
+from testing.fakes.asyncio_queues import make_broker_http_server
+from testing.fakes.asyncio_queues import AsyncioDownloadResultQueue, AsyncioSearchResultQueue
 
-from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
-from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
-from tests.fakes.broker_setup import broker_and_request, broker_with_result_queue
-from tests.helpers import downloaded_request, successful_download_result, fake_source_dict, generate_fake_context
+from testing.fakes.asyncio_broker_client import AsyncioBrokerClient
+from testing.fakes.asyncio_broker import AsyncioBroker as MediaBroker
+from testing.fakes.broker_setup import broker_and_request, broker_with_result_queue
+from testing.helpers import downloaded_request, successful_download_result, fake_source_dict, generate_fake_context
 
 
 

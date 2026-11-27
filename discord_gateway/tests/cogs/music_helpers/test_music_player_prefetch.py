@@ -16,10 +16,10 @@ from discord_core.utils.integrations.s3 import ObjectStorageException
 
 from discord_gateway.cogs.music_helpers.music_player import MusicPlayer
 
-from tests.fakes.asyncio_broker import AsyncioBroker
-from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
-from tests.fakes.asyncio_queues import make_guild_queue_for
-from tests.helpers import fake_context, fake_media_download, FakeVoiceClient #pylint:disable=unused-import
+from testing.fakes.asyncio_broker import AsyncioBroker
+from testing.fakes.asyncio_broker_client import AsyncioBrokerClient
+from testing.fakes.asyncio_queues import make_guild_queue_for
+from testing.helpers import fake_context, fake_media_download, FakeVoiceClient #pylint:disable=unused-import
 
 GET_FILE = 'discord_gateway.cogs.music_helpers.music_player.get_file_async'
 

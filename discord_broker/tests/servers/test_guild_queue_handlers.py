@@ -11,8 +11,8 @@ from discord_core.types.media_request import MediaRequest
 from discord_core.types.search import SearchResult
 
 from discord_broker.workers import guild_queue_registry as registry_module
-from tests.fakes.asyncio_broker import AsyncioBroker
-from tests.fakes.asyncio_queues import make_broker_http_server, make_guild_queue_broker
+from testing.fakes.asyncio_broker import AsyncioBroker
+from testing.fakes.asyncio_queues import make_broker_http_server, make_guild_queue_broker
 
 GUILD = 5
 

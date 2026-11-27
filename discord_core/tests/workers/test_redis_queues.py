@@ -13,8 +13,8 @@ from discord_core.workers.redis_queues import (
     RedisSearchResultQueue,
     RedisWorkQueue,
 )
-from tests.download_result_queue_suite import DownloadResultQueueSuite
-from tests.helpers import fake_source_dict, generate_fake_context, minimal_download_result
+from testing.download_result_queue_suite import DownloadResultQueueSuite
+from testing.helpers import fake_source_dict, generate_fake_context, minimal_download_result
 
 
 def _manager():

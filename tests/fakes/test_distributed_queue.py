@@ -5,7 +5,7 @@ import pytest
 
 from discord_core.types.queue import PutsBlocked
 
-from tests.fakes.distributed_queue import DistributedQueue, DistributedQueueItem
+from testing.fakes.distributed_queue import DistributedQueue, DistributedQueueItem
 
 def test_block():
     x = DistributedQueue(10)

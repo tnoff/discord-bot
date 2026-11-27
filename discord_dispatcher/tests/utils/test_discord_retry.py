@@ -13,7 +13,7 @@ from discord.errors import DiscordServerError, HTTPException, NotFound, RateLimi
 
 from discord_dispatcher.utils.discord_retry import async_retry_discord_message_command
 
-from tests.helpers import FakeResponse
+from testing.helpers import FakeResponse
 
 
 # ---------------------------------------------------------------------------

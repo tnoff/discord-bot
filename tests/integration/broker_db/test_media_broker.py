@@ -15,10 +15,10 @@ from discord_broker.interfaces.broker_protocols import Zone
 from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_db.database import VideoCache
 
-from tests.fakes.asyncio_broker import AsyncioBroker
-from tests.helpers import fake_media_download, generate_fake_context, fake_source_dict
-from tests.db_helpers import async_mock_session
-from tests.db_helpers import fake_engine  # pylint:disable=unused-import
+from testing.fakes.asyncio_broker import AsyncioBroker
+from testing.helpers import fake_media_download, generate_fake_context, fake_source_dict
+from testing.db_helpers import async_mock_session
+from testing.db_helpers import fake_engine  # pylint:disable=unused-import
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ async def test_checkout_local_mode():
 @pytest.mark.asyncio
 async def test_checkout_local_mode_checksum_match_no_warning(mocker):
     '''No warning logged when copyfile produces matching checksums'''
-    mock_logger = mocker.patch('tests.fakes.asyncio_broker.logger')
+    mock_logger = mocker.patch('testing.fakes.asyncio_broker.logger')
     fake_context = generate_fake_context()
     with TemporaryDirectory() as tmp_dir:
         with TemporaryDirectory() as guild_dir:
@@ -85,12 +85,12 @@ async def test_checkout_local_mode_checksum_match_no_warning(mocker):
 @pytest.mark.asyncio
 async def test_checkout_local_mode_checksum_mismatch_logs_warning(mocker):
     '''Warning logged when copyfile produces mismatched checksums'''
-    mock_logger = mocker.patch('tests.fakes.asyncio_broker.logger')
+    mock_logger = mocker.patch('testing.fakes.asyncio_broker.logger')
     src_mock = MagicMock()
     src_mock.hexdigest.return_value = 'aaaa'
     dst_mock = MagicMock()
     dst_mock.hexdigest.return_value = 'bbbb'
-    mocker.patch('tests.fakes.asyncio_broker.hashlib.md5',
+    mocker.patch('testing.fakes.asyncio_broker.hashlib.md5',
                  side_effect=[src_mock, dst_mock])
     fake_context = generate_fake_context()
     with TemporaryDirectory() as tmp_dir:
@@ -187,7 +187,7 @@ async def test_register_download_s3_mode():
 @pytest.mark.asyncio
 async def test_checkout_s3_mode(mocker):
     '''checkout in S3 mode calls get_file with the S3 key'''
-    get_mock = mocker.patch('tests.fakes.asyncio_broker.get_file_async', return_value=True)
+    get_mock = mocker.patch('testing.fakes.asyncio_broker.get_file_async', return_value=True)
     fake_context = generate_fake_context()
     md = _make_s3_media_download(fake_context)
     with TemporaryDirectory() as guild_dir:
@@ -203,7 +203,7 @@ async def test_checkout_s3_mode(mocker):
 @pytest.mark.asyncio
 async def test_discard_s3_mode_no_cache_deletes_s3_object(mocker):
     '''discard in S3 mode (no video_cache) calls delete_file on the S3 key'''
-    delete_mock = mocker.patch('tests.fakes.asyncio_broker.delete_file_async', return_value=True)
+    delete_mock = mocker.patch('testing.fakes.asyncio_broker.delete_file_async', return_value=True)
     fake_context = generate_fake_context()
     md = _make_s3_media_download(fake_context)
     s3_key = str(md.file_path)
@@ -275,7 +275,7 @@ async def test_get_checked_out_by():
 @pytest.mark.asyncio
 async def test_checkout_skips_restage_if_already_checked_out(mocker):
     '''checkout returns existing guild_file_path without calling get_file again if already staged'''
-    get_mock = mocker.patch('tests.fakes.asyncio_broker.get_file_async', return_value=True)
+    get_mock = mocker.patch('testing.fakes.asyncio_broker.get_file_async', return_value=True)
     fake_context = generate_fake_context()
     md = _make_s3_media_download(fake_context)
     with TemporaryDirectory() as guild_dir:
@@ -349,7 +349,7 @@ async def test_update_request_status_discarded():
 @pytest.mark.asyncio
 async def test_update_request_status_unknown_uuid_logs_warning(mocker):
     '''update_request_status logs a warning and does not raise for an unknown UUID'''
-    mock_logger = mocker.patch('tests.fakes.asyncio_broker.logger')
+    mock_logger = mocker.patch('testing.fakes.asyncio_broker.logger')
     broker = AsyncioBroker()
     await broker.update_request_status('nonexistent-uuid', LifecycleStatusUpdate(event=LifecycleEvent.BACKOFF))
     mock_logger.warning.assert_called_once()

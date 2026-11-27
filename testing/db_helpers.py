@@ -1,7 +1,7 @@
 '''
 Database fixtures and helpers for tests that need a real (SQLite) engine.
 
-Split out of tests/helpers.py so that the pure helpers there -- and the root conftest.py,
+Split out of testing/helpers.py so that the pure helpers there -- and the root conftest.py,
 which every package's test run imports -- do not pull in `discord_db`. See
 ci/_affected_tests.py for why that coupling mattered.
 '''

@@ -31,7 +31,7 @@ assumptions about this repo, it's stale; check the current tree instead.
 | OTel naming enums, span/metric wrappers | `discord_core/utils/otel.py` (see `docs/monitoring/`) |
 | DB models (`BASE`-inheriting) | `discord_db/database.py` |
 | Async retry helpers | `discord_core/utils/common.py`; `discord_db/utils/sql_retry.py` (db pod only — the bot holds no DB connection) |
-| Test fixtures and fakes | `tests/helpers.py` (pure), `tests/db_helpers.py` (needs `discord_db`), `tests/fakes/in_process_stack.py` (needs the broker/downloader/search fakes) — central; see "Tests are per-package now" below |
+| Test fixtures and fakes | `testing/helpers.py` (pure), `testing/db_helpers.py` (needs `discord_db`), `testing/fakes/in_process_stack.py` (needs the broker/downloader/search fakes) — shared, in `testing/` (not a package; holds no tests); see "Tests are per-package now" below |
 | CI and doc tooling (change selection, image filter, version/pin checks, doc generators) | `ci/` (not a package, ships in no image; run as `python -m ci._<name>`); its tests are `tests/ci/` and the generated-doc checks `tests/checks/` |
 
 ## Non-obvious internals
@@ -42,13 +42,13 @@ The system environment has an older `dappertable` (0.2.4) missing kwargs used
 throughout the tests, producing ~27 false failures. Always invoke pytest
 through the project venv. Same goes for pylint.
 
-### Keep the root `conftest.py` and `tests/helpers.py` light
+### Keep the root `conftest.py` and `testing/helpers.py` light
 
 CI narrows pytest to the packages a PR can reach through imports (`ci/_affected_tests.py`,
 run by `ci/_run_tests.py`; see DEVELOPMENT.md's "Which tests CI runs"). Anything imported
-by the root `conftest.py` or `tests/helpers.py` is on every test's path, so importing a pod there,
+by the root `conftest.py` or `testing/helpers.py` is on every test's path, so importing a pod there,
 or reading a repo file there (`REPO_ROOT`, `__file__`, a `docs/…` path), turns every PR back into a full run. Fixtures that need a pod go in their own module
-(`tests/db_helpers.py`, `tests/fakes/in_process_stack.py`). `test_root_conftest_reaches_no_pod`
+(`testing/db_helpers.py`, `testing/fakes/in_process_stack.py`). `test_root_conftest_reaches_no_pod`
 enforces it.
 
 ### Tests are per-package now — do not pass `tests/` to pytest
@@ -56,7 +56,7 @@ enforces it.
 Each of the eight packages has its own `tests/` tree
 (`discord_core/tests/`, `discord_gateway/tests/`, …), mirroring that
 package's own layout. **A package's tests may use that package, the pinned
-`discord_core`, and the shared test infrastructure under `tests/` (fakes,
+`discord_core`, and the shared test infrastructure in `testing/` (fakes,
 helpers) — never another pod's production code.** Core is the independent artifact the pods
 depend on, so core's tests import no pod at all. Anything that needs two pods
 (a real HTTP client in one pod tested against a real server in another, a default
@@ -64,7 +64,7 @@ two pods each copy, the import-boundary/CI-build-filter checks) is an integratio
 test and lives in the central `tests/` at repo root.
 `tests/checks/test_package_test_imports.py` enforces it, with no exceptions. A test that needs
 only a model class or a patch target of another pod reaches it through the shared
-helpers (`tests/db_helpers.py`, `tests/fakes/in_process_stack.py`); one that needs two pods
+helpers (`testing/db_helpers.py`, `testing/fakes/in_process_stack.py`); one that needs two pods
 goes in `tests/integration/<seam>/`. Run pytest with **no path argument** — bare `pytest --cov ...`
 from repo root, exactly as `tox.ini` does. Passing `tests/` explicitly
 collects only the central tree and silently skips the other seven; this
@@ -91,7 +91,7 @@ to reach for.
 
 ### `bot.loop` is `None` in tests
 
-`FakeBot.loop = None` (`tests/helpers.py`). Code that runs during a test body
+`FakeBot.loop = None` (`testing/helpers.py`). Code that runs during a test body
 (not inside `cog_load`, which only runs under discord.py's real runtime) must
 use `asyncio.get_running_loop()`:
 

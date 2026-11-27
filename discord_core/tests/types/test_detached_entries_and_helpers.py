@@ -18,7 +18,7 @@ from discord_core.types.search import SearchResult, SearchType
 from discord_core.types.video_cache import VideoCacheEntry
 from discord_core.utils.otel import MediaRequestNaming, MusicMediaDownloadNaming
 
-from tests.helpers import fake_source_dict, generate_fake_context
+from testing.helpers import fake_source_dict, generate_fake_context
 
 WHEN = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
 

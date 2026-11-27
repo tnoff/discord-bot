@@ -13,7 +13,7 @@ from discord_core.types.media_request import MediaRequest
 
 from discord_core.interfaces.youtube_music_search_protocols import YoutubeMusicSearchWorkerBase
 
-from tests.fakes.distributed_queue import DistributedQueue
+from testing.fakes.distributed_queue import DistributedQueue
 
 
 class AsyncioYoutubeMusicSearchWorker(YoutubeMusicSearchWorkerBase):

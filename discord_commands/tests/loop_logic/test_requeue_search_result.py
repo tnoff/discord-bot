@@ -1,11 +1,11 @@
 import pytest
 from aiohttp import ClientConnectionError
 
-from tests.fakes.pipeline_fakes import fake_envelope, yield_search_client_check_source
-from tests.helpers import fake_source_dict
-from tests.helpers import fake_context  #pylint:disable=unused-import
-from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
-from tests.results_pod import ResultsPod
+from testing.fakes.pipeline_fakes import fake_envelope, yield_search_client_check_source
+from testing.helpers import fake_source_dict
+from testing.helpers import fake_context  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
+from testing.results_pod import ResultsPod
 
 
 async def search_for(fake_context, fake_stores, *requests):  #pylint:disable=redefined-outer-name

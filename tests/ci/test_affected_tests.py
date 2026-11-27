@@ -49,15 +49,16 @@ def tree_fixture(tmp_path):
         _write(tmp_path, f'{package}/mod.py', 'VALUE = 1\n')
         _write(tmp_path, f'{package}/tests/__init__.py')
         _write(tmp_path, f'{package}/tests/test_mod.py', f'from {package}.mod import VALUE\n')
-    _write(tmp_path, CONFTEST, 'import pkg_core\nfrom tests.helpers import thing\n')
+    _write(tmp_path, CONFTEST, 'import pkg_core\nfrom testing.helpers import thing\n')
     _write(tmp_path, 'tests/__init__.py')
-    _write(tmp_path, 'tests/helpers.py', 'import pkg_core\nthing = 1\n')
-    _write(tmp_path, 'tests/fakes/__init__.py')
-    _write(tmp_path, 'tests/fakes/a_fake.py', 'import pod_a.mod\n')
+    _write(tmp_path, 'testing/__init__.py')
+    _write(tmp_path, 'testing/helpers.py', 'import pkg_core\nthing = 1\n')
+    _write(tmp_path, 'testing/fakes/__init__.py')
+    _write(tmp_path, 'testing/fakes/a_fake.py', 'import pod_a.mod\n')
     # pod_b: a direct import of another pod.
     _write(tmp_path, 'pod_b/tests/test_uses_a.py', 'from pod_a.mod import VALUE\n')
     # pod_c: only through a shared fake.
-    _write(tmp_path, 'pod_c/tests/test_uses_fake.py', 'from tests.fakes.a_fake import something\n')
+    _write(tmp_path, 'pod_c/tests/test_uses_fake.py', 'from testing.fakes.a_fake import something\n')
     # pod_d: only through the target string of a patch.
     _write(tmp_path, 'pod_d/tests/test_patches.py',
            'def test_it(monkeypatch):\n    monkeypatch.setattr("pod_a.mod.VALUE", 2)\n')
@@ -67,9 +68,9 @@ def tree_fixture(tmp_path):
     _write(tmp_path, 'tests/test_uses_a.py', 'import pod_a.mod\n\n\ndef test_x():\n    pass\n')
     _write(tmp_path, 'tests/test_uses_b.py', 'import pod_b.mod\n\n\ndef test_x():\n    pass\n')
     _write(tmp_path, 'tests/test_reads_docs.py', 'from pathlib import Path\nREPO_ROOT = Path(".")\n\n\ndef test_x():\n    pass\n')
-    _write(tmp_path, 'tests/fakes/reader_helper.py', 'HERE = __file__\n')
+    _write(tmp_path, 'testing/fakes/reader_helper.py', 'HERE = __file__\n')
     _write(tmp_path, 'tests/test_reads_via_helper.py',
-           'from tests.fakes.reader_helper import HERE\n\n\ndef test_x():\n    pass\n')
+           'from testing.fakes.reader_helper import HERE\n\n\ndef test_x():\n    pass\n')
     return ImportGraph(tmp_path, SYNTHETIC, 'pkg_core')
 
 
@@ -111,8 +112,8 @@ def test_core_change_selects_only_core(tree):  # pylint: disable=redefined-outer
 
 
 def test_shared_fake_change_selects_only_who_uses_it(tree):  # pylint: disable=redefined-outer-name
-    '''tests/fakes/a_fake.py is reached by pod_c only.'''
-    assert _packages(tree, 'tests/fakes/a_fake.py') == ('pod_c',)
+    '''testing/fakes/a_fake.py is reached by pod_c only.'''
+    assert _packages(tree, 'testing/fakes/a_fake.py') == ('pod_c',)
 
 
 def test_conftest_change_selects_every_package(tree):  # pylint: disable=redefined-outer-name
@@ -178,9 +179,9 @@ def test_real_imports_in_ci_tooling_are_still_edges(tree):  # pylint: disable=re
 
 
 def test_importing_a_parent_package_initialiser_is_an_edge(tree):  # pylint: disable=redefined-outer-name
-    '''`import tests.fakes.x` runs tests/fakes/__init__.py first, so changing it affects the importer.'''
-    _write(tree.repo_root, 'tests/fakes/__init__.py', 'import pod_a\n')
-    assert _packages(tree, 'tests/fakes/__init__.py') == ('pod_c',)
+    '''`import testing.fakes.x` runs testing/fakes/__init__.py first, so changing it affects the importer.'''
+    _write(tree.repo_root, 'testing/fakes/__init__.py', 'import pod_a\n')
+    assert _packages(tree, 'testing/fakes/__init__.py') == ('pod_c',)
 
 
 def test_changed_node_classification(tree):  # pylint: disable=redefined-outer-name
@@ -190,7 +191,7 @@ def test_changed_node_classification(tree):  # pylint: disable=redefined-outer-n
     assert changed_node('pod_a/tests/test_mod.py', tree) == ('tests', 'pod_a')
     assert changed_node('pod_a/tests', tree) == ('root', 'pod_a')
     assert changed_node(CONFTEST, tree) == ('file', CONFTEST)
-    assert changed_node('tests/helpers.py', tree) == ('file', 'tests/helpers.py')
+    assert changed_node('testing/helpers.py', tree) == ('file', 'testing/helpers.py')
     assert changed_node('tests/data.json', tree) == ''
     assert changed_node('README.md', tree) is None
     assert changed_node('docs/images/x.png', tree) is None
@@ -302,17 +303,17 @@ def test_changing_a_central_file_selects_that_file(tree):  # pylint: disable=red
 
 
 def test_a_shared_module_change_selects_the_central_files_that_import_it(tree):  # pylint: disable=redefined-outer-name
-    '''tests/fakes/a_fake.py reaches pod_a, and test_uses_fake-style files that import it follow.'''
+    '''testing/fakes/a_fake.py reaches pod_a, and test_uses_fake-style files that import it follow.'''
     _write(tree.repo_root, 'tests/test_uses_fake.py',
-           'from tests.fakes.a_fake import x\n\n\ndef test_x():\n    pass\n')
-    central = select(['tests/fakes/a_fake.py'], tree).central
+           'from testing.fakes.a_fake import x\n\n\ndef test_x():\n    pass\n')
+    central = select(['testing/fakes/a_fake.py'], tree).central
     assert 'tests/test_uses_fake.py' in central
     assert 'tests/test_uses_b.py' not in central
 
 
 def test_a_conftest_that_reads_the_repo_makes_every_central_file_always_run(tree):  # pylint: disable=redefined-outer-name
     '''The narrowing turns itself off rather than hide a dependency the graph cannot see.'''
-    _write(tree.repo_root, CONFTEST, 'import pkg_core\nfrom tests.helpers import thing\nHERE = __file__\n')
+    _write(tree.repo_root, CONFTEST, 'import pkg_core\nfrom testing.helpers import thing\nHERE = __file__\n')
     selection = select(['pod_b/mod.py'], tree)
     assert set(selection.central) == set(ImportGraph(tree.repo_root, SYNTHETIC, 'pkg_core').central_tests())
 
@@ -321,12 +322,13 @@ def test_central_tests_are_what_pytest_would_collect(tmp_path):
     '''A Test* class and a module-level test count; a differently named class, a factory-nested test,
     a helper, and a module with no tests do not.'''
     _write(tmp_path, 'tests/__init__.py')
+    _write(tmp_path, 'testing/__init__.py')
     _write(tmp_path, 'tests/test_function.py', 'def test_a():\n    pass\n')
     _write(tmp_path, 'tests/test_async.py', 'async def test_a():\n    pass\n')
     _write(tmp_path, 'tests/test_class.py', 'class TestThing:\n    def test_a(self):\n        pass\n')
     _write(tmp_path, 'tests/suite_class.py', 'class Suite:\n    def test_a(self):\n        pass\n')
     _write(tmp_path, 'tests/suite_factory.py', 'def make():\n    def test_a():\n        pass\n    return test_a\n')
-    _write(tmp_path, 'tests/helpers.py', 'def helper():\n    pass\n')
+    _write(tmp_path, 'testing/helpers.py', 'def helper():\n    pass\n')
     graph = ImportGraph(tmp_path, (), 'x')
     assert graph.central_tests() == ['tests/test_async.py', 'tests/test_class.py', 'tests/test_function.py']
 
@@ -408,9 +410,9 @@ def test_every_pod_pins_core():
 
 
 def test_root_conftest_reaches_no_pod():
-    '''The coupling that made narrowing pointless: conftest.py imported tests/helpers.py, which
+    '''The coupling that made narrowing pointless: conftest.py imported testing/helpers.py, which
     imported fakes for six pods, so EVERY package's test run depended on all of them. Splitting
-    helpers (tests/db_helpers.py, tests/fakes/in_process_stack.py) removed it. If this fails, find
+    helpers (testing/db_helpers.py, testing/fakes/in_process_stack.py) removed it. If this fails, find
     the import that put a pod back on the conftest's path -- every package's selection widens.'''
     reached = {name for kind, name in ImportGraph().closure([('file', CONFTEST)]) if kind == 'root'}
     assert reached <= {CORE_ROOT}, sorted(reached - {CORE_ROOT})

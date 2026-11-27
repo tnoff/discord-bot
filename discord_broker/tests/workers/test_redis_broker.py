@@ -18,7 +18,7 @@ from discord_broker.interfaces.broker_protocols import BrokerEntry, Zone
 from discord_broker.workers.broker_registry import RedisBrokerRegistry
 from discord_broker.workers.redis_broker import RedisBroker, _download_from_dict, _download_to_dict, _entry_from_dict
 
-from tests.fakes.worker_requests import direct_request
+from testing.fakes.worker_requests import direct_request
 
 
 # ---------------------------------------------------------------------------

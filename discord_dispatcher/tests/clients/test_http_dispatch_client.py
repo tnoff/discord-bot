@@ -23,7 +23,7 @@ from discord_core.types.dispatch_result import ChannelHistoryResult, GuildEmojis
 from discord_core.types.dispatch_responses import FetchHistoryResponse
 
 from discord_dispatcher.servers.dispatch_server import DispatchHttpServer
-from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue
+from testing.helpers import FakeDispatchServer, FakeRedisDispatchQueue
 
 # The two label keys the request counter sets. Spelled through the enum rather
 # than as literals so that renaming either fails here, where the assertion is,

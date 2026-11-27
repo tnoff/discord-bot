@@ -11,9 +11,9 @@ from discord_core.types.video_cache import VideoCacheEntry
 from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_db.database import VideoCache
 
-from tests.helpers import fake_source_dict, fake_media_download, generate_fake_context
-from tests.db_helpers import async_mock_session
-from tests.db_helpers import fake_engine  #pylint:disable=unused-import
+from testing.helpers import fake_source_dict, fake_media_download, generate_fake_context
+from testing.db_helpers import async_mock_session
+from testing.db_helpers import fake_engine  #pylint:disable=unused-import
 
 
 @pytest.mark.asyncio

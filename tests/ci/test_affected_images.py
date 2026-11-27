@@ -23,7 +23,7 @@ from ci._image_deps import CLOSURE_DOC, REPO_ROOT
 from ci._roots import LEGACY_ROOT, ROOTS, SHIPS_AHEAD_OF_CONSUMER
 
 
-NOT_PACKAGES = frozenset({'ci'})
+NOT_PACKAGES = frozenset({'ci', 'testing'})
 
 CLOSURE = {'images': [
     {'image': 'bot', 'entrypoint': 'discord_bot.cli.bot', 'dockerfile': 'docker/Dockerfile.gateway',
@@ -41,7 +41,7 @@ def _affected(files, base_closure=None, deleted=()):
     ('discord_bot/cogs/music.py', 'discord_bot.cogs.music'),
     ('discord_bot/__init__.py', 'discord_bot'),
     ('discord_bot/cogs/__init__.py', 'discord_bot.cogs'),
-    ('tests/helpers.py', None),
+    ('testing/helpers.py', None),
     ('discord_bot/data.txt', None),
     ('README.md', None),
     # The post-split layout (criterion 7). These are not hypothetical spellings:
@@ -365,7 +365,7 @@ def test_the_declared_roots_are_exactly_the_packages_on_disk():
     removing the recognition itself is not required by any move, only by a
     choice to stop supporting it.
     """
-    # `ci/` is importable (`python -m ci._run_tests`) but is the CI tooling, not a package that ships.
+    # `ci/` (the CI tooling) and `testing/` (the shared test infrastructure) are importable but are not packages that ship.
     on_disk = {entry.name for entry in REPO_ROOT.iterdir()
                if entry.is_dir() and (entry / '__init__.py').is_file()
                and not entry.name.startswith(('.', 'test')) and entry.name not in NOT_PACKAGES}

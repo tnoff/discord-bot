@@ -8,7 +8,7 @@ from discord_core.types.dispatch_result import (
     is_not_found_error,
 )
 
-from tests.helpers import FakeResponse
+from testing.helpers import FakeResponse
 
 
 def test_encode_error_captures_status_and_code():

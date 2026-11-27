@@ -12,8 +12,8 @@ from discord_core.utils.integrations.common import YOUTUBE_VIDEO_PREFIX
 from discord_commands.clients.search_client import SearchClient, InvalidSearchURL, ThirdPartyException, check_youtube_video
 from discord_search.clients.media_search_client import LocalMediaSearchClient
 
-from tests.helpers import fake_source_dict  #pylint:disable=unused-import
-from tests.db_helpers import fake_engine  #pylint:disable=unused-import
+from testing.helpers import fake_source_dict  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine  #pylint:disable=unused-import
 
 
 class MockSpotifyClient():

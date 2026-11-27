@@ -11,7 +11,7 @@ from discord_core.types.download import (
     normalize_ytdlp_error,
 )
 
-from tests.helpers import fake_source_dict, generate_fake_context
+from testing.helpers import fake_source_dict, generate_fake_context
 
 
 class UnserializablePostProcessor:

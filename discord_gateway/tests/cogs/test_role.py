@@ -6,7 +6,7 @@ from discord_core.exceptions import CogMissingRequiredArg, DiscordBotException
 
 from discord_gateway.cogs.role import RoleAssignment
 
-from tests.helpers import assert_subcommand_forwards, fake_context #pylint:disable=unused-import
+from testing.helpers import assert_subcommand_forwards, fake_context #pylint:disable=unused-import
 
 CONFIG = {
     'general': {

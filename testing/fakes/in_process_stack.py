@@ -1,7 +1,7 @@
 '''
 The in-process broker / download / search stacks a cog test wires up.
 
-Split out of tests/helpers.py: these are the helpers that need the broker, downloader, search
+Split out of testing/helpers.py: these are the helpers that need the broker, downloader, search
 and db pods' test doubles, so only the tests that attach those stacks should have to load them.
 '''
 from functools import partial
@@ -17,16 +17,16 @@ from discord_broker.workers.guild_queue_registry import GPLAYING_KEY_PREFIX
 from discord_db.cogs.music_helpers.video_cache_client import VideoCacheClient
 from discord_search.workers.youtube_music_search_driver import YoutubeMusicSearchDriver
 
-from tests.db_helpers import async_mock_session
-from tests.fakes.asyncio_broker import AsyncioBroker
-from tests.fakes.asyncio_broker_client import AsyncioBrokerClient
-from tests.fakes.asyncio_download_client import AsyncioDownloadClient
-from tests.fakes.asyncio_download_worker import AsyncioDownloadWorker
-from tests.fakes.asyncio_queues import make_guild_queue_for
-from tests.fakes.asyncio_youtube_music_search_client import AsyncioYoutubeMusicSearchClient
-from tests.fakes.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
-from tests.fakes.pod_music_config import pod_music_config
-from tests.fakes.stub_youtube_music_client import StubYoutubeMusicClient
+from testing.db_helpers import async_mock_session
+from testing.fakes.asyncio_broker import AsyncioBroker
+from testing.fakes.asyncio_broker_client import AsyncioBrokerClient
+from testing.fakes.asyncio_download_client import AsyncioDownloadClient
+from testing.fakes.asyncio_download_worker import AsyncioDownloadWorker
+from testing.fakes.asyncio_queues import make_guild_queue_for
+from testing.fakes.asyncio_youtube_music_search_client import AsyncioYoutubeMusicSearchClient
+from testing.fakes.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
+from testing.fakes.pod_music_config import pod_music_config
+from testing.fakes.stub_youtube_music_client import StubYoutubeMusicClient
 
 
 def attach_in_process_broker(cog: Any, video_cache: Optional[Any] = None,
@@ -43,7 +43,7 @@ def attach_in_process_broker(cog: Any, video_cache: Optional[Any] = None,
     aiohttp server.
 
     The client also gets a real GuildQueueBroker over the same engine (on fakeredis), so the
-    cog's queue calls run the broker's actual queue code; see tests/fakes/asyncio_broker_client.
+    cog's queue calls run the broker's actual queue code; see testing/fakes/asyncio_broker_client.
 
     Returns the engine, which is what tests reach for when they need to assert on
     registry state directly (the cog's old `cog.media_broker`).
@@ -177,7 +177,7 @@ def attach_in_process_search(cog: Any, client: Optional[Any] = None) -> YoutubeM
         # Defaults to a STUB, not a live client. This line read
         # `client or youtube_music.YoutubeMusicClient()`, which gave all 65
         # callers a real YouTube Music client -- see
-        # tests/fakes/stub_youtube_music_client.py for what that cost.
+        # testing/fakes/stub_youtube_music_client.py for what that cost.
         client or StubYoutubeMusicClient(),
         FailureQueue(
             max_size=config.download.failure_tracking_max_size,

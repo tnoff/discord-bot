@@ -24,8 +24,8 @@ from discord_broker.workers.broker_registry import RedisBrokerRegistry
 from discord_broker.workers.media_bundle import BundleRenderer
 from discord_broker.workers.redis_broker import RedisBroker
 
-from tests.fakes.worker_requests import direct_request
-from tests.fakes.yielding_redis import two_pod_clients
+from testing.fakes.worker_requests import direct_request
+from testing.fakes.yielding_redis import two_pod_clients
 
 
 def _two_pods():

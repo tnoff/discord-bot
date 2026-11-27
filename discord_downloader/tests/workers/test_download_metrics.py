@@ -1,7 +1,7 @@
 '''Tests for DownloadMetrics — the downloader pod's gauge poller.'''
 from discord_downloader.workers.download_metrics import DownloadMetrics
 
-from tests.gauge_poller_suite import GaugePollerSuite
+from testing.gauge_poller_suite import GaugePollerSuite
 
 
 class TestDownloadMetrics(GaugePollerSuite):

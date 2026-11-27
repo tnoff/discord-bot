@@ -13,10 +13,10 @@ from discord_core.utils.loop_health import LOOP_HEALTH, LoopHealth, LoopStatus
 
 from discord_downloader.cli import downloader as downloader_cli
 
-from tests.worker_pod_cli_support import (
+from testing.worker_pod_cli_support import (
     GeneralConfig, WorkerPodCliSuite, assert_pod_served, health_server_mock, shutdown_mocks,
 )
-from tests.signal_support import capture_signals, fire_sigterm
+from testing.signal_support import capture_signals, fire_sigterm
 
 
 def _pod_worker(mocker):

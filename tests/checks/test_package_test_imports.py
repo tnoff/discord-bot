@@ -1,6 +1,6 @@
 '''
-A package's own tests may use itself, the pinned `discord_core`, and the shared test infrastructure under
-`tests/` (the fakes and helpers). They may not import another pod's production code.
+A package's own tests may use itself, the pinned `discord_core`, and the shared test infrastructure in
+`testing/` (the fakes and helpers). They may not import another pod's production code.
 
 Why it matters. `discord_core` is the independent, released artifact the pods depend on, so its tests may
 not depend on a pod at all. And a pod's test tree that quietly imports a sibling pod is not testing the pod:
@@ -38,8 +38,8 @@ def cross_pod_imports(repo_root=REPO_ROOT) -> dict:
 
 def test_no_package_test_imports_another_pod():
     '''A cross-pod import in a package's tests is a test in the wrong tree: put it in tests/integration/, or, if it
-    only needs a model class or a patch target, reach it through the shared helpers (tests/db_helpers.py,
-    tests/fakes/in_process_stack.py).'''
+    only needs a model class or a patch target, reach it through the shared helpers (testing/db_helpers.py,
+    testing/fakes/in_process_stack.py).'''
     found = cross_pod_imports()
     assert not found, f'package tests that import another pod: {found}'
 
@@ -65,7 +65,7 @@ def test_the_scan_sees_an_import_a_patch_target_and_core(tmp_path):
     _write(tmp_path, 'discord_core/tests/test_core.py', 'from discord_dispatcher.utils.retry import x\n')
     _write(tmp_path, 'discord_gateway/tests/test_fine.py',
            'from discord_core.utils.common import y\nfrom discord_gateway.cogs.music import z\n'
-           'from tests.helpers import fake_context\n')
+           'from testing.helpers import fake_context\n')
     _write(tmp_path, 'discord_db/tests/test_own.py', 'from discord_db.database import BASE\n')
     found = cross_pod_imports(tmp_path)
     assert found == {

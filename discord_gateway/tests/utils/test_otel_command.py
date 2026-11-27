@@ -9,7 +9,7 @@ import pytest
 
 from discord_gateway.utils.otel_command import command_wrapper
 
-from tests.fakes.command_context import make_command_context
+from testing.fakes.command_context import make_command_context
 
 
 @pytest.mark.asyncio

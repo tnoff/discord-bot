@@ -40,8 +40,8 @@ from discord_search.workers.redis_youtube_music_search_worker import (
     RedisYoutubeMusicSearchWorker, GUILDS_KEY,
 )
 
-from tests.fakes.worker_requests import queue_request
-from tests.fakes.yielding_redis import two_pod_clients
+from testing.fakes.worker_requests import queue_request
+from testing.fakes.yielding_redis import two_pod_clients
 
 
 def _two_pods():

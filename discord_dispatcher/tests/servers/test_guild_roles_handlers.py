@@ -7,7 +7,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from discord_dispatcher.servers.dispatch_server import DispatchHttpServer
 
-from tests.helpers import FakeDispatchServer, FakeRedisDispatchQueue
+from testing.helpers import FakeDispatchServer, FakeRedisDispatchQueue
 
 BODIES = {
     '/dispatch/fetch_roles': ('fetch_roles', {'guild_id': 1}),

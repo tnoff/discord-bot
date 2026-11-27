@@ -22,7 +22,7 @@ from discord_core.utils.integrations.s3 import delete_file_async, get_file_async
 from discord_broker.interfaces.broker_protocols import BrokerEntry, CheckoutResult, MediaBrokerBase, Zone
 from discord_broker.workers.media_bundle import BundleState
 
-from tests.fakes.bundle_attach import BundleAttachMixin
+from testing.fakes.bundle_attach import BundleAttachMixin
 
 logger = logging.getLogger(__name__)
 

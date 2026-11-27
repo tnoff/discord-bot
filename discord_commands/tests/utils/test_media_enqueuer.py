@@ -7,8 +7,8 @@ import pytest
 from discord_core.types.download import LifecycleEvent
 from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
-from tests.fakes.broker_mock import enqueue_broker_mock
-from tests.helpers import fake_context, fake_media_download  #pylint:disable=unused-import
+from testing.fakes.broker_mock import enqueue_broker_mock
+from testing.helpers import fake_context, fake_media_download  #pylint:disable=unused-import
 
 
 def make_enqueuer(enqueue_result='ok'):

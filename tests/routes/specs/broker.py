@@ -22,8 +22,8 @@ from discord_core.types.player_session import PlayerSession
 from discord_core.types.playlist_add_request import AnyMediaRequest
 from discord_core.types.search_resolution import SearchResolution
 
-from tests.fakes.asyncio_queues import make_broker_http_server, make_guild_queue_broker
-from tests.fakes.worker_requests import direct_request, register_track
+from testing.fakes.asyncio_queues import make_broker_http_server, make_guild_queue_broker
+from testing.fakes.worker_requests import direct_request, register_track
 from tests.routes.specs._model import Call, Operation, Query, reply, serving
 
 GUILD = 5

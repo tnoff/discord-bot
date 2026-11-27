@@ -9,7 +9,7 @@ from discord_core.types.search import SearchResult
 
 from discord_core.types.fetched_message import FetchedMessage
 
-from tests.helpers import fake_context, fake_source_dict  # noqa: F401  # pylint: disable=unused-import
+from testing.helpers import fake_context, fake_source_dict  # noqa: F401  # pylint: disable=unused-import
 
 
 # ---------------------------------------------------------------------------

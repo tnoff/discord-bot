@@ -6,8 +6,8 @@ import pytest
 from discord_core.types.download import DownloadErrorType, DownloadResult, DownloadStatus, LifecycleEvent
 
 from discord_commands.loop_logic.music_results import MusicResultsLoop
-from tests.fakes.broker_mock import enqueue_broker_mock
-from tests.helpers import fake_context, fake_media_download, fake_source_dict  #pylint:disable=unused-import
+from testing.fakes.broker_mock import enqueue_broker_mock
+from testing.helpers import fake_context, fake_media_download, fake_source_dict  #pylint:disable=unused-import
 
 
 def make_loop(enqueue_result='ok', live_player=True):

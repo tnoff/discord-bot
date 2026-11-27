@@ -17,8 +17,8 @@ from discord_core.utils.failure_queue import FailureQueue
 
 from discord_core.exceptions import YoutubeMusicRetryException
 
-from tests.fakes.asyncio_youtube_music_search_client import AsyncioYoutubeMusicSearchClient
-from tests.fakes.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
+from testing.fakes.asyncio_youtube_music_search_client import AsyncioYoutubeMusicSearchClient
+from testing.fakes.asyncio_youtube_music_search_worker import AsyncioYoutubeMusicSearchWorker
 
 
 

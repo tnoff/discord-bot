@@ -6,9 +6,9 @@ from discord_gateway.cogs.common import envelope_from_ctx
 from discord_gateway.tests.cogs.music_cog_support import forwarding_cog
 from discord_gateway.tests.cogs.test_music import BASE_MUSIC_CONFIG
 
-from tests.helpers import fake_context  #pylint:disable=unused-import
-from tests.db_helpers import fake_engine  #pylint:disable=unused-import
-from tests.fakes.in_process_stack import attach_in_process_broker
+from testing.helpers import fake_context  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine  #pylint:disable=unused-import
+from testing.fakes.in_process_stack import attach_in_process_broker
 
 
 # ---------------------------------------------------------------------------

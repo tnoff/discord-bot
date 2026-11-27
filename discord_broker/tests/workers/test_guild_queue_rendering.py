@@ -11,7 +11,7 @@ from discord_broker.workers.guild_queue import GuildQueueBroker
 from discord_broker.workers.guild_queue_registry import GuildQueueRegistry
 from discord_broker.workers.redis_broker import RedisBroker
 
-from tests.fakes.worker_requests import register_track
+from testing.fakes.worker_requests import register_track
 
 GUILD = 21
 CHANNEL = 555

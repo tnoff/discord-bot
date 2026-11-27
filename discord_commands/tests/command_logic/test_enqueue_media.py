@@ -11,14 +11,14 @@ from discord_core.types.search import SearchResult
 from discord_core.utils import otel
 from discord_commands.utils.media_enqueuer import MediaEnqueuer
 
-from tests.fakes.pipeline_fakes import fake_envelope
-from tests.fakes.search_pipeline_fakes import (BrokerBundleProxy, create_test_media_request,
+from testing.fakes.pipeline_fakes import fake_envelope
+from testing.fakes.search_pipeline_fakes import (BrokerBundleProxy, create_test_media_request,
                                                create_test_playlist_add_request, make_broker_bundle)
-from tests.helpers import fake_media_download, fake_source_dict
-from tests.helpers import fake_context  #pylint:disable=unused-import
-from tests.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
-from tests.results_pod import ResultsPod, music_settings
-from tests.tracing_support import record_spans
+from testing.helpers import fake_media_download, fake_source_dict
+from testing.helpers import fake_context  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine, fake_stores  #pylint:disable=unused-import
+from testing.results_pod import ResultsPod, music_settings
+from testing.tracing_support import record_spans
 
 
 def search_queue(pod):

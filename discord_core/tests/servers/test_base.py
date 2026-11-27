@@ -15,7 +15,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from discord_core.servers.base import AiohttpServerBase
 
-from tests.net_support import cancel_task, wait_for_port
+from testing.net_support import cancel_task, wait_for_port
 
 
 # ---------------------------------------------------------------------------

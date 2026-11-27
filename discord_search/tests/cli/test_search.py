@@ -12,10 +12,10 @@ from discord_core.utils.loop_health import LOOP_HEALTH
 from discord_search.cli import search as search_cli
 from discord_search.servers.composite_server import CompositeHttpServer
 
-from tests.worker_pod_cli_support import (
+from testing.worker_pod_cli_support import (
     GeneralConfig, WorkerPodCliSuite, assert_pod_served, health_server_mock, shutdown_mocks,
 )
-from tests.signal_support import capture_signals, fire_sigterm
+from testing.signal_support import capture_signals, fire_sigterm
 
 
 def _settings(*, broker_url='http://broker:8081', extra_download=None, extra_general=None):

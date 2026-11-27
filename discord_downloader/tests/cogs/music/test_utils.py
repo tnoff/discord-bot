@@ -3,8 +3,8 @@ import pytest
 from discord_downloader.interfaces.download_protocols import VideoTooLong, VideoBanned
 from discord_downloader.interfaces.download_protocols import match_generator
 
-from tests.helpers import fake_context  #pylint:disable=unused-import
-from tests.db_helpers import fake_engine  #pylint:disable=unused-import
+from testing.helpers import fake_context  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine  #pylint:disable=unused-import
 
 
 def test_match_generator_no_data():

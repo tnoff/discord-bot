@@ -7,8 +7,8 @@ from sqlalchemy import select
 
 from discord_commands.command_logic.markov import MarkovCommands
 
-from tests.db_helpers import fake_engine, fake_markov_store, MarkovChannel, MarkovRelation  #pylint:disable=unused-import
-from tests.db_helpers import async_mock_session
+from testing.db_helpers import fake_engine, fake_markov_store, MarkovChannel, MarkovRelation  #pylint:disable=unused-import
+from testing.db_helpers import async_mock_session
 
 
 def _logic(reply, fake_markov_store, reject_list=None):  #pylint:disable=redefined-outer-name

@@ -10,7 +10,7 @@ from discord_core.utils.loop_health import LOOP_HEALTH
 
 from discord_gateway.servers.health_server import HealthServer
 
-from tests.net_support import cancel_task, raw_request, wait_for_port
+from testing.net_support import cancel_task, raw_request, wait_for_port
 
 
 class _FakeClock:

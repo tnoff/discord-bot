@@ -35,8 +35,8 @@ from discord_dispatcher.servers.dispatch_server import DispatchHttpServer
 
 from discord_downloader.servers.download_server import DownloadHttpServer
 
-from tests.fakes.asyncio_queues import make_broker_http_server
-from tests.fakes.asyncio_broker import AsyncioBroker
+from testing.fakes.asyncio_queues import make_broker_http_server
+from testing.fakes.asyncio_broker import AsyncioBroker
 
 CONTRACT_ENTRY = (contract.CONTRACT_ROUTE.method, contract.CONTRACT_ROUTE.template)
 

@@ -5,7 +5,7 @@ from discord.ext import commands
 
 from discord_gateway.cogs.error import CommandErrorHandler
 
-from tests.helpers import fake_context  #pylint:disable=unused-import
+from testing.helpers import fake_context  #pylint:disable=unused-import
 
 
 def make_cog(ctx_fixture):

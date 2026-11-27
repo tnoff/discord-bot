@@ -7,7 +7,7 @@ module subclasses ``DownloadResultQueueSuite`` and supplies ``make_queue``.
 '''
 import pytest
 
-from tests.helpers import minimal_download_result
+from testing.helpers import minimal_download_result
 
 
 class DownloadResultQueueSuite:

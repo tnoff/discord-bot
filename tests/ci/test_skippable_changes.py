@@ -278,10 +278,10 @@ def test_an_edit_inside_a_block_does_change_it(path):
 # ---------------------------------------------------------------------------
 
 def _test_sources():
-    '''Every python file that can read the repo from a test: the central tests/, the CI tooling in ci/ that they
+    '''Every python file that can read the repo from a test: the central tests/, the shared infrastructure in testing/, the CI tooling in ci/ that they
     call, and each package's own tests/.'''
     root = git_diff.REPO_ROOT
-    for tests_dir in [root / 'tests', root / 'ci', *sorted(root.glob('discord_*/tests'))]:
+    for tests_dir in [root / 'tests', root / 'testing', root / 'ci', *sorted(root.glob('discord_*/tests'))]:
         yield from sorted(tests_dir.rglob('*.py'))
 
 

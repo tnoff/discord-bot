@@ -21,7 +21,7 @@ class _RecordingBot:
     '''Records what got bound to on_ready, and through which API.
 
     Models the one behaviour that matters here: ``event`` REPLACES whatever is
-    bound to an event name, ``add_listener`` appends. tests/helpers.FakeBot
+    bound to an event name, ``add_listener`` appends. testing/helpers.FakeBot
     collapses both into one list, which is right for exercising startup but
     cannot show the displacement this file is about.
     '''

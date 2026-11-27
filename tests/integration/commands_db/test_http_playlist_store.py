@@ -35,9 +35,9 @@ from discord_broker.clients.http_history_stores import HttpHistoryPlaylistStore
 from discord_db.clients.playlist_client import PlaylistClient
 from discord_db.servers.database_server import DatabaseHttpServer
 
-from tests.fakes.recording_store import RecordingStoreBase
-from tests.db_helpers import fake_engine  #pylint:disable=unused-import
-from tests.db_helpers import async_mock_session
+from testing.fakes.recording_store import RecordingStoreBase
+from testing.db_helpers import fake_engine  #pylint:disable=unused-import
+from testing.db_helpers import async_mock_session
 
 GUILD_ID = 808
 MAX_SIZE = 3

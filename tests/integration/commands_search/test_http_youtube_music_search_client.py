@@ -23,7 +23,7 @@ from discord_core.types.queue import PutsBlocked
 from discord_commands.clients.http_youtube_music_search_client import HttpYoutubeMusicSearchClient
 from discord_search.servers.youtube_music_search_server import YoutubeMusicSearchHttpServer
 
-from tests.http_queue_client_suite import FakeQueueWorker, QueueClientSuite, QueueServerSuite, media_request
+from testing.http_queue_client_suite import FakeQueueWorker, QueueClientSuite, QueueServerSuite, media_request
 
 SEARCH_STRING = 'some song name'
 

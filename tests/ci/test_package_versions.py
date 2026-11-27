@@ -32,7 +32,7 @@ from ci._scratch_repo import commit, head_sha, init_scratch_repo
     # A file directly in the root is not "under tests/" either.
     (['discord_gateway/VERSION'], {'discord_gateway'}),
     # A central tests/ file under no declared root.
-    (['tests/helpers.py'], set()),
+    (['testing/helpers.py'], set()),
     # Root-level doc and workflow files, under no root either.
     (['README.md', '.github/workflows/ci.yml'], set()),
     # Two roots touched by the same change set.

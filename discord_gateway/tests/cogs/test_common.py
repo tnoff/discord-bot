@@ -14,8 +14,8 @@ from discord_gateway.cogs.common import (
     COMMANDS_UNAVAILABLE_MESSAGE, CogHelperBase, build_commands_client, envelope_from_ctx,
 )
 
-from tests.helpers import fake_context  #pylint:disable=unused-import
-from tests.helpers import FakeMessage, FakeMessageDispatcher
+from testing.helpers import fake_context  #pylint:disable=unused-import
+from testing.helpers import FakeMessage, FakeMessageDispatcher
 
 
 class _MinimalConfig(BaseModel):

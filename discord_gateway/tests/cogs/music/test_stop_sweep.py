@@ -25,9 +25,9 @@ from discord_gateway.types.cleanup_reason import CleanupReason
 
 from discord_gateway.tests.cogs.music.test_resume_sessions import (
     _FakeMember, _StopsOnDisconnect, _lapse_heartbeat, _queued_track, _resumable_cog)
-from tests.helpers import FakeChannel, FakeGuild, FakeVoiceClient, fake_context, fake_media_download  #pylint:disable=unused-import
-from tests.db_helpers import fake_engine  #pylint:disable=unused-import
-from tests.fakes.in_process_stack import attach_in_process_broker, attach_in_process_download, attach_in_process_search  #pylint:disable=unused-import
+from testing.helpers import FakeChannel, FakeGuild, FakeVoiceClient, fake_context, fake_media_download  #pylint:disable=unused-import
+from testing.db_helpers import fake_engine  #pylint:disable=unused-import
+from testing.fakes.in_process_stack import attach_in_process_broker, attach_in_process_download, attach_in_process_search  #pylint:disable=unused-import
 
 # Where a stop can land, per call the player makes. 'client' is the player's call, 'registry'
 # and 'engine' are the broker's own steps inside it.

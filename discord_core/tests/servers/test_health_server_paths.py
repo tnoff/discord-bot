@@ -6,7 +6,7 @@ import socket
 import pytest
 
 from discord_core.servers.health_server_base import HealthServerBase, close_writer
-from tests.net_support import cancel_task, wait_for_port
+from testing.net_support import cancel_task, wait_for_port
 
 
 class _Healthy(HealthServerBase):

@@ -23,7 +23,7 @@ from discord_core.utils.common import GeneralConfig
 from discord_db.cli import database as database_cli
 from discord_downloader.cli import downloader as downloader_cli
 
-from tests.db_helpers import fake_engine  # pylint: disable=unused-import
+from testing.db_helpers import fake_engine  # pylint: disable=unused-import
 
 
 def _general_config(tracing: dict, *, health_server=True) -> GeneralConfig:

@@ -28,11 +28,11 @@ from discord_core.utils.loop_health import LoopHealth
 from discord_core.clients.http_broker_client import HttpBrokerClient
 
 from discord_broker.servers.broker_server import BrokerHttpServer
-from tests.fakes.asyncio_queues import make_broker_http_server
-from tests.fakes.asyncio_queues import AsyncioSearchResultQueue
+from testing.fakes.asyncio_queues import make_broker_http_server
+from testing.fakes.asyncio_queues import AsyncioSearchResultQueue
 
-from tests.fakes.asyncio_broker import AsyncioBroker as MediaBroker
-from tests.helpers import fake_bot_yielder, fake_source_dict, generate_fake_context
+from testing.fakes.asyncio_broker import AsyncioBroker as MediaBroker
+from testing.helpers import fake_bot_yielder, fake_source_dict, generate_fake_context
 
 
 

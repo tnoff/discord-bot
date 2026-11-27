@@ -5,7 +5,7 @@
 # secret and fails pr-check:secrets. Renaming is cheaper than an allowlist.
 from discord_search.workers.search_metrics import SearchMetrics
 
-from tests.gauge_poller_suite import GaugePollerSuite
+from testing.gauge_poller_suite import GaugePollerSuite
 
 
 class TestSearchMetrics(GaugePollerSuite):

@@ -14,8 +14,8 @@ from aiohttp.test_utils import TestServer
 from discord_core.clients.http_broker_client import HttpBrokerClient
 from discord_core.types.gateway_intents import GatewayIntent, IntentKind, IntentResult
 
-from tests.fakes.asyncio_broker import AsyncioBroker
-from tests.fakes.asyncio_queues import make_broker_http_server
+from testing.fakes.asyncio_broker import AsyncioBroker
+from testing.fakes.asyncio_queues import make_broker_http_server
 
 GUILD = 31
 GATEWAY = 'gw-1'

@@ -12,7 +12,7 @@ import asyncio
 
 from discord_downloader.interfaces.download_protocols import DownloadWorkerBase
 
-from tests.fakes.asyncio_queue_worker_client import AsyncioQueueWorkerClient
+from testing.fakes.asyncio_queue_worker_client import AsyncioQueueWorkerClient
 
 
 class AsyncioDownloadClient(AsyncioQueueWorkerClient):

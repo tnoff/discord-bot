@@ -11,8 +11,8 @@ from discord_core.types.markov import MarkovChannelEntry, MarkovMessageWrite
 from discord_db.clients.markov_client import MarkovClient
 from discord_db.database import MarkovChannel, MarkovRelation
 
-from tests.db_helpers import fake_engine  #pylint:disable=unused-import
-from tests.db_helpers import async_mock_session
+from testing.db_helpers import fake_engine  #pylint:disable=unused-import
+from testing.db_helpers import async_mock_session
 
 GUILD_ID = 111
 CHANNEL_ID = 222
