@@ -28,7 +28,7 @@ from discord_core.utils.otel import async_otel_span_wrapper
 
 from discord_core.routes import media_search as media_search_routes
 from discord_core.types.catalog import CatalogResponse
-from discord_core.types.media_search import MediaSearchResponse
+from discord_core.types.media_search import MediaSearchResponse, SpotifySourceRequest, YoutubeSourceRequest
 
 logger = logging.getLogger(__name__)
 
@@ -85,10 +85,12 @@ class HttpMediaSearchClient(HttpClientMixin):
             # ValueError it gets in-process, without paying a round trip to learn
             # it passed nothing.
             raise ValueError('Playlist, album, or track id must be passed')
-        body = {'playlist_id': playlist_id, 'album_id': album_id, 'track_id': track_id}
+        # Built from the shared model, so two ids fail here as the pod would refuse them (a ValueError)
+        # rather than after a round trip and its retries.
+        request = SpotifySourceRequest(playlist_id=playlist_id or None, album_id=album_id or None,
+                                       track_id=track_id or None)
         async with async_otel_span_wrapper(f'{SPAN_PREFIX}.spotify', kind=SpanKind.CLIENT):
-            return await self._expand(media_search_routes.SPOTIFY,
-                                      {k: v for k, v in body.items() if v})
+            return await self._expand(media_search_routes.SPOTIFY, request.ids())
 
     async def youtube_source(self, playlist_id: str) -> CatalogResponse:
         '''
@@ -98,4 +100,4 @@ class HttpMediaSearchClient(HttpClientMixin):
         '''
         async with async_otel_span_wrapper(f'{SPAN_PREFIX}.youtube', kind=SpanKind.CLIENT):
             return await self._expand(media_search_routes.YOUTUBE,
-                                      {'playlist_id': playlist_id})
+                                      YoutubeSourceRequest(playlist_id=playlist_id).model_dump())
