@@ -262,7 +262,11 @@ def module_prefixes_for(kind: str, name: str | None = None) -> tuple:
 # alone, because the commands pod serves the contract and never calls it. They are still in core so
 # the client could be released before the gateway used it, so they can move into the gateway (and
 # off this list) whenever a core release is next due anyway.
+#
+# `types.database_requests` is the other kind: waiting for the db pod and the store clients to adopt it, which
+# each need this release pinned first. It leaves the list when the db pod's server reads it.
 SHIPS_AHEAD_OF_CONSUMER = frozenset({
     'discord_core.clients.http_commands_client',
     'discord_core.interfaces.commands_client',
+    'discord_core.types.database_requests',
 })
