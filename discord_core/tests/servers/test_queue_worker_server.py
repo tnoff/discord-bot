@@ -206,6 +206,18 @@ async def test_clear_requires_guild_id(worker):
 
 
 @pytest.mark.asyncio
+async def test_clear_refuses_a_preserve_flag_that_is_not_a_bool(worker):
+    '''The flag used to be read with `bool(...)`, so any string meant "keep": the request model refuses it instead,
+    and nothing is dropped.'''
+    client = await _client(worker)
+    try:
+        resp = await client.post('/qw/clear', json={'guild_id': 7, 'preserve_playlist_adds': 'maybe'})
+        assert resp.status == 422
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 async def test_block_sets_flag(worker):
     '''Block answers 200 ok and the guild is blocked afterwards.'''
     client = await _client(worker)

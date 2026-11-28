@@ -207,7 +207,7 @@ class HttpClientMixin:
         """Parse a peer's response body, naming the peer if it does not fit.
 
         **Every `model_validate` on a response body in `clients/` goes through
-        here**, enforced by tests/clients/test_response_validation.py. The point
+        here**, enforced by tests/checks/test_response_validation.py. The point
         is not the try/except -- it is that `seam` and `prefix` are read off the
         client rather than passed in, so a caller cannot label a failure with the
         wrong peer, and a new client gets correct attribution by declaring the

@@ -30,7 +30,7 @@ class BrokerClient(PlayerSessionClient, GuildQueueClient, GatewayIntentClient, P
     '''
     Cog-facing handle for the MediaBroker.  HttpBrokerClient
     (clients/http_broker_client.py) forwards calls to the broker pod's
-    BrokerHttpServer over HTTP.  tests/fakes/asyncio_broker_client.py wraps a
+    BrokerHttpServer over HTTP.  testing/fakes/asyncio_broker_client.py wraps a
     local engine directly for tests.
 
     The cog only depends on this Protocol.

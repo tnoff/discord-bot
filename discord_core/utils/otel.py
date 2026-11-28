@@ -91,7 +91,7 @@ class MetricNaming(Enum):
     # instrument in this project named by a hardcoded string rather than an enum
     # member -- which is exactly why three renames walked past it while it stayed
     # dotted, prefixed with a pod that emits a minority of its series, and
-    # suffixed `_count` on a counter. tests/utils/test_metric_ownership.py now
+    # suffixed `_count` on a counter. tests/checks/test_metric_ownership.py now
     # fails any instrument named off-enum, so the next one cannot hide the same way.
     DISPATCH_REQUEST = 'dispatch_request'
 

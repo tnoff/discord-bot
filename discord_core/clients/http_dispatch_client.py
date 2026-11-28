@@ -256,7 +256,7 @@ class HttpDispatchClient(HttpClientMixin, DispatchClientBase):
         _REQUEST_COUNTER.add(1, {AttributeNaming.OUTCOME.value: 'success', AttributeNaming.PATH.value: path})
         # Through `self._validate`, not `model_validate` directly: the helper
         # reads `seam`/`prefix` off the client and emits seam_response_invalid,
-        # which is the attribution #953 built. tests/clients/test_response_
+        # which is the attribution #953 built. tests/checks/test_response_
         # validation.py enforces that every client response goes through it.
         return self._validate(response_model, data).request_id
 
