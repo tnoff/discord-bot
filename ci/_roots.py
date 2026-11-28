@@ -265,6 +265,4 @@ def module_prefixes_for(kind: str, name: str | None = None) -> tuple:
 SHIPS_AHEAD_OF_CONSUMER = frozenset({
     'discord_core.clients.http_commands_client',
     'discord_core.interfaces.commands_client',
-    # The queue-worker request bodies, released before the client and the two servers adopt them.
-    'discord_core.types.queue_worker_requests',
 })

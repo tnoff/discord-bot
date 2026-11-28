@@ -21,14 +21,15 @@ from typing import ClassVar
 
 from aiohttp import web
 from opentelemetry.trace import SpanKind
+from pydantic import ValidationError
 
 from discord_core.servers.base import AiohttpServerBase
-from discord_core.types.playlist_add_request import parse_media_request
 from discord_core.utils.otel import (otel_span_wrapper, create_observable_gauge, METER_PROVIDER,
                                      MetricNaming, AttributeNaming)
 
 from discord_core.routes.queue_worker import QueueWorkerRoutes
 from discord_core.types import queue_worker_responses as qw_responses
+from discord_core.types.queue_worker_requests import BlockRequestBody, ClearRequestBody, SubmitRequestBody
 from discord_core.types.queue import PutsBlocked, QueueFull, submit_rejection_status
 
 logger = logging.getLogger(__name__)
@@ -111,15 +112,13 @@ class QueueWorkerHttpServer(AiohttpServerBase):
         '''POST {prefix} — enqueue a MediaRequest on the worker's Redis queue.'''
         ctx, body = await self._read_body(request)
         try:
-            guild_id = int(body['guild_id'])
-            priority = body.get('priority')
-            media_request = parse_media_request(body['media_request'])
-        except Exception as exc:
+            submitted = SubmitRequestBody.model_validate(body)
+        except ValidationError as exc:
             raise web.HTTPUnprocessableEntity() from exc
         rejection: Exception | None = None
         with otel_span_wrapper(f'{self.SPAN_PREFIX}.submit', context=ctx, kind=SpanKind.SERVER) as span:
             try:
-                await self._worker.submit(guild_id, media_request, priority=priority)
+                await self._worker.submit(submitted.guild_id, submitted.media_request, priority=submitted.priority)
             except (PutsBlocked, QueueFull) as exc:
                 # Spelled out rather than derived from SUBMIT_REJECTION_STATUS:
                 # pylint cannot infer that a dict's keys are exception classes and
@@ -155,12 +154,11 @@ class QueueWorkerHttpServer(AiohttpServerBase):
         '''
         ctx, body = await self._read_body(request)
         try:
-            guild_id = int(body['guild_id'])
-            preserve_playlist_adds = bool(body.get('preserve_playlist_adds', False))
-        except Exception as exc:
+            cleared = ClearRequestBody.model_validate(body)
+        except ValidationError as exc:
             raise web.HTTPUnprocessableEntity() from exc
         preserved_bundle_uuids: set[str] = set()
-        if preserve_playlist_adds:
+        if cleared.preserve_playlist_adds:
             def preserve(media_request):
                 keep = not media_request.download_file
                 if keep and media_request.bundle_uuid:
@@ -169,7 +167,7 @@ class QueueWorkerHttpServer(AiohttpServerBase):
         else:
             preserve = None
         with otel_span_wrapper(f'{self.SPAN_PREFIX}.clear', context=ctx, kind=SpanKind.SERVER):
-            dropped = await self._worker.clear_guild_queue(guild_id, preserve_predicate=preserve)
+            dropped = await self._worker.clear_guild_queue(cleared.guild_id, preserve_predicate=preserve)
         return web.json_response(
             qw_responses.ClearGuildResponse(
                 dropped=[mr.model_dump(mode='json') for mr in dropped],
@@ -182,11 +180,11 @@ class QueueWorkerHttpServer(AiohttpServerBase):
         '''POST {prefix}/block — refuse new submits for a guild.'''
         ctx, body = await self._read_body(request)
         try:
-            guild_id = int(body['guild_id'])
-        except Exception as exc:
+            blocked = BlockRequestBody.model_validate(body)
+        except ValidationError as exc:
             raise web.HTTPUnprocessableEntity() from exc
         with otel_span_wrapper(f'{self.SPAN_PREFIX}.block', context=ctx, kind=SpanKind.SERVER):
-            await self._worker.block_guild(guild_id)
+            await self._worker.block_guild(blocked.guild_id)
         return web.json_response(qw_responses.BlockResponse().model_dump(), status=200)
 
     async def _handle_status(self, request: web.Request) -> web.Response:
