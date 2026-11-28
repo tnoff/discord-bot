@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.3.10] - 2026-11-28
+
+### Changed
+
+- Bumped tnoff/discord-bot to v3.33.0
+
 ## [3.3.9] - 2026-11-28
 
 ### Changed
