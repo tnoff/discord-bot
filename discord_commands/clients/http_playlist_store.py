@@ -31,10 +31,15 @@ is racy across processes with a network hop in the gap.
 import logging
 from typing import List
 
+from pydantic import BaseModel
+
 from discord_core.utils.discord_context import DiscordContextNaming
 
 from discord_core.clients.http_store_base import HttpStoreBase
 from discord_core.routes import database as database_routes
+from discord_core.types.database_requests import (
+    AddItemsRequest, DeleteItemByIndexRequest, DeleteItemRequest, GuildNameRequest, GuildRequest,
+    PlaylistRequest, RenamePlaylistRequest)
 from discord_core.types.playlist import (
     PlaylistEntry,
     PlaylistItemAddOutcome,
@@ -59,9 +64,9 @@ class HttpPlaylistStore(HttpStoreBase):
         guild_id : Discord guild id
         '''
         async with self._span(route, {DiscordContextNaming.GUILD.value: guild_id}):
-            return await self._call(route, {'guild_id': guild_id})
+            return await self._call(route, GuildRequest(guild_id=guild_id).model_dump(mode='json'))
 
-    async def _playlist_call(self, route: str, playlist_id: int, **extra):
+    async def _playlist_call(self, route: str, model: type[BaseModel], playlist_id: int, **extra):
         '''
         Run one of the routes keyed by playlist row id.
 
@@ -70,11 +75,12 @@ class HttpPlaylistStore(HttpStoreBase):
         alternative is reading the body off the request to find out which.
 
         route : Route name under the playlist prefix
+        model : The route's request model
         playlist_id : Playlist row id
         extra : Any further body fields the route takes
         '''
         async with self._span(route, {'playlist.id': playlist_id}):
-            return await self._call(route, {'playlist_id': playlist_id, **extra})
+            return await self._call(route, model(playlist_id=playlist_id, **extra).model_dump(mode='json'))
 
     async def list_playlists(self, guild_id: int) -> List[PlaylistEntry]:
         '''
@@ -102,7 +108,7 @@ class HttpPlaylistStore(HttpStoreBase):
 
         playlist_id : Playlist row id
         '''
-        result = await self._playlist_call('get_playlist', playlist_id)
+        result = await self._playlist_call('get_playlist', PlaylistRequest, playlist_id)
         return self._validate(PlaylistEntry, result) if result else None
 
     async def get_playlist_by_name(self, guild_id: int, name: str) -> PlaylistEntry | None:
@@ -113,8 +119,8 @@ class HttpPlaylistStore(HttpStoreBase):
         name : Playlist name to look for
         '''
         async with self._span('get_playlist_by_name', {DiscordContextNaming.GUILD.value: guild_id}):
-            result = await self._call('get_playlist_by_name',
-                                      {'guild_id': guild_id, 'name': name})
+            result = await self._call('get_playlist_by_name', GuildNameRequest(
+                guild_id=guild_id, name=name).model_dump(mode='json'))
         return self._validate(PlaylistEntry, result) if result else None
 
     async def get_history_playlist(self, guild_id: int) -> PlaylistEntry | None:
@@ -144,8 +150,8 @@ class HttpPlaylistStore(HttpStoreBase):
         name : Playlist name
         '''
         async with self._span('create_playlist', {DiscordContextNaming.GUILD.value: guild_id}):
-            result = await self._call('create_playlist',
-                                      {'guild_id': guild_id, 'name': name})
+            result = await self._call('create_playlist', GuildNameRequest(
+                guild_id=guild_id, name=name).model_dump(mode='json'))
         return self._validate(PlaylistEntry, result)
 
     async def delete_playlist(self, playlist_id: int) -> bool:
@@ -154,7 +160,7 @@ class HttpPlaylistStore(HttpStoreBase):
 
         playlist_id : Playlist row id
         '''
-        return await self._playlist_call('delete_playlist', playlist_id)
+        return await self._playlist_call('delete_playlist', PlaylistRequest, playlist_id)
 
     async def rename_playlist(self, playlist_id: int, name: str) -> bool:
         '''
@@ -163,7 +169,7 @@ class HttpPlaylistStore(HttpStoreBase):
         playlist_id : Playlist row id
         name : New name
         '''
-        return await self._playlist_call('rename_playlist', playlist_id, name=name)
+        return await self._playlist_call('rename_playlist', RenamePlaylistRequest, playlist_id, name=name)
 
     async def mark_queued(self, playlist_id: int) -> bool:
         '''
@@ -171,7 +177,7 @@ class HttpPlaylistStore(HttpStoreBase):
 
         playlist_id : Playlist row id
         '''
-        return await self._playlist_call('mark_queued', playlist_id)
+        return await self._playlist_call('mark_queued', PlaylistRequest, playlist_id)
 
     async def list_items(self, playlist_id: int) -> List[PlaylistItemEntry]:
         '''
@@ -179,7 +185,7 @@ class HttpPlaylistStore(HttpStoreBase):
 
         playlist_id : Playlist row id
         '''
-        result = await self._playlist_call('list_items', playlist_id)
+        result = await self._playlist_call('list_items', PlaylistRequest, playlist_id)
         return [self._validate(PlaylistItemEntry, entry) for entry in result]
 
     async def add_items(self, playlist_id: int, items: List[PlaylistItemWrite],
@@ -196,9 +202,7 @@ class HttpPlaylistStore(HttpStoreBase):
         max_size : Ceiling on the playlist's item count
         '''
         result = await self._playlist_call(
-            'add_items', playlist_id,
-            items=[item.model_dump(mode='json') for item in items],
-            max_size=max_size)
+            'add_items', AddItemsRequest, playlist_id, items=items, max_size=max_size)
         return [self._validate(PlaylistItemAddOutcome, outcome) for outcome in result]
 
     async def delete_item(self, item_id: int) -> bool:
@@ -208,7 +212,7 @@ class HttpPlaylistStore(HttpStoreBase):
         item_id : PlaylistItem row id
         '''
         async with self._span('delete_item'):
-            return await self._call('delete_item', {'item_id': item_id})
+            return await self._call('delete_item', DeleteItemRequest(item_id=item_id).model_dump(mode='json'))
 
     async def delete_item_by_index(self, playlist_id: int,
                                    index: int) -> PlaylistItemEntry | None:
@@ -221,5 +225,5 @@ class HttpPlaylistStore(HttpStoreBase):
         playlist_id : Playlist row id
         index : Zero-based position in list order
         '''
-        result = await self._playlist_call('delete_item_by_index', playlist_id, index=index)
+        result = await self._playlist_call('delete_item_by_index', DeleteItemByIndexRequest, playlist_id, index=index)
         return self._validate(PlaylistItemEntry, result) if result else None

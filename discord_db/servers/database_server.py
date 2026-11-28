@@ -75,7 +75,6 @@ to.
 **No heartbeat gauge here, on purpose** -- same reason as media_search_server.
 Whoever owns the composite that fronts these routes owns the listener heartbeat.
 '''
-from datetime import datetime
 import logging
 from typing import Callable
 
@@ -86,7 +85,6 @@ from pydantic import ValidationError
 from discord_core.servers.base import AiohttpServerBase
 from discord_core.types.media_download import (media_download_from_dict,
                                               media_download_to_dict)
-from discord_core.types.media_request import MediaRequest
 from discord_core.utils.otel import otel_span_wrapper
 
 from discord_core.interfaces.database_protocols import (
@@ -97,8 +95,11 @@ from discord_core.interfaces.database_protocols import (
 )
 from discord_core.routes import database as database_routes
 from discord_core.types.database_wire import DatabaseErrorBody, DatabaseResponse
-from discord_core.types.markov import MarkovMessageWrite
-from discord_core.types.playlist import PlaylistItemWrite
+from discord_core.types.database_requests import (
+    AddItemsRequest, DeleteItemByIndexRequest, DeleteItemRequest, GenerateWordsRequest,
+    GetWebpageUrlItemRequest, GuildChannelRequest, GuildNameRequest, GuildRequest, IterateFileRequest,
+    PlaylistRequest, PruneRelationsRequest, ReadyRemoveRequest, RecordHistoryItemRequest, RecordPlayRequest,
+    RemoveVideoCacheRequest, RenamePlaylistRequest, SaveMessagesRequest)
 
 logger = logging.getLogger(__name__)
 
@@ -193,42 +194,24 @@ class DatabaseHttpServer(AiohttpServerBase):
         return app
 
     @staticmethod
-    def _required(body: dict, *fields):
+    def _parse(model, body):
         '''
-        Pull required fields out of a request body, 422 if any is absent.
+        Read a request body as its core model, 422 if it does not fit.
 
         422 rather than the error envelope, and the distinction is worth holding:
         the envelope describes what the *database* said, and a caller that
-        omitted `guild_id` never reached the database. It is also the one class
-        of failure a retry genuinely cannot fix, which is why
-        async_retry_broker_command propagates 4xx immediately.
+        omitted `guild_id`, or sent a batch with one malformed item, never reached
+        the database. It is also the one class of failure a retry genuinely cannot
+        fix, which is why async_retry_broker_command propagates 4xx immediately.
+        A batch is checked whole before the store call, so a bad item in twenty
+        fails the request rather than half-writing it.
 
+        model : The route's request model, from discord_core.types.database_requests
         body : Parsed JSON request body
-        fields : Field names that must be present and not None
         '''
         try:
-            values = [body[field] for field in fields]
-        except KeyError as exc:
-            raise web.HTTPUnprocessableEntity() from exc
-        if any(value is None for value in values):
-            raise web.HTTPUnprocessableEntity()
-        return values
-
-    @staticmethod
-    def _item_writes(items) -> list:
-        """
-        Parse a batch of playlist items, 422 if any is not item-shaped.
-
-        Same reasoning as save_messages' batch: a malformed item never reached
-        the database, and re-sending the same bytes cannot make it valid. Done
-        before the store call rather than inside it so a bad item in a batch of
-        twenty fails the request rather than half-writing it.
-
-        items : List of PlaylistItemWrite-shaped dicts
-        """
-        try:
-            return [PlaylistItemWrite.model_validate(item) for item in items]
-        except (ValidationError, TypeError) as exc:
+            return model.model_validate(body)
+        except ValidationError as exc:
             raise web.HTTPUnprocessableEntity() from exc
 
     async def _respond(self, span_name: str, ctx, call: Callable) -> web.Response:
@@ -265,10 +248,10 @@ class DatabaseHttpServer(AiohttpServerBase):
     async def _handle_get_analytics(self, request: web.Request) -> web.Response:
         '''POST /database/guild_analytics/get_analytics — a guild's play totals.'''
         ctx, body = await self._read_body(request)
-        (guild_id,) = self._required(body, 'guild_id')
+        request_body = self._parse(GuildRequest, body)
 
         async def call():
-            entry = await self._guild_analytics_store.get_analytics(int(guild_id))
+            entry = await self._guild_analytics_store.get_analytics(request_body.guild_id)
             return entry.model_dump(mode='json')
 
         return await self._respond('guild_analytics.get_analytics', ctx, call)
@@ -276,12 +259,11 @@ class DatabaseHttpServer(AiohttpServerBase):
     async def _handle_record_play(self, request: web.Request) -> web.Response:
         '''POST /database/guild_analytics/record_play — add one play to the totals.'''
         ctx, body = await self._read_body(request)
-        guild_id, duration_seconds, cache_hit = self._required(
-            body, 'guild_id', 'duration_seconds', 'cache_hit')
+        request_body = self._parse(RecordPlayRequest, body)
 
         async def call():
             return await self._guild_analytics_store.record_play(
-                int(guild_id), int(duration_seconds), bool(cache_hit))
+                request_body.guild_id, request_body.duration_seconds, request_body.cache_hit)
 
         return await self._respond('guild_analytics.record_play', ctx, call)
 
@@ -298,20 +280,20 @@ class DatabaseHttpServer(AiohttpServerBase):
     async def _handle_list_guild_channel_ids(self, request: web.Request) -> web.Response:
         '''POST /database/markov/list_guild_channel_ids — a guild's channel ids.'''
         ctx, body = await self._read_body(request)
-        (guild_id,) = self._required(body, 'guild_id')
+        request_body = self._parse(GuildRequest, body)
 
         async def call():
-            return await self._markov_store.list_guild_channel_ids(int(guild_id))
+            return await self._markov_store.list_guild_channel_ids(request_body.guild_id)
 
         return await self._respond('markov.list_guild_channel_ids', ctx, call)
 
     async def _handle_get_channel(self, request: web.Request) -> web.Response:
         '''POST /database/markov/get_channel — one tracked channel, or null.'''
         ctx, body = await self._read_body(request)
-        guild_id, channel_id = self._required(body, 'guild_id', 'channel_id')
+        request_body = self._parse(GuildChannelRequest, body)
 
         async def call():
-            entry = await self._markov_store.get_channel(int(guild_id), int(channel_id))
+            entry = await self._markov_store.get_channel(request_body.guild_id, request_body.channel_id)
             return entry.model_dump(mode='json') if entry else None
 
         return await self._respond('markov.get_channel', ctx, call)
@@ -319,10 +301,10 @@ class DatabaseHttpServer(AiohttpServerBase):
     async def _handle_add_channel(self, request: web.Request) -> web.Response:
         '''POST /database/markov/add_channel — start tracking a channel.'''
         ctx, body = await self._read_body(request)
-        guild_id, channel_id = self._required(body, 'guild_id', 'channel_id')
+        request_body = self._parse(GuildChannelRequest, body)
 
         async def call():
-            entry = await self._markov_store.add_channel(int(guild_id), int(channel_id))
+            entry = await self._markov_store.add_channel(request_body.guild_id, request_body.channel_id)
             return entry.model_dump(mode='json')
 
         return await self._respond('markov.add_channel', ctx, call)
@@ -330,96 +312,83 @@ class DatabaseHttpServer(AiohttpServerBase):
     async def _handle_remove_channel(self, request: web.Request) -> web.Response:
         '''POST /database/markov/remove_channel — stop tracking a channel.'''
         ctx, body = await self._read_body(request)
-        guild_id, channel_id = self._required(body, 'guild_id', 'channel_id')
+        request_body = self._parse(GuildChannelRequest, body)
 
         async def call():
-            return await self._markov_store.remove_channel(int(guild_id), int(channel_id))
+            return await self._markov_store.remove_channel(request_body.guild_id, request_body.channel_id)
 
         return await self._respond('markov.remove_channel', ctx, call)
 
     async def _handle_reset_channel(self, request: web.Request) -> web.Response:
         '''POST /database/markov/reset_channel — forget a channel's read position.'''
         ctx, body = await self._read_body(request)
-        guild_id, channel_id = self._required(body, 'guild_id', 'channel_id')
+        request_body = self._parse(GuildChannelRequest, body)
 
         async def call():
-            return await self._markov_store.reset_channel(int(guild_id), int(channel_id))
+            return await self._markov_store.reset_channel(request_body.guild_id, request_body.channel_id)
 
         return await self._respond('markov.reset_channel', ctx, call)
 
     async def _handle_save_messages(self, request: web.Request) -> web.Response:
         '''POST /database/markov/save_messages — write a batch of messages.'''
         ctx, body = await self._read_body(request)
-        guild_id, channel_id, messages = self._required(
-            body, 'guild_id', 'channel_id', 'messages')
-        try:
-            writes = [MarkovMessageWrite.model_validate(message) for message in messages]
-        except ValidationError as exc:
-            # 422, not the envelope: a malformed batch never reached the database,
-            # and re-sending the same bytes cannot make it valid.
-            raise web.HTTPUnprocessableEntity() from exc
+        request_body = self._parse(SaveMessagesRequest, body)
 
         async def call():
             return await self._markov_store.save_messages(
-                int(guild_id), int(channel_id), writes)
+                request_body.guild_id, request_body.channel_id, request_body.messages)
 
         return await self._respond('markov.save_messages', ctx, call)
 
     async def _handle_generate_words(self, request: web.Request) -> web.Response:
         '''POST /database/markov/generate_words — walk the chain for a sentence.'''
         ctx, body = await self._read_body(request)
-        guild_id, count = self._required(body, 'guild_id', 'count')
+        request_body = self._parse(GenerateWordsRequest, body)
 
         async def call():
-            # first_word is genuinely optional -- `!markov speak` with no seed
-            # sends null -- so it is read with .get rather than required.
             return await self._markov_store.generate_words(
-                int(guild_id), int(count), body.get('first_word'))
+                request_body.guild_id, request_body.count, request_body.first_word)
 
         return await self._respond('markov.generate_words', ctx, call)
 
     async def _handle_prune_relations_before(self, request: web.Request) -> web.Response:
         '''POST /database/markov/prune_relations_before — drop stale relations.'''
         ctx, body = await self._read_body(request)
-        (cutoff,) = self._required(body, 'cutoff')
-        try:
-            parsed = datetime.fromisoformat(cutoff)
-        except (TypeError, ValueError) as exc:
-            raise web.HTTPUnprocessableEntity() from exc
+        request_body = self._parse(PruneRelationsRequest, body)
 
         async def call():
-            return await self._markov_store.prune_relations_before(parsed)
+            return await self._markov_store.prune_relations_before(request_body.cutoff)
 
         return await self._respond('markov.prune_relations_before', ctx, call)
 
     async def _handle_list_playlists(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/list_playlists — a guild's playlists, newest first.'''
         ctx, body = await self._read_body(request)
-        (guild_id,) = self._required(body, 'guild_id')
+        request_body = self._parse(GuildRequest, body)
 
         async def call():
             return [entry.model_dump(mode='json')
-                    for entry in await self._playlist_store.list_playlists(int(guild_id))]
+                    for entry in await self._playlist_store.list_playlists(request_body.guild_id)]
 
         return await self._respond('playlist.list_playlists', ctx, call)
 
     async def _handle_count_playlists(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/count_playlists — how many a guild has.'''
         ctx, body = await self._read_body(request)
-        (guild_id,) = self._required(body, 'guild_id')
+        request_body = self._parse(GuildRequest, body)
 
         async def call():
-            return await self._playlist_store.count_playlists(int(guild_id))
+            return await self._playlist_store.count_playlists(request_body.guild_id)
 
         return await self._respond('playlist.count_playlists', ctx, call)
 
     async def _handle_get_playlist(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/get_playlist — one playlist by id, or null.'''
         ctx, body = await self._read_body(request)
-        (playlist_id,) = self._required(body, 'playlist_id')
+        request_body = self._parse(PlaylistRequest, body)
 
         async def call():
-            entry = await self._playlist_store.get_playlist(int(playlist_id))
+            entry = await self._playlist_store.get_playlist(request_body.playlist_id)
             return entry.model_dump(mode='json') if entry else None
 
         return await self._respond('playlist.get_playlist', ctx, call)
@@ -427,10 +396,10 @@ class DatabaseHttpServer(AiohttpServerBase):
     async def _handle_get_playlist_by_name(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/get_playlist_by_name — one playlist by name, or null.'''
         ctx, body = await self._read_body(request)
-        guild_id, name = self._required(body, 'guild_id', 'name')
+        request_body = self._parse(GuildNameRequest, body)
 
         async def call():
-            entry = await self._playlist_store.get_playlist_by_name(int(guild_id), str(name))
+            entry = await self._playlist_store.get_playlist_by_name(request_body.guild_id, request_body.name)
             return entry.model_dump(mode='json') if entry else None
 
         return await self._respond('playlist.get_playlist_by_name', ctx, call)
@@ -438,10 +407,10 @@ class DatabaseHttpServer(AiohttpServerBase):
     async def _handle_get_history_playlist(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/get_history_playlist — a guild's history row, or null.'''
         ctx, body = await self._read_body(request)
-        (guild_id,) = self._required(body, 'guild_id')
+        request_body = self._parse(GuildRequest, body)
 
         async def call():
-            entry = await self._playlist_store.get_history_playlist(int(guild_id))
+            entry = await self._playlist_store.get_history_playlist(request_body.guild_id)
             return entry.model_dump(mode='json') if entry else None
 
         return await self._respond('playlist.get_history_playlist', ctx, call)
@@ -449,20 +418,20 @@ class DatabaseHttpServer(AiohttpServerBase):
     async def _handle_ensure_history_playlist(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/ensure_history_playlist — id, creating if absent.'''
         ctx, body = await self._read_body(request)
-        (guild_id,) = self._required(body, 'guild_id')
+        request_body = self._parse(GuildRequest, body)
 
         async def call():
-            return await self._playlist_store.ensure_history_playlist(int(guild_id))
+            return await self._playlist_store.ensure_history_playlist(request_body.guild_id)
 
         return await self._respond('playlist.ensure_history_playlist', ctx, call)
 
     async def _handle_create_playlist(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/create_playlist — make one and return it.'''
         ctx, body = await self._read_body(request)
-        guild_id, name = self._required(body, 'guild_id', 'name')
+        request_body = self._parse(GuildNameRequest, body)
 
         async def call():
-            entry = await self._playlist_store.create_playlist(int(guild_id), str(name))
+            entry = await self._playlist_store.create_playlist(request_body.guild_id, request_body.name)
             return entry.model_dump(mode='json')
 
         return await self._respond('playlist.create_playlist', ctx, call)
@@ -470,89 +439,87 @@ class DatabaseHttpServer(AiohttpServerBase):
     async def _handle_delete_playlist(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/delete_playlist — drop a playlist and its items.'''
         ctx, body = await self._read_body(request)
-        (playlist_id,) = self._required(body, 'playlist_id')
+        request_body = self._parse(PlaylistRequest, body)
 
         async def call():
-            return await self._playlist_store.delete_playlist(int(playlist_id))
+            return await self._playlist_store.delete_playlist(request_body.playlist_id)
 
         return await self._respond('playlist.delete_playlist', ctx, call)
 
     async def _handle_rename_playlist(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/rename_playlist — rename one.'''
         ctx, body = await self._read_body(request)
-        playlist_id, name = self._required(body, 'playlist_id', 'name')
+        request_body = self._parse(RenamePlaylistRequest, body)
 
         async def call():
-            return await self._playlist_store.rename_playlist(int(playlist_id), str(name))
+            return await self._playlist_store.rename_playlist(request_body.playlist_id, request_body.name)
 
         return await self._respond('playlist.rename_playlist', ctx, call)
 
     async def _handle_mark_queued(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/mark_queued — stamp last_queued.'''
         ctx, body = await self._read_body(request)
-        (playlist_id,) = self._required(body, 'playlist_id')
+        request_body = self._parse(PlaylistRequest, body)
 
         async def call():
-            return await self._playlist_store.mark_queued(int(playlist_id))
+            return await self._playlist_store.mark_queued(request_body.playlist_id)
 
         return await self._respond('playlist.mark_queued', ctx, call)
 
     async def _handle_get_playlist_size(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/get_playlist_size — how many items it holds.'''
         ctx, body = await self._read_body(request)
-        (playlist_id,) = self._required(body, 'playlist_id')
+        request_body = self._parse(PlaylistRequest, body)
 
         async def call():
-            return await self._playlist_store.get_playlist_size(int(playlist_id))
+            return await self._playlist_store.get_playlist_size(request_body.playlist_id)
 
         return await self._respond('playlist.get_playlist_size', ctx, call)
 
     async def _handle_list_items(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/list_items — a playlist's items, oldest first.'''
         ctx, body = await self._read_body(request)
-        (playlist_id,) = self._required(body, 'playlist_id')
+        request_body = self._parse(PlaylistRequest, body)
 
         async def call():
             return [entry.model_dump(mode='json')
-                    for entry in await self._playlist_store.list_items(int(playlist_id))]
+                    for entry in await self._playlist_store.list_items(request_body.playlist_id)]
 
         return await self._respond('playlist.list_items', ctx, call)
 
     async def _handle_add_items(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/add_items — add a batch, stopping when full.'''
         ctx, body = await self._read_body(request)
-        playlist_id, items, max_size = self._required(
-            body, 'playlist_id', 'items', 'max_size')
-        writes = self._item_writes(items)
+        request_body = self._parse(AddItemsRequest, body)
 
         async def call():
             return [outcome.model_dump(mode='json') for outcome in
                     await self._playlist_store.add_items(
-                        int(playlist_id), writes, int(max_size))]
+                        request_body.playlist_id, request_body.items, request_body.max_size)]
 
         return await self._respond('playlist.add_items', ctx, call)
 
     async def _handle_delete_item(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/delete_item — drop one item by row id.'''
         ctx, body = await self._read_body(request)
-        (item_id,) = self._required(body, 'item_id')
+        request_body = self._parse(DeleteItemRequest, body)
 
         async def call():
-            return await self._playlist_store.delete_item(int(item_id))
+            return await self._playlist_store.delete_item(request_body.item_id)
 
         return await self._respond('playlist.delete_item', ctx, call)
 
     async def _handle_delete_item_by_index(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/delete_item_by_index — drop the item at a position.'''
         ctx, body = await self._read_body(request)
-        # index 0 is the first item, not a missing argument -- _required tests
-        # `is None` rather than truthiness, and this is the route where the
-        # difference is a user deleting the wrong track.
-        playlist_id, index = self._required(body, 'playlist_id', 'index')
+        # index 0 is the first item, not a missing argument: the model requires the
+        # field, not a truthy value, and this is the route where the difference is a
+        # user deleting the wrong track.
+        request_body = self._parse(DeleteItemByIndexRequest, body)
 
         async def call():
             entry = await self._playlist_store.delete_item_by_index(
-                int(playlist_id), int(index))
+                request_body.playlist_id, request_body.index)
             return entry.model_dump(mode='json') if entry else None
 
         return await self._respond('playlist.delete_item_by_index', ctx, call)
@@ -560,41 +527,22 @@ class DatabaseHttpServer(AiohttpServerBase):
     async def _handle_record_history_item(self, request: web.Request) -> web.Response:
         '''POST /database/playlist/record_history_item — write one played track.'''
         ctx, body = await self._read_body(request)
-        playlist_id, item, max_size = self._required(
-            body, 'playlist_id', 'item', 'max_size')
-        (write,) = self._item_writes([item])
+        request_body = self._parse(RecordHistoryItemRequest, body)
 
         async def call():
             return await self._playlist_store.record_history_item(
-                int(playlist_id), write, int(max_size))
+                request_body.playlist_id, request_body.item, request_body.max_size)
 
         return await self._respond('playlist.record_history_item', ctx, call)
-
-    @staticmethod
-    def _media_request(payload) -> MediaRequest:
-        """
-        Parse a MediaRequest out of a request body, 422 if it is not one.
-
-        Same reasoning as the batch validators: a body that is not
-        request-shaped never reached the database, and re-sending the same bytes
-        cannot make it valid.
-
-        payload : A MediaRequest-shaped dict
-        """
-        try:
-            return MediaRequest.model_validate(payload)
-        except (ValidationError, TypeError) as exc:
-            raise web.HTTPUnprocessableEntity() from exc
 
     async def _handle_iterate_file(self, request: web.Request) -> web.Response:
         '''POST /database/video_cache/iterate_file — catalog a finished download.'''
         ctx, body = await self._read_body(request)
-        (payload,) = self._required(body, 'media_download')
+        payload = self._parse(IterateFileRequest, body).media_download
         # The download's own request rides inside the payload here, unlike
         # get_webpage_url_item where the caller supplies it: this row is being
         # written *from* that download, so the far side has no other copy.
-        media_request = self._media_request((payload or {}).get('request'))
-        media_download = media_download_from_dict(payload, media_request)
+        media_download = media_download_from_dict(payload.model_dump(exclude={'request'}), payload.request)
 
         async def call():
             return await self._video_cache_store.iterate_file(media_download)
@@ -604,8 +552,7 @@ class DatabaseHttpServer(AiohttpServerBase):
     async def _handle_get_webpage_url_item(self, request: web.Request) -> web.Response:
         '''POST /database/video_cache/get_webpage_url_item — look up a cache hit.'''
         ctx, body = await self._read_body(request)
-        (payload,) = self._required(body, 'media_request')
-        media_request = self._media_request(payload)
+        media_request = self._parse(GetWebpageUrlItemRequest, body).media_request
 
         async def call():
             media_download = await self._video_cache_store.get_webpage_url_item(media_request)
@@ -618,20 +565,18 @@ class DatabaseHttpServer(AiohttpServerBase):
     async def _handle_remove_video_cache(self, request: web.Request) -> web.Response:
         '''POST /database/video_cache/remove_video_cache — drop rows by id and by object key.'''
         ctx, body = await self._read_body(request)
-        (video_cache_ids,) = self._required(body, 'video_cache_ids')
-        base_paths = body.get('base_paths') or []
+        request_body = self._parse(RemoveVideoCacheRequest, body)
 
         async def call():
             return await self._video_cache_store.remove_video_cache(
-                [int(video_cache_id) for video_cache_id in video_cache_ids],
-                base_paths=[str(base_path) for base_path in base_paths])
+                request_body.video_cache_ids, base_paths=request_body.base_paths)
 
         return await self._respond('video_cache.remove_video_cache', ctx, call)
 
     async def _handle_ready_remove(self, request: web.Request) -> web.Response:
         '''POST /database/video_cache/ready_remove — apply the eviction policy, or flag every row.'''
         ctx, body = await self._read_body(request)
-        evict_all = bool(body.get('evict_all', False))
+        evict_all = self._parse(ReadyRemoveRequest, body).evict_all
 
         async def call():
             return await self._video_cache_store.ready_remove(evict_all=evict_all)

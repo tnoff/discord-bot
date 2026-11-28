@@ -28,6 +28,8 @@ from discord_core.utils.discord_context import DiscordContextNaming
 
 from discord_core.clients.http_store_base import HttpStoreBase
 from discord_core.routes import database as database_routes
+from discord_core.types.database_requests import (
+    GenerateWordsRequest, GuildChannelRequest, GuildRequest, PruneRelationsRequest, SaveMessagesRequest)
 from discord_core.types.markov import MarkovChannelEntry, MarkovMessageWrite
 
 logger = logging.getLogger(__name__)
@@ -49,7 +51,8 @@ class HttpMarkovStore(HttpStoreBase):
         '''
         async with self._span(route, {DiscordContextNaming.GUILD.value: guild_id,
                               DiscordContextNaming.CHANNEL.value: channel_id}):
-            return await self._call(route, {'guild_id': guild_id, 'channel_id': channel_id})
+            return await self._call(
+                route, GuildChannelRequest(guild_id=guild_id, channel_id=channel_id).model_dump(mode='json'))
 
     async def list_channels(self) -> List[MarkovChannelEntry]:
         '''Return every tracked channel.'''
@@ -64,7 +67,7 @@ class HttpMarkovStore(HttpStoreBase):
         guild_id : Discord guild id
         '''
         async with self._span('list_guild_channel_ids', {DiscordContextNaming.GUILD.value: guild_id}):
-            return await self._call('list_guild_channel_ids', {'guild_id': guild_id})
+            return await self._call('list_guild_channel_ids', GuildRequest(guild_id=guild_id).model_dump(mode='json'))
 
     async def get_channel(self, guild_id: int, channel_id: int) -> MarkovChannelEntry | None:
         '''
@@ -118,11 +121,8 @@ class HttpMarkovStore(HttpStoreBase):
         async with self._span('save_messages',
                               {DiscordContextNaming.GUILD.value: guild_id,
                                DiscordContextNaming.CHANNEL.value: channel_id}):
-            return await self._call('save_messages', {
-                'guild_id': guild_id,
-                'channel_id': channel_id,
-                'messages': [message.model_dump(mode='json') for message in messages],
-            })
+            return await self._call('save_messages', SaveMessagesRequest(
+                guild_id=guild_id, channel_id=channel_id, messages=messages).model_dump(mode='json'))
 
     async def generate_words(self, guild_id: int, count: int,
                              first_word: str | None = None) -> List[str]:
@@ -134,8 +134,8 @@ class HttpMarkovStore(HttpStoreBase):
         first_word : Seed word, or None to start anywhere
         '''
         async with self._span('generate_words', {DiscordContextNaming.GUILD.value: guild_id}):
-            return await self._call('generate_words', {
-                'guild_id': guild_id, 'count': count, 'first_word': first_word})
+            return await self._call('generate_words', GenerateWordsRequest(
+                guild_id=guild_id, count=count, first_word=first_word).model_dump(mode='json'))
 
     async def prune_relations_before(self, cutoff: datetime) -> bool:
         '''
@@ -145,4 +145,4 @@ class HttpMarkovStore(HttpStoreBase):
         '''
         async with self._span('prune_relations_before'):
             return await self._call('prune_relations_before',
-                                    {'cutoff': cutoff.isoformat()})
+                                    PruneRelationsRequest(cutoff=cutoff).model_dump(mode='json'))

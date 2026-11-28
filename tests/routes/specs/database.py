@@ -1,146 +1,32 @@
 '''
 The database seam: the persistence tier's stores, one POST route per store method.
 
-Every route answers 200, failures included: the body is a ``DatabaseResponse`` with a ``result``
-or an ``error``. ``result`` is ``Any`` on the wire model, so each route here gets a response model
-of its own (``result`` typed to what the store method returns), built from the shared envelope.
-Only a request that cannot be read is a 422.
-
-The table below is the whole description: one row per route. Each row's store method is replaced
-by a mock that returns the row's sample, and the handler's answer is checked against the typed
-model, so a row whose ``result`` type disagrees with what the handler serialises fails.
+What each route takes and answers is `testing/contracts/database.py`, which the store clients are also
+tested against. The table below is the proof: one row per route. Each row's store method is replaced by a
+mock that returns the row's sample, and the handler's answer is checked against the contract's typed model,
+so a row whose ``result`` type disagrees with what the handler serialises fails.
 '''
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
-from pydantic import BaseModel, create_model
-
 from discord_core.routes import database as database_routes
-from discord_core.types.broker_responses import CachedDownload
-from discord_core.types.database_wire import DatabaseResponse
 from discord_core.types.guild_analytics import GuildAnalyticsEntry
-from discord_core.types.markov import MarkovChannelEntry, MarkovMessageWrite
+from discord_core.types.markov import MarkovChannelEntry
 from discord_core.types.media_download import media_download_from_dict
 from discord_core.types.media_request import MediaRequest
 from discord_core.types.playlist import (PlaylistEntry, PlaylistItemAddOutcome, PlaylistItemAddStatus,
-                                         PlaylistItemEntry, PlaylistItemWrite)
+                                         PlaylistItemEntry)
 from discord_core.types.video_cache import VideoCacheEntry
 
 from discord_db.servers.database_server import DatabaseHttpServer
 
 from testing.fakes.worker_requests import direct_request
-from tests.routes.specs._model import Call, Operation, reply, serving
+from testing.contracts.database import CONTRACTS, GA, MK, PL, VC
+from tests.routes.specs._model import Call, operation, serving
 
 GUILD = 5
 CHANNEL = 2
 NOW = datetime(2026, 1, 1, tzinfo=timezone.utc)
-
-
-# ---------------------------------------------------------------------------
-# Request bodies
-# ---------------------------------------------------------------------------
-
-class Nothing(BaseModel):
-    '''A route that reads no field; the body is an empty object.'''
-
-
-class GuildBody(BaseModel):
-    '''A body naming a guild.'''
-    guild_id: int
-
-
-class GuildChannelBody(GuildBody):
-    '''A body naming a channel of a guild.'''
-    channel_id: int
-
-
-class RecordPlayBody(GuildBody):
-    '''guild_analytics/record_play'''
-    duration_seconds: int
-    cache_hit: bool
-
-
-class SaveMessagesBody(GuildChannelBody):
-    '''markov/save_messages'''
-    messages: list[MarkovMessageWrite]
-
-
-class GenerateWordsBody(GuildBody):
-    '''markov/generate_words. `first_word` is optional: `!markov speak` with no seed sends null.'''
-    count: int
-    first_word: str | None = None
-
-
-class PruneBody(BaseModel):
-    '''markov/prune_relations_before'''
-    cutoff: datetime
-
-
-class PlaylistBody(BaseModel):
-    '''A body naming a playlist.'''
-    playlist_id: int
-
-
-class GuildNameBody(GuildBody):
-    '''A body naming a playlist by guild and name.'''
-    name: str
-
-
-class RenameBody(PlaylistBody):
-    '''playlist/rename_playlist'''
-    name: str
-
-
-class AddItemsBody(PlaylistBody):
-    '''playlist/add_items'''
-    items: list[PlaylistItemWrite]
-    max_size: int
-
-
-class ItemBody(BaseModel):
-    '''playlist/delete_item'''
-    item_id: int
-
-
-class IndexBody(PlaylistBody):
-    '''playlist/delete_item_by_index. Zero is the first item, not a missing argument.'''
-    index: int
-
-
-class RecordHistoryBody(PlaylistBody):
-    '''playlist/record_history_item'''
-    item: PlaylistItemWrite
-    max_size: int
-
-
-class MediaDownloadBody(BaseModel):
-    '''A finished download, as the video-cache routes carry it.'''
-    request: MediaRequest
-    file_path: str | None = None
-    file_size_bytes: int | None = None
-    cache_hit: bool = False
-    ytdl_data: dict = {}
-
-
-class IterateFileBody(BaseModel):
-    '''video_cache/iterate_file'''
-    media_download: MediaDownloadBody
-
-
-class MediaRequestBody(BaseModel):
-    '''video_cache/get_webpage_url_item'''
-    media_request: MediaRequest
-
-
-class RemoveCacheBody(BaseModel):
-    '''video_cache/remove_video_cache. `base_paths` also drops the rows holding those object keys.'''
-    video_cache_ids: list[int]
-    base_paths: list[str] = []
-
-
-class ReadyRemoveBody(BaseModel):
-    '''video_cache/ready_remove. `evict_all` flags every row rather than applying the policy.'''
-    evict_all: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -189,30 +75,20 @@ def fails(group: str, method: str):
     return arrange
 
 
-def _title(name: str) -> str:
-    return ''.join(part.capitalize() for part in name.split('_'))
-
-
-def row(group, name: str, request: type[BaseModel], result, body: dict, sample, summary: str):
-    '''One route: its request model, the type of its ``result``, a body, and what the store returns.
+def row(group, name: str, body: dict, sample):
+    '''One route: the calls that prove its contract on the live handler.
 
     `sample` is what the mock store returns; the handler turns it into the wire form. A body of
     `{}` has nothing to omit, so the 422 call sends text that is not JSON instead.
     '''
-    response = create_model(f'{_title(group.name)}{_title(name)}Response', __base__=DatabaseResponse,
-                            result=(result | None, None))
     unreadable = Call(422, body='not json', raw=True) if not body else Call(422, body={})
-    return group.routes[name], Operation(
-        summary, request=request,
-        replies=(reply(200, response, doc='The `result`, or an `error` when the store failed.'),
-                 reply(422, doc='A required field is missing or has the wrong shape.')),
-        calls=(Call(200, body=body, arrange=returns(group.name, name, sample)),
-               Call(200, body=body, arrange=fails(group.name, name)),
-               unreadable))
+    route = group.routes[name]
+    return route, operation(CONTRACTS[route], (
+        Call(200, body=body, arrange=returns(group.name, name, sample)),
+        Call(200, body=body, arrange=fails(group.name, name)),
+        unreadable))
 
 
-GA, MK, PL, VC = (database_routes.GUILD_ANALYTICS, database_routes.MARKOV, database_routes.PLAYLIST,
-                  database_routes.VIDEO_CACHE)
 GUILD_BODY = {'guild_id': GUILD}
 CHANNEL_BODY = {'guild_id': GUILD, 'channel_id': CHANNEL}
 PLAYLIST_BODY = {'playlist_id': 3}
@@ -221,67 +97,45 @@ ADD_OUTCOME = PlaylistItemAddOutcome(video_url='https://example.com/a', title='a
                                      status=PlaylistItemAddStatus.ADDED, item_id=4)
 
 OPERATIONS = dict([
-    row(GA, 'get_analytics', GuildBody, GuildAnalyticsEntry, GUILD_BODY,
+    row(GA, 'get_analytics', GUILD_BODY,
         GuildAnalyticsEntry(total_plays=3, cached_plays=1, total_duration_days=0,
-                            total_duration_seconds=500, created_at=NOW), "A guild's play totals."),
-    row(GA, 'record_play', RecordPlayBody, bool, {**GUILD_BODY, 'duration_seconds': 90, 'cache_hit': True},
-        True, 'Add one play to the totals.'),
-    row(MK, 'list_channels', Nothing, list[MarkovChannelEntry], {}, [MARKOV_CHANNEL],
-        'Every tracked channel.'),
-    row(MK, 'list_guild_channel_ids', GuildBody, list[int], GUILD_BODY, [CHANNEL],
-        "A guild's tracked channel ids."),
-    row(MK, 'get_channel', GuildChannelBody, MarkovChannelEntry, CHANNEL_BODY, MARKOV_CHANNEL,
-        'One tracked channel, or null.'),
-    row(MK, 'add_channel', GuildChannelBody, MarkovChannelEntry, CHANNEL_BODY, MARKOV_CHANNEL,
-        'Start tracking a channel.'),
-    row(MK, 'remove_channel', GuildChannelBody, bool, CHANNEL_BODY, True, 'Stop tracking a channel.'),
-    row(MK, 'reset_channel', GuildChannelBody, bool, CHANNEL_BODY, True,
-        "Forget a channel's read position."),
-    row(MK, 'save_messages', SaveMessagesBody, int, {
+                            total_duration_seconds=500, created_at=NOW)),
+    row(GA, 'record_play', {**GUILD_BODY, 'duration_seconds': 90, 'cache_hit': True},
+        True),
+    row(MK, 'list_channels', {}, [MARKOV_CHANNEL]),
+    row(MK, 'list_guild_channel_ids', GUILD_BODY, [CHANNEL]),
+    row(MK, 'get_channel', CHANNEL_BODY, MARKOV_CHANNEL),
+    row(MK, 'add_channel', CHANNEL_BODY, MARKOV_CHANNEL),
+    row(MK, 'remove_channel', CHANNEL_BODY, True),
+    row(MK, 'reset_channel', CHANNEL_BODY, True),
+    row(MK, 'save_messages', {
         **CHANNEL_BODY,
         'messages': [{'word_pairs': [['a', 'b']], 'message_timestamp': NOW.isoformat(), 'last_message_id': 9}]},
-        2, 'Write a batch of messages. The result is how many were written, or null if the channel is not tracked.'),
-    row(MK, 'generate_words', GenerateWordsBody, list[str], {**GUILD_BODY, 'count': 5}, ['a', 'b'],
-        'Walk the chain for up to `count` words.'),
-    row(MK, 'prune_relations_before', PruneBody, bool, {'cutoff': NOW.isoformat()}, True,
-        'Drop relations older than the cutoff.'),
-    row(PL, 'list_playlists', GuildBody, list[PlaylistEntry], GUILD_BODY, [PLAYLIST],
-        "A guild's playlists, newest first."),
-    row(PL, 'count_playlists', GuildBody, int, GUILD_BODY, 2, 'How many playlists a guild has.'),
-    row(PL, 'get_playlist', PlaylistBody, PlaylistEntry, PLAYLIST_BODY, PLAYLIST,
-        'One playlist by id, or null.'),
-    row(PL, 'get_playlist_by_name', GuildNameBody, PlaylistEntry, NAME_BODY, PLAYLIST,
-        'One playlist by name, or null.'),
-    row(PL, 'get_history_playlist', GuildBody, PlaylistEntry, GUILD_BODY, PLAYLIST,
-        "A guild's history playlist, or null."),
-    row(PL, 'ensure_history_playlist', GuildBody, int, GUILD_BODY, 3,
-        "The id of a guild's history playlist, creating it if absent."),
-    row(PL, 'create_playlist', GuildNameBody, PlaylistEntry, NAME_BODY, PLAYLIST,
-        'Make a playlist and return it.'),
-    row(PL, 'delete_playlist', PlaylistBody, bool, PLAYLIST_BODY, True, 'Drop a playlist and its items.'),
-    row(PL, 'rename_playlist', RenameBody, bool, {**PLAYLIST_BODY, 'name': 'new'}, True, 'Rename a playlist.'),
-    row(PL, 'mark_queued', PlaylistBody, bool, PLAYLIST_BODY, True, 'Stamp when a playlist was last queued.'),
-    row(PL, 'get_playlist_size', PlaylistBody, int, PLAYLIST_BODY, 4, 'How many items a playlist holds.'),
-    row(PL, 'list_items', PlaylistBody, list[PlaylistItemEntry], PLAYLIST_BODY, [ITEM],
-        "A playlist's items, oldest first."),
-    row(PL, 'add_items', AddItemsBody, list[PlaylistItemAddOutcome],
-        {**PLAYLIST_BODY, 'items': [ITEM_WRITE], 'max_size': 64}, [ADD_OUTCOME],
-        'Add items, stopping when the playlist is full. One outcome per item attempted.'),
-    row(PL, 'delete_item', ItemBody, bool, {'item_id': 4}, True, 'Drop one item by id.'),
-    row(PL, 'delete_item_by_index', IndexBody, PlaylistItemEntry, {**PLAYLIST_BODY, 'index': 0}, ITEM,
-        'Drop the item at a zero-based position and return it, or null if out of range.'),
-    row(PL, 'record_history_item', RecordHistoryBody, bool,
-        {**PLAYLIST_BODY, 'item': ITEM_WRITE, 'max_size': 100}, True,
-        'Write one played track to the history playlist, evicting the oldest to make room.'),
-    row(VC, 'iterate_file', IterateFileBody, bool, {'media_download': DOWNLOAD}, True,
-        'Catalog a finished download.'),
-    row(VC, 'get_webpage_url_item', MediaRequestBody, CachedDownload, {'media_request': MEDIA_REQUEST}, CACHED,
-        'Look up a cache hit for a request. A miss is a null result.'),
-    row(VC, 'remove_video_cache', RemoveCacheBody, bool, {'video_cache_ids': [8]}, True,
-        'Drop cache rows by id.'),
-    row(VC, 'ready_remove', ReadyRemoveBody, bool, {}, True,
-        'Apply the eviction policy, or flag every row when `evict_all` is set.'),
-    row(VC, 'get_deletable_entries', Nothing, list[VideoCacheEntry], {}, [CACHE_ENTRY],
-        'The rows flagged for deletion.'),
-    row(VC, 'get_cache_count', Nothing, int, {}, 7, 'How many rows the catalog holds.'),
+        2),
+    row(MK, 'generate_words', {**GUILD_BODY, 'count': 5}, ['a', 'b']),
+    row(MK, 'prune_relations_before', {'cutoff': NOW.isoformat()}, True),
+    row(PL, 'list_playlists', GUILD_BODY, [PLAYLIST]),
+    row(PL, 'count_playlists', GUILD_BODY, 2),
+    row(PL, 'get_playlist', PLAYLIST_BODY, PLAYLIST),
+    row(PL, 'get_playlist_by_name', NAME_BODY, PLAYLIST),
+    row(PL, 'get_history_playlist', GUILD_BODY, PLAYLIST),
+    row(PL, 'ensure_history_playlist', GUILD_BODY, 3),
+    row(PL, 'create_playlist', NAME_BODY, PLAYLIST),
+    row(PL, 'delete_playlist', PLAYLIST_BODY, True),
+    row(PL, 'rename_playlist', {**PLAYLIST_BODY, 'name': 'new'}, True),
+    row(PL, 'mark_queued', PLAYLIST_BODY, True),
+    row(PL, 'get_playlist_size', PLAYLIST_BODY, 4),
+    row(PL, 'list_items', PLAYLIST_BODY, [ITEM]),
+    row(PL, 'add_items',
+        {**PLAYLIST_BODY, 'items': [ITEM_WRITE], 'max_size': 64}, [ADD_OUTCOME]),
+    row(PL, 'delete_item', {'item_id': 4}, True),
+    row(PL, 'delete_item_by_index', {**PLAYLIST_BODY, 'index': 0}, ITEM),
+    row(PL, 'record_history_item',
+        {**PLAYLIST_BODY, 'item': ITEM_WRITE, 'max_size': 100}, True),
+    row(VC, 'iterate_file', {'media_download': DOWNLOAD}, True),
+    row(VC, 'get_webpage_url_item', {'media_request': MEDIA_REQUEST}, CACHED),
+    row(VC, 'remove_video_cache', {'video_cache_ids': [8]}, True),
+    row(VC, 'ready_remove', {}, True),
+    row(VC, 'get_deletable_entries', {}, [CACHE_ENTRY]),
+    row(VC, 'get_cache_count', {}, 7),
 ])

@@ -17,7 +17,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GuildBody'
+              $ref: '#/components/schemas/GuildRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -36,7 +36,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RecordPlayBody'
+              $ref: '#/components/schemas/RecordPlayRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -55,7 +55,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GuildChannelBody'
+              $ref: '#/components/schemas/GuildChannelRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -74,7 +74,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GenerateWordsBody'
+              $ref: '#/components/schemas/GenerateWordsRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -93,7 +93,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GuildChannelBody'
+              $ref: '#/components/schemas/GuildChannelRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -107,12 +107,6 @@ paths:
     post:
       operationId: post-database-markov-list_channels
       summary: Every tracked channel.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Nothing'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -131,7 +125,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GuildBody'
+              $ref: '#/components/schemas/GuildRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -150,7 +144,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PruneBody'
+              $ref: '#/components/schemas/PruneRelationsRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -169,7 +163,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GuildChannelBody'
+              $ref: '#/components/schemas/GuildChannelRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -188,7 +182,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GuildChannelBody'
+              $ref: '#/components/schemas/GuildChannelRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -208,7 +202,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SaveMessagesBody'
+              $ref: '#/components/schemas/SaveMessagesRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -227,7 +221,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AddItemsBody'
+              $ref: '#/components/schemas/AddItemsRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -246,7 +240,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GuildBody'
+              $ref: '#/components/schemas/GuildRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -265,7 +259,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GuildNameBody'
+              $ref: '#/components/schemas/GuildNameRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -284,7 +278,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ItemBody'
+              $ref: '#/components/schemas/DeleteItemRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -303,7 +297,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/IndexBody'
+              $ref: '#/components/schemas/DeleteItemByIndexRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -322,7 +316,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PlaylistBody'
+              $ref: '#/components/schemas/PlaylistRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -341,7 +335,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GuildBody'
+              $ref: '#/components/schemas/GuildRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -360,7 +354,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GuildBody'
+              $ref: '#/components/schemas/GuildRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -379,7 +373,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PlaylistBody'
+              $ref: '#/components/schemas/PlaylistRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -398,7 +392,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GuildNameBody'
+              $ref: '#/components/schemas/GuildNameRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -417,7 +411,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PlaylistBody'
+              $ref: '#/components/schemas/PlaylistRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -436,7 +430,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PlaylistBody'
+              $ref: '#/components/schemas/PlaylistRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -455,7 +449,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/GuildBody'
+              $ref: '#/components/schemas/GuildRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -474,7 +468,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/PlaylistBody'
+              $ref: '#/components/schemas/PlaylistRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -493,7 +487,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RecordHistoryBody'
+              $ref: '#/components/schemas/RecordHistoryItemRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -512,7 +506,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RenameBody'
+              $ref: '#/components/schemas/RenamePlaylistRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -526,12 +520,6 @@ paths:
     post:
       operationId: post-database-video_cache-get_cache_count
       summary: How many rows the catalog holds.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Nothing'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -545,12 +533,6 @@ paths:
     post:
       operationId: post-database-video_cache-get_deletable_entries
       summary: The rows flagged for deletion.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/Nothing'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -569,7 +551,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/MediaRequestBody'
+              $ref: '#/components/schemas/GetWebpageUrlItemRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -588,7 +570,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/IterateFileBody'
+              $ref: '#/components/schemas/IterateFileRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -607,7 +589,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ReadyRemoveBody'
+              $ref: '#/components/schemas/ReadyRemoveRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -626,7 +608,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RemoveCacheBody'
+              $ref: '#/components/schemas/RemoveVideoCacheRequest'
       responses:
         '200':
           description: The `result`, or an `error` when the store failed.
@@ -638,8 +620,9 @@ paths:
           description: A required field is missing or has the wrong shape.
 components:
   schemas:
-    AddItemsBody:
-      description: playlist/add_items
+    AddItemsRequest:
+      description: 'playlist/add_items: a batch, so a bad item fails the request instead of half-writing
+        it.'
       properties:
         playlist_id:
           title: Playlist Id
@@ -656,7 +639,7 @@ components:
       - playlist_id
       - items
       - max_size
-      title: AddItemsBody
+      title: AddItemsRequest
       type: object
     CachedDownload:
       description: 'The download record carried with a cache hit.
@@ -728,9 +711,32 @@ components:
       - detail
       title: DatabaseErrorBody
       type: object
-    GenerateWordsBody:
-      description: 'markov/generate_words. `first_word` is optional: `!markov speak` with no seed sends
-        null.'
+    DeleteItemByIndexRequest:
+      description: playlist/delete_item_by_index. Index 0 is the first item, not a missing argument.
+      properties:
+        playlist_id:
+          title: Playlist Id
+          type: integer
+        index:
+          title: Index
+          type: integer
+      required:
+      - playlist_id
+      - index
+      title: DeleteItemByIndexRequest
+      type: object
+    DeleteItemRequest:
+      description: playlist/delete_item
+      properties:
+        item_id:
+          title: Item Id
+          type: integer
+      required:
+      - item_id
+      title: DeleteItemRequest
+      type: object
+    GenerateWordsRequest:
+      description: markov/generate_words
       properties:
         guild_id:
           title: Guild Id
@@ -747,7 +753,16 @@ components:
       required:
       - guild_id
       - count
-      title: GenerateWordsBody
+      title: GenerateWordsRequest
+      type: object
+    GetWebpageUrlItemRequest:
+      description: video_cache/get_webpage_url_item. The caller supplies the request it is asking about.
+      properties:
+        media_request:
+          $ref: '#/components/schemas/MediaRequest'
+      required:
+      - media_request
+      title: GetWebpageUrlItemRequest
       type: object
     GuildAnalyticsEntry:
       description: One guild's play totals, detached from any DB session.
@@ -805,18 +820,8 @@ components:
           default: null
       title: GuildAnalyticsRecordPlayResponse
       type: object
-    GuildBody:
-      description: A body naming a guild.
-      properties:
-        guild_id:
-          title: Guild Id
-          type: integer
-      required:
-      - guild_id
-      title: GuildBody
-      type: object
-    GuildChannelBody:
-      description: A body naming a channel of a guild.
+    GuildChannelRequest:
+      description: markov/{get,add,remove,reset}_channel
       properties:
         guild_id:
           title: Guild Id
@@ -827,10 +832,10 @@ components:
       required:
       - guild_id
       - channel_id
-      title: GuildChannelBody
+      title: GuildChannelRequest
       type: object
-    GuildNameBody:
-      description: A body naming a playlist by guild and name.
+    GuildNameRequest:
+      description: playlist/get_playlist_by_name, create_playlist
       properties:
         guild_id:
           title: Guild Id
@@ -841,40 +846,31 @@ components:
       required:
       - guild_id
       - name
-      title: GuildNameBody
+      title: GuildNameRequest
       type: object
-    IndexBody:
-      description: playlist/delete_item_by_index. Zero is the first item, not a missing argument.
+    GuildRequest:
+      description: 'guild_analytics/get_analytics, markov/list_guild_channel_ids, playlist/{list,count}_playlists,
+
+        playlist/{get,ensure}_history_playlist'
       properties:
-        playlist_id:
-          title: Playlist Id
-          type: integer
-        index:
-          title: Index
+        guild_id:
+          title: Guild Id
           type: integer
       required:
-      - playlist_id
-      - index
-      title: IndexBody
+      - guild_id
+      title: GuildRequest
       type: object
-    ItemBody:
-      description: playlist/delete_item
-      properties:
-        item_id:
-          title: Item Id
-          type: integer
-      required:
-      - item_id
-      title: ItemBody
-      type: object
-    IterateFileBody:
-      description: video_cache/iterate_file
+    IterateFileRequest:
+      description: 'video_cache/iterate_file. The download''s own request rides inside it: the row is
+        written from that
+
+        download, so the far side has no other copy.'
       properties:
         media_download:
-          $ref: '#/components/schemas/MediaDownloadBody'
+          $ref: '#/components/schemas/MediaDownloadPayload'
       required:
       - media_download
-      title: IterateFileBody
+      title: IterateFileRequest
       type: object
     MarkovAddChannelResponse:
       properties:
@@ -1077,8 +1073,9 @@ components:
           default: null
       title: MarkovSaveMessagesResponse
       type: object
-    MediaDownloadBody:
-      description: A finished download, as the video-cache routes carry it.
+    MediaDownloadPayload:
+      description: A finished download, as `media_download_to_dict` writes it and `media_download_from_dict`
+        reads it.
       properties:
         request:
           $ref: '#/components/schemas/MediaRequest'
@@ -1100,12 +1097,11 @@ components:
           type: boolean
         ytdl_data:
           additionalProperties: true
-          default: {}
           title: Ytdl Data
           type: object
       required:
       - request
-      title: MediaDownloadBody
+      title: MediaDownloadPayload
       type: object
     MediaRequest:
       description: 'Original source of play request
@@ -1201,15 +1197,6 @@ components:
       - search_result
       title: MediaRequest
       type: object
-    MediaRequestBody:
-      description: video_cache/get_webpage_url_item
-      properties:
-        media_request:
-          $ref: '#/components/schemas/MediaRequest'
-      required:
-      - media_request
-      title: MediaRequestBody
-      type: object
     MediaRequestLifecycleStage:
       description: Lifecycle of a media request through the system
       enum:
@@ -1224,11 +1211,6 @@ components:
       - retry_search
       title: MediaRequestLifecycleStage
       type: string
-    Nothing:
-      description: A route that reads no field; the body is an empty object.
-      properties: {}
-      title: Nothing
-      type: object
     PlaylistAddItemsResponse:
       properties:
         result:
@@ -1245,16 +1227,6 @@ components:
           - type: 'null'
           default: null
       title: PlaylistAddItemsResponse
-      type: object
-    PlaylistBody:
-      description: A body naming a playlist.
-      properties:
-        playlist_id:
-          title: Playlist Id
-          type: integer
-      required:
-      - playlist_id
-      title: PlaylistBody
       type: object
     PlaylistCountPlaylistsResponse:
       properties:
@@ -1634,7 +1606,17 @@ components:
           default: null
       title: PlaylistRenamePlaylistResponse
       type: object
-    PruneBody:
+    PlaylistRequest:
+      description: playlist/{get,delete}_playlist, mark_queued, get_playlist_size, list_items
+      properties:
+        playlist_id:
+          title: Playlist Id
+          type: integer
+      required:
+      - playlist_id
+      title: PlaylistRequest
+      type: object
+    PruneRelationsRequest:
       description: markov/prune_relations_before
       properties:
         cutoff:
@@ -1643,18 +1625,18 @@ components:
           type: string
       required:
       - cutoff
-      title: PruneBody
+      title: PruneRelationsRequest
       type: object
-    ReadyRemoveBody:
-      description: video_cache/ready_remove. `evict_all` flags every row rather than applying the policy.
+    ReadyRemoveRequest:
+      description: 'video_cache/ready_remove: apply the eviction policy, or flag every row.'
       properties:
         evict_all:
           default: false
           title: Evict All
           type: boolean
-      title: ReadyRemoveBody
+      title: ReadyRemoveRequest
       type: object
-    RecordHistoryBody:
+    RecordHistoryItemRequest:
       description: playlist/record_history_item
       properties:
         playlist_id:
@@ -1669,9 +1651,9 @@ components:
       - playlist_id
       - item
       - max_size
-      title: RecordHistoryBody
+      title: RecordHistoryItemRequest
       type: object
-    RecordPlayBody:
+    RecordPlayRequest:
       description: guild_analytics/record_play
       properties:
         guild_id:
@@ -1687,11 +1669,10 @@ components:
       - guild_id
       - duration_seconds
       - cache_hit
-      title: RecordPlayBody
+      title: RecordPlayRequest
       type: object
-    RemoveCacheBody:
-      description: video_cache/remove_video_cache. `base_paths` also drops the rows holding those object
-        keys.
+    RemoveVideoCacheRequest:
+      description: 'video_cache/remove_video_cache: rows by id, and by object key.'
       properties:
         video_cache_ids:
           items:
@@ -1699,16 +1680,15 @@ components:
           title: Video Cache Ids
           type: array
         base_paths:
-          default: []
           items:
             type: string
           title: Base Paths
           type: array
       required:
       - video_cache_ids
-      title: RemoveCacheBody
+      title: RemoveVideoCacheRequest
       type: object
-    RenameBody:
+    RenamePlaylistRequest:
       description: playlist/rename_playlist
       properties:
         playlist_id:
@@ -1720,7 +1700,7 @@ components:
       required:
       - playlist_id
       - name
-      title: RenameBody
+      title: RenamePlaylistRequest
       type: object
     RetryInformation:
       description: Retry information for media requests
@@ -1751,7 +1731,7 @@ components:
           type: boolean
       title: RetryInformation
       type: object
-    SaveMessagesBody:
+    SaveMessagesRequest:
       description: markov/save_messages
       properties:
         guild_id:
@@ -1769,7 +1749,7 @@ components:
       - guild_id
       - channel_id
       - messages
-      title: SaveMessagesBody
+      title: SaveMessagesRequest
       type: object
     SearchResult:
       description: SearchClient search results
