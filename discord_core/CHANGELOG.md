@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.33.0] - 2026-11-28
+
+### Changed
+
+- The database seam's request bodies are now core types (`types/database_requests.py`), one model for each shape the 33 routes take, with a map from every route to its model. Nothing reads them yet; the db pod and the store clients adopt them in their own releases.
+
 ## [3.32.0] - 2026-11-28
 
 ### Changed
