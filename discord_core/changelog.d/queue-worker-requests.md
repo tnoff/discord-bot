@@ -1,0 +1,1 @@
+Add the queue-worker request bodies (`SubmitRequestBody`, `ClearRequestBody`, `BlockRequestBody`) in `discord_core.types.queue_worker_requests`, so the client and the server share one definition of what the three routes accept. Also corrects test paths named in comments.

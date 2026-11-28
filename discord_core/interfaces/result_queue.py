@@ -9,7 +9,7 @@ which the dispatcher pod doesn't ship).
 
 The broker pod uses RedisDownloadResultQueue so any broker pod can answer
 GET /results/next, and broker-pod restarts don't lose work.  Tests use the
-in-memory AsyncioDownloadResultQueue (tests/fakes/asyncio_queues.py).
+in-memory AsyncioDownloadResultQueue (testing/fakes/asyncio_queues.py).
 '''
 from abc import ABC, abstractmethod
 
