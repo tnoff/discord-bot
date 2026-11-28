@@ -118,9 +118,10 @@ pod proves its handlers against it (`tests/routes/` runs every declared reply on
 `ContractStub` (`testing/contracts/stub.py`) that serves the contract: the stub fails the test if the client sends a
 body the request model refuses, and refuses to play a reply the contract does not declare. What neither end can
 show alone is that a value *means* the same thing on both sides, so `tests/integration/<client>_to_<server>/` keeps one round
-trip per route against the real server. Media search and the dispatch fetches (`testing/contracts/dispatch_fetches.py`, whose result route is polled, so the
-stub plays a `script_sequence`) are done this way; the rest still have the older wire tests in `tests/integration/` and
-are being converted.
+trip per route against the real server. Media search, the dispatch fetches (`testing/contracts/dispatch_fetches.py`, whose result route is polled, so the
+stub plays a `script_sequence`) and the queue-worker seam (`testing/contracts/queue_worker.py`, one contract per
+prefix, with `queue_client_suite` / `queue_server_suite` / `queue_round_trip_suite` as the three layers) are done
+this way; the rest still have the older wire tests in `tests/integration/` and are being converted.
 
 The repo-root folders besides the packages: `testing/` (the shared test infrastructure the pods' tests import: `helpers`,
 `db_helpers`, the `*_suite` bases, and `fakes/`, the test doubles; it holds no tests), `tests/` (the tests that belong

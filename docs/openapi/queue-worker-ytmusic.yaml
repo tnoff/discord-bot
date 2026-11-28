@@ -17,7 +17,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SubmitBody'
+              $ref: '#/components/schemas/SubmitRequestBody'
       responses:
         '202':
           description: Accepted
@@ -48,7 +48,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/BlockBody'
+              $ref: '#/components/schemas/BlockRequestBody'
       responses:
         '200':
           description: OK
@@ -67,7 +67,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/ClearBody'
+              $ref: '#/components/schemas/ClearRequestBody'
       responses:
         '200':
           description: OK
@@ -90,7 +90,7 @@ paths:
                 $ref: '#/components/schemas/StatusSnapshotResponse'
 components:
   schemas:
-    BlockBody:
+    BlockRequestBody:
       description: POST {prefix}/block
       properties:
         guild_id:
@@ -98,7 +98,7 @@ components:
           type: integer
       required:
       - guild_id
-      title: BlockBody
+      title: BlockRequestBody
       type: object
     BlockResponse:
       description: "200 \u2014 the guild is now blocked."
@@ -109,21 +109,6 @@ components:
           title: Status
           type: string
       title: BlockResponse
-      type: object
-    ClearBody:
-      description: POST {prefix}/clear. `preserve_playlist_adds` keeps the requests that only add to a
-        playlist.
-      properties:
-        guild_id:
-          title: Guild Id
-          type: integer
-        preserve_playlist_adds:
-          default: false
-          title: Preserve Playlist Adds
-          type: boolean
-      required:
-      - guild_id
-      title: ClearBody
       type: object
     ClearGuildResponse:
       description: "200 \u2014 what `clear_guild_queue` dropped and what it kept.\n\nThis is the body\
@@ -146,6 +131,21 @@ components:
       - dropped
       - preserved_bundle_uuids
       title: ClearGuildResponse
+      type: object
+    ClearRequestBody:
+      description: POST {prefix}/clear
+      properties:
+        guild_id:
+          title: Guild Id
+          type: integer
+        preserve_playlist_adds:
+          default: false
+          description: Keep the requests that only add to a playlist, and drop the rest.
+          title: Preserve Playlist Adds
+          type: boolean
+      required:
+      - guild_id
+      title: ClearRequestBody
       type: object
     MediaRequest:
       description: 'Original source of play request
@@ -440,7 +440,27 @@ components:
           type: string
       title: SubmitAcceptedResponse
       type: object
-    SubmitBody:
+    SubmitRejectedResponse:
+      description: "Non-2xx \u2014 the queue refused the request.\n\n`reason` is the exception CLASS NAME,\
+        \ not a message: the cog branches on it,\nand `detail` carries the human-readable half."
+      properties:
+        status:
+          const: rejected
+          default: rejected
+          title: Status
+          type: string
+        reason:
+          title: Reason
+          type: string
+        detail:
+          title: Detail
+          type: string
+      required:
+      - reason
+      - detail
+      title: SubmitRejectedResponse
+      type: object
+    SubmitRequestBody:
       description: POST {prefix}
       properties:
         guild_id:
@@ -465,25 +485,5 @@ components:
       required:
       - guild_id
       - media_request
-      title: SubmitBody
-      type: object
-    SubmitRejectedResponse:
-      description: "Non-2xx \u2014 the queue refused the request.\n\n`reason` is the exception CLASS NAME,\
-        \ not a message: the cog branches on it,\nand `detail` carries the human-readable half."
-      properties:
-        status:
-          const: rejected
-          default: rejected
-          title: Status
-          type: string
-        reason:
-          title: Reason
-          type: string
-        detail:
-          title: Detail
-          type: string
-      required:
-      - reason
-      - detail
-      title: SubmitRejectedResponse
+      title: SubmitRequestBody
       type: object

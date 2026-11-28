@@ -37,6 +37,7 @@ from discord_core.utils.otel import async_otel_span_wrapper, AttributeNaming
 from discord_core.routes.queue_worker import QueueWorkerRoutes
 from discord_core.types.clear_guild_result import ClearGuildResult
 from discord_core.types.queue import SUBMIT_REJECTION_BY_STATUS
+from discord_core.types.queue_worker_requests import BlockRequestBody, ClearRequestBody, SubmitRequestBody
 
 logger = logging.getLogger(__name__)
 
@@ -130,12 +131,9 @@ class HttpQueueWorkerClient(HttpClientMixin):
     @staticmethod
     def _build_submit_body(guild_id: int, media_request: MediaRequest,
                            priority: int | None) -> dict:
-        '''Canonical submit body: guild + priority + serialised request.'''
-        return {
-            'guild_id': guild_id,
-            'priority': priority,
-            'media_request': media_request.model_dump(mode='json'),
-        }
+        '''Canonical submit body: guild + priority + serialised request, built from the model the server reads.'''
+        return SubmitRequestBody(guild_id=guild_id, media_request=media_request,
+                                 priority=priority).model_dump(mode='json')
 
     async def submit(self, guild_id: int, media_request: MediaRequest,
                      priority: int | None = None) -> None:
@@ -167,7 +165,7 @@ class HttpQueueWorkerClient(HttpClientMixin):
     async def block_guild(self, guild_id: int) -> bool:
         '''POST {prefix}/block — refuse subsequent submits for this guild.'''
         async with async_otel_span_wrapper(f'{self.SPAN_PREFIX}.block', kind=SpanKind.CLIENT):
-            await self._call_route(self.ROUTES.block, {'guild_id': guild_id})
+            await self._call_route(self.ROUTES.block, BlockRequestBody(guild_id=guild_id).model_dump())
         return True
 
     async def clear_guild_queue(self, guild_id: int,
@@ -183,7 +181,8 @@ class HttpQueueWorkerClient(HttpClientMixin):
         preserved (so the cog skips deleting those bundles — the reconciliation the
         in-memory client does in-process).
         '''
-        body = {'guild_id': guild_id, 'preserve_playlist_adds': preserve_predicate is not None}
+        body = ClearRequestBody(guild_id=guild_id,
+                                preserve_playlist_adds=preserve_predicate is not None).model_dump()
         async with async_otel_span_wrapper(f'{self.SPAN_PREFIX}.clear', kind=SpanKind.CLIENT):
             resp = await self._call_route(self.ROUTES.clear, body)
         resp = resp or {}
