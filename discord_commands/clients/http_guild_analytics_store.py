@@ -29,6 +29,7 @@ from discord_core.utils.discord_context import DiscordContextNaming
 
 from discord_core.clients.http_store_base import HttpStoreBase
 from discord_core.routes import database as database_routes
+from discord_core.types.database_requests import GuildRequest
 from discord_core.types.guild_analytics import GuildAnalyticsEntry
 
 logger = logging.getLogger(__name__)
@@ -48,5 +49,5 @@ class HttpGuildAnalyticsStore(HttpStoreBase):
         '''
         async with self._span('get_analytics',
                               {DiscordContextNaming.GUILD.value: guild_id}):
-            result = await self._call('get_analytics', {'guild_id': guild_id})
+            result = await self._call('get_analytics', GuildRequest(guild_id=guild_id).model_dump(mode='json'))
             return self._validate(GuildAnalyticsEntry, result)

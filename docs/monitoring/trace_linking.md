@@ -328,7 +328,7 @@ which constructs it does and does not follow.
 | Source | Why | Expression |
 |---|---|---|
 | `discord_core/clients/http_store_base.py:101` | span name not statically determinable | `f'{self.SPAN_PREFIX}.{route}'` |
-| `discord_db/servers/database_server.py:251` | span name not statically determinable | `f'{SPAN_PREFIX}.{span_name}'` |
+| `discord_db/servers/database_server.py:234` | span name not statically determinable | `f'{SPAN_PREFIX}.{span_name}'` |
 | `discord_dispatcher/servers/guild_roles_handlers.py:70` | span name not statically determinable | `f'dispatch.{call.kind}'` |
 | `discord_gateway/utils/otel_command.py:61` | span name not statically determinable | `span_name` |
 
