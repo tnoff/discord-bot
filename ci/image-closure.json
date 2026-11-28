@@ -235,6 +235,7 @@
         "discord_core.types.playlist",
         "discord_core.types.playlist_add_request",
         "discord_core.types.queue",
+        "discord_core.types.queue_worker_requests",
         "discord_core.types.requests",
         "discord_core.types.results",
         "discord_core.types.search",
